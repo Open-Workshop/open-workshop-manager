@@ -36,7 +36,7 @@ async def main():
     print("START MAIN")
     try:
         async with aiohttp.ClientSession() as session:
-            resource = await session.get(url=SERVER_ADDRESS + "/access/test/?token=" + gunicorn_config.token_test, timeout=10)
+            resource = await session.post(url=SERVER_ADDRESS + "/access/test/?token=" + gunicorn_config.token_test, timeout=10)
             content = await resource.text()
             info = json.loads(content)
             print(info)
