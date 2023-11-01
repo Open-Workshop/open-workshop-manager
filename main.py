@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from starlette.responses import RedirectResponse
 import aiohttp
 import json
+import gunicorn_config
 
 
 SERVER_ADDRESS = "http://127.0.0.1:8000"
@@ -34,7 +35,7 @@ async def main():
     """
     try:
         async with aiohttp.ClientSession() as session:
-            resource = await session.get(url=SERVER_ADDRESS + "/test/access", timeout=10)
+            resource = await session.get(url=SERVER_ADDRESS + "/access/test/" + gunicorn_config.token_test, timeout=10)
             content = await resource.text()
             info = json.loads(content)
 
