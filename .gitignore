@@ -8,6 +8,7 @@ __pycache__/
 
 .idea/
 gunicorn_config.py
+ow_config.py
 
 # Distribution / packaging
 .Python
