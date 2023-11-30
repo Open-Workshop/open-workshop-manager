@@ -6,6 +6,7 @@ __pycache__/
 # C extensions
 *.so
 
+accounts/
 .idea/
 gunicorn_config.py
 ow_config.py
