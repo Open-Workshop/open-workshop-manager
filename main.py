@@ -7,21 +7,22 @@ import ow_config as config
 from yandexid import AsyncYandexOAuth, AsyncYandexID
 import datetime
 
-yandex_oauth = AsyncYandexOAuth(
-    client_id=config.yandex_client_id,
-    client_secret=config.yandex_client_secret,
-    redirect_uri='https://account.openworkshop.su/authorization/yandex/complite'
-)
-
 
 SERVER_ADDRESS = "http://127.0.0.1:8000"
 MAIN_URL = "/api/accounts"
 
 
+yandex_oauth = AsyncYandexOAuth(
+    client_id=config.yandex_client_id,
+    client_secret=config.yandex_client_secret,
+    redirect_uri='https://openworkshop.su'+MAIN_URL+'/authorization/yandex/complite'
+)
+
 
 app = FastAPI(
     title="Open Workshop Accounts",
     docs_url=MAIN_URL,
+    openapi_url=MAIN_URL+"/openapi.json",
     contact={
         "name": "GitHub",
         "url": "https://github.com/Open-Workshop/open-workshop-accounts"
@@ -32,7 +33,7 @@ app = FastAPI(
     },
 )
 
-\
+
 
 @app.get(MAIN_URL+"/authorization/yandex/link")
 async def yandex_send_link():
