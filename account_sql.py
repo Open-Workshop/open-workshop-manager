@@ -1,5 +1,5 @@
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Table, ForeignKey, Boolean, insert
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 import bcrypt
 import datetime
@@ -60,6 +60,7 @@ class Account(base): # Аккаунты юзеров
     delete_forums = Column(Boolean, default=False)
 
     change_username = Column(Boolean, default=True)
+    last_username_reset = Column(DateTime)
     change_about = Column(Boolean, default=True)
     change_avatar = Column(Boolean, default=True)
 
@@ -145,13 +146,14 @@ class Reaction(base): # Жанры для игр
     update_date = Column(DateTime)
 
 
+
 async def gen_session(user_id:int, session, ip:str = "unknown", login_method:str = "unknown"):
-    #TODO проверяем есть ли более 5 активных сессий
+    # TODO проверяем есть ли более 5 активных сессий
     #Если есть - аннулируем все сессии
 
     # Генерируем псевдо-случайные токены
     access_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(6))).decode('utf-8')
-    refresh_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(8))).decode('utf-8')
+    refresh_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(7))).decode('utf-8')
 
     # Определяем временные рамки жизни токенов
     ddate = datetime.datetime.now()
@@ -177,6 +179,32 @@ async def gen_session(user_id:int, session, ip:str = "unknown", login_method:str
 
     return {"access": {"token": access_token, "end": end_access},
             "refresh": {"token": refresh_token, "end": end_refresh}}
+
+
+async def check_session(user_access_token:str) -> bool:
+    try:
+        # Создание сессии
+        Session = sessionmaker(bind=engine)
+        session = Session()
+
+        # Выполнение запроса
+        row = session.query(Session).filter_by(access_token=user_access_token, broken=None)
+
+        today = datetime.datetime.now()
+        row = row.filter(Session.end_date_access > today)
+
+        if row.first():
+            # Обновление БД
+            row.update({"last_request_date": today})
+            session.commit()
+            session.close()
+
+            return True
+
+        session.close()
+        return False
+    except:
+        return False
 
 
 base.metadata.create_all(engine)

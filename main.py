@@ -6,10 +6,13 @@ import account_sql as account
 import ow_config as config
 from yandexid import AsyncYandexOAuth, AsyncYandexID
 import datetime
+import bcrypt
 
 
 SERVER_ADDRESS = "http://127.0.0.1:8000"
 MAIN_URL = "/api/accounts"
+STANDART_STR_TIME = "%d.%m.%Y/%H:%M:%S"
+
 
 
 yandex_oauth = AsyncYandexOAuth(
@@ -43,17 +46,12 @@ async def yandex_send_link():
     return RedirectResponse(url=yandex_oauth.get_authorization_url())
 
 @app.get(MAIN_URL+"/authorization/yandex/complite", response_class=HTMLResponse)
-async def yandex_complite(response: Response, request: Request, code:int):
+async def yandex_complite(response: Response, code:int):
     """
     Авторизация в систему через YandexID
     """
-
-    print(request.cookies)
-
     token = await yandex_oauth.get_token_from_code(code)
     user_data = await AsyncYandexID(oauth_token=token.access_token).get_user_info_json()
-
-    print(user_data)
 
     # Создание сессии
     Session = sessionmaker(bind=account.engine)
@@ -82,25 +80,67 @@ async def yandex_complite(response: Response, request: Request, code:int):
         # Выполнение операции INSERT
         result = session.execute(insert_statement)
         id = result.fetchone()[0]  # Получаем значение `id` созданного элемента
+
+        # TODO логика кешированния аватаров юзеров у себя на сервере
     else:
         id = rows.id
 
-    sessions_data = await account.gen_session(id, session)
+    sessions_data = await account.gen_session(user_id=id, session=session, login_method="yandex")
 
     session.commit()
     session.close()
 
-    response.set_cookie(key='accessToken', value=sessions_data["access"]["token"], httponly=True, max_age=2100)
-    response.set_cookie(key='refreshToken', value=sessions_data["refresh"]["token"], httponly=True, max_age=5184000)
+    response.set_cookie(key='accessToken', value=sessions_data["access"]["token"], httponly=True, secure=True, max_age=2100)
+    response.set_cookie(key='refreshToken', value=sessions_data["refresh"]["token"], httponly=True, secure=True, max_age=5184000)
 
-    response.set_cookie(key='loginJS', value='true', max_age=5184000)
+    response.set_cookie(key='loginJS', value=sessions_data["refresh"]["end"].strftime(STANDART_STR_TIME), max_age=5184000)
+    response.set_cookie(key='accessJS', value=sessions_data["access"]["end"].strftime(STANDART_STR_TIME), max_age=5184000)
 
     return "Если это окно не закрылось автоматически, можете закрыть его сами :)"
 
-@app.get(MAIN_URL+"/authorization/logout")
+@app.post(MAIN_URL+"/authorization/refresh")
+async def refresh(response: Response, request: Request):
+    """
+    Получение новой пары access+refresh токенов на основе еще живого refresh токена
+    """
+    # Создание сессии
+    Session = sessionmaker(bind=account.engine)
+    session = Session()
+
+    # Выполнение запроса
+    old_refresh_token = request.cookies.get("refreshToken", "")
+    row = session.query(account.Session).filter_by(refresh_token=old_refresh_token, broken=None)
+
+    today = datetime.datetime.now()
+    row = row.filter(account.Session.end_date_refresh > today)
+
+    if row.first():
+        access_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(6))).decode('utf-8')
+        refresh_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(7))).decode('utf-8')
+
+        end_access = today+datetime.timedelta(minutes=40)
+        end_refresh = today+datetime.timedelta(days=60)
+
+        # Обновление БД
+        row.update({"end_date_access": end_access, "end_date_refresh": end_refresh,
+                    "access_token": access_token, "refresh_token": refresh_token})
+        session.commit()
+
+        # Обновление данных в куки юзера
+        response.set_cookie(key='accessToken', value=access_token, httponly=True, secure=True, max_age=2100)
+        response.set_cookie(key='refreshToken', value=refresh_token, httponly=True, secure=True, max_age=5184000)
+
+        response.set_cookie(key='loginJS', value=end_refresh.strftime(STANDART_STR_TIME), max_age=5184000)
+        response.set_cookie(key='accessJS', value=end_access.strftime(STANDART_STR_TIME), max_age=5184000)
+
+        return True
+    return False
+
+@app.post(MAIN_URL+"/authorization/logout")
 async def logout(response: Response, request: Request):
     """
-    Выход из системы
+    Выход из системы.
+    Удаляет аккаунт-куки у пользователя, а так же убивает сессию (соответсвующее токены становятся невалидными)!
     """
 
     # Создание сессии
@@ -108,7 +148,7 @@ async def logout(response: Response, request: Request):
 
     # Выполнение запроса
     session = Session()
-    session.query(account.Session).filter_by(refresh_token=request.cookies.get("refreshToken", "")).update(
+    session.query(account.Session).filter_by(access_token=request.cookies.get("accessToken", "")).update(
         {"broken": "logout"})
     session.commit()
 
@@ -116,8 +156,34 @@ async def logout(response: Response, request: Request):
     response.delete_cookie(key='accessToken')
     response.delete_cookie(key='refreshToken')
     response.delete_cookie(key='loginJS')
+    response.delete_cookie(key='accessJS')
 
     return True
+
+
+@app.get(MAIN_URL+"/profile/info/{user_id}")
+async def info_profile(user_id:int):
+    """
+    Тестовая функция
+    """
+    # TODO логика получения информации о профиле (своём или чужом)
+    return 0
+
+@app.post(MAIN_URL+"/profile/edit/{user_id}")
+async def edit_profile(user_id:int):
+    """
+    Тестовая функция
+    """
+    # TODO логика редактирования профиля (своего или чужого) (проверка хватает ли прав на это)
+    return 0
+
+@app.get(MAIN_URL+"/profile/avatar/{user_id}")
+async def avatar_profile(user_id:int):
+    """
+    Тестовая функция
+    """
+    # TODO логика получения аватара пользователя (возвращает изображение закешированное на моем сервере)
+    return 0
 
 
 @app.get(MAIN_URL+"/info/mod/{mod_id}")
@@ -163,13 +229,6 @@ async def list_reaction():
     """
     return 0
 
-
-@app.post(MAIN_URL+"/edit/profile")
-async def edit_profile():
-    """
-    Тестовая функция
-    """
-    return 0
 
 @app.post(MAIN_URL+"/edit/profile/rights")
 async def edit_profile_rights():
