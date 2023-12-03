@@ -148,15 +148,21 @@ class Reaction(base): # Жанры для игр
 
 
 async def gen_session(user_id:int, session, ip:str = "unknown", login_method:str = "unknown"):
-    # TODO проверяем есть ли более 5 активных сессий
-    #Если есть - аннулируем все сессии
+    ddate = datetime.datetime.now()
+    # Проверяем есть ли более 5 активных сессий
+    # Если есть - аннулируем все сессии
+    row = session.query(Session).filter_by(owner_id=user_id, broken=None)
+    row = row.filter(Session.end_date_refresh > ddate)
+
+    if row.count() > 4:
+        row.update({"broken": "too many sessions"})
+
 
     # Генерируем псевдо-случайные токены
     access_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(6))).decode('utf-8')
     refresh_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(7))).decode('utf-8')
 
     # Определяем временные рамки жизни токенов
-    ddate = datetime.datetime.now()
     end_access = ddate+datetime.timedelta(minutes=40)
     end_refresh = ddate+datetime.timedelta(days=60)
 
