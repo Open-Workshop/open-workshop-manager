@@ -7,6 +7,7 @@ import ow_config as config
 from yandexid import AsyncYandexOAuth, AsyncYandexID
 import datetime
 import bcrypt
+import aiohttp
 
 
 SERVER_ADDRESS = "http://127.0.0.1:8000"
@@ -37,6 +38,12 @@ app = FastAPI(
 )
 
 
+@app.get("/")
+async def main_redirect():
+    """
+    Переадресация на документацию.
+    """
+    return RedirectResponse(url=MAIN_URL)
 
 @app.get(MAIN_URL+"/authorization/yandex/link")
 async def yandex_send_link():
@@ -81,7 +88,23 @@ async def yandex_complite(response: Response, code:int):
         result = session.execute(insert_statement)
         id = result.fetchone()[0]  # Получаем значение `id` созданного элемента
 
-        # TODO логика кешированния аватаров юзеров у себя на сервере
+        if not user_data.is_avatar_empty:
+            session.commit()
+            session.close()
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"https://avatars.yandex.net/get-yapic/{user_data.default_avatar_id}/islands-200") as resp:
+                    if resp.status == 200:
+                        # Сохраняем изображение
+                        content_type = resp.headers['Content-Type'].split('/')[1]
+                        with open(f"accounts_avatars/{str(id)}.{content_type}", 'wb') as f:
+                            f.write(await resp.read())
+
+                        # Помечаем в БД пользователя, что у него есть аватар
+                        session = Session()
+                        session.query(account.Account).filter(account.Account.id == id).update({"avatar_url": "local"})
+                    else:
+                        session = Session()
+                        print("Яндекс регистрация: во время сохранения изображения произошла ошибка!")
     else:
         id = rows.id
 

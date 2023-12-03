@@ -22,7 +22,7 @@ class Account(base): # Аккаунты юзеров
     last_username_reset = Column(DateTime)
 
     about = Column(String, default="") # Ограничение 512 символов
-    avatar_url = Column(String, default="")
+    avatar_url = Column(String, default="") # если содержит "local" - обращаться к этому же серверу по id юзера, в ином случае содержит прямую ссылку, если пуст, то аватара нет
     grade = Column(String, default="")
 
     comments = Column(Integer)
