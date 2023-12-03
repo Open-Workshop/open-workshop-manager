@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.responses import RedirectResponse, HTMLResponse
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import insert
@@ -8,6 +9,9 @@ from yandexid import AsyncYandexOAuth, AsyncYandexID
 import datetime
 import bcrypt
 import aiohttp
+from PIL import Image
+from io import BytesIO
+import os
 
 
 SERVER_ADDRESS = "http://127.0.0.1:8000"
@@ -95,9 +99,9 @@ async def yandex_complite(response: Response, code:int):
                 async with session.get(f"https://avatars.yandex.net/get-yapic/{user_data.default_avatar_id}/islands-200") as resp:
                     if resp.status == 200:
                         # Сохраняем изображение
-                        content_type = resp.headers['Content-Type'].split('/')[1]
-                        with open(f"accounts_avatars/{str(id)}.{content_type}", 'wb') as f:
-                            f.write(await resp.read())
+                        # Чтение и конвертация изображения
+                        img = Image.open(BytesIO(await resp.read()))
+                        img.save(f"accounts_avatars/{str(id)}.jpeg", "JPEG")
 
                         # Помечаем в БД пользователя, что у него есть аватар
                         session = Session()
@@ -198,15 +202,18 @@ async def edit_profile(user_id:int):
     Тестовая функция
     """
     # TODO логика редактирования профиля (своего или чужого) (проверка хватает ли прав на это)
+    # Разрешено только .jpeg в аватарах
     return 0
 
 @app.get(MAIN_URL+"/profile/avatar/{user_id}")
 async def avatar_profile(user_id:int):
     """
-    Тестовая функция
+    Возвращает аватары пользователей при условии, что они есть.
     """
-    # TODO логика получения аватара пользователя (возвращает изображение закешированное на моем сервере)
-    return 0
+    image_path = f"accounts_avatars/{user_id}.jpeg"
+    if os.path.exists(image_path):
+        return FileResponse(path=image_path)
+    return JSONResponse(status_code=404, content="File not found! :(")
 
 
 @app.get(MAIN_URL+"/info/mod/{mod_id}")
