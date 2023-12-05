@@ -43,7 +43,8 @@ class Account(base): # Аккаунты юзеров
 
     create_reactions = Column(Boolean, default=False)
 
-    mute_until = Column(DateTime) # временное ограничение на все права социальными действиями на сайте, активен если время тут больше текущего
+    mute_until = Column(DateTime) # временное ограничение на все права социальными действиями на сервисе, активен если время тут больше текущего
+    mute_users = Column(Boolean, default=False) # право на мут пользователей
 
     publish_mods = Column(Boolean, default=True)
     change_authorship_mods = Column(Boolean, default=False)
@@ -187,11 +188,11 @@ async def gen_session(user_id:int, session, ip:str = "unknown", login_method:str
             "refresh": {"token": refresh_token, "end": end_refresh}}
 
 
-async def check_session(user_access_token:str) -> bool:
+async def check_session(user_access_token:str):
     try:
         # Создание сессии
-        Session = sessionmaker(bind=engine)
-        session = Session()
+        USession = sessionmaker(bind=engine)
+        session = USession()
 
         # Выполнение запроса
         row = session.query(Session).filter_by(access_token=user_access_token, broken=None)
@@ -199,15 +200,15 @@ async def check_session(user_access_token:str) -> bool:
         today = datetime.datetime.now()
         row = row.filter(Session.end_date_access > today)
 
-        if row.first():
+        res = row.first()
+        if res:
+            res = res.__dict__
             # Обновление БД
             row.update({"last_request_date": today})
             session.commit()
-            session.close()
 
-            return True
+            return res
 
-        session.close()
         return False
     except:
         return False

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.responses import RedirectResponse, HTMLResponse
 from sqlalchemy.orm import sessionmaker
@@ -55,6 +55,14 @@ async def yandex_send_link():
     Получение ссылки на авторизацию через YandexID
     """
     return RedirectResponse(url=yandex_oauth.get_authorization_url())
+
+@app.post(MAIN_URL+"/authorization/password")
+async def password_authorization(response: Response, login: str, password: str):
+    """
+    Авторизация в систему через пароль.
+    """
+    # TODO сделать авторизацию по паролю
+    return 1
 
 @app.get(MAIN_URL+"/authorization/yandex/complite", response_class=HTMLResponse)
 async def yandex_complite(response: Response, code:int):
@@ -189,15 +197,94 @@ async def logout(response: Response, request: Request):
 
 
 @app.get(MAIN_URL+"/profile/info/{user_id}")
-async def info_profile(user_id:int):
+async def info_profile(request: Request, user_id:int, general:bool = True, rights:bool = False, private:bool = False):
     """
-    Тестовая функция
+    Возвращает информацию о пользователях.
+
+    `general` - могут просматривать все.
+    `rights` - исключительно админы и сам пользователь.
+    `private` - исключительно админы и сам пользователь.
     """
-    # TODO логика получения информации о профиле (своём или чужом)
-    return 0
+    result = {}
+    # Создание сессии
+    USession = sessionmaker(bind=account.engine)
+    session = USession()
+
+    query = session.query(account.Account).filter_by(id=user_id)
+    row = query.first()
+    if not row:
+        return JSONResponse(status_code=404, content="Пользователь не найден(")
+
+    if rights or private:
+        # Чекаем сессию юзера
+        print(request.cookies.get("accessToken", ""))
+        access_result = await account.check_session(request.cookies.get("accessToken", ""))
+
+        # Смотрим действительна ли она
+        if access_result and access_result.get("owner_id", -1) >= 0:
+            owner_id = access_result.get("owner_id", -1) # id юзера запрашивающего данные
+
+            if private:
+                if user_id != owner_id: #Доп проверка если запрос делает не сам пользователь "про себя"
+                    query = session.query(account.Account.admin).filter_by(id=owner_id)
+                    row = query.first()
+                    if not row.admin:
+                        return JSONResponse(status_code=403, content="Вы не имеете доступа к этой информации!")
+
+                result["private"] = {}
+                result["private"]["last_username_reset"] = row.last_username_reset
+                result["private"]["last_password_reset"] = row.last_password_reset
+                result["private"]["email"] = row.email
+
+            if rights:
+                if user_id != owner_id: #Доп проверка если запрос делает не сам пользователь "про себя"
+                    query = session.query(account.Account.admin).filter_by(id=owner_id)
+                    row = query.first()
+                    if not row.admin:
+                        return JSONResponse(status_code=403, content="Вы не имеете доступа к этой информации!")
+
+                result["rights"] = {}
+                result["rights"]["admin"] = row.admin
+                result["rights"]["write_comments"] = row.write_comments
+                result["rights"]["set_reactions"] = row.set_reactions
+                result["rights"]["create_reactions"] = row.create_reactions
+                result["rights"]["publish_mods"] = row.publish_mods
+                result["rights"]["change_authorship_mods"] = row.change_authorship_mods
+                result["rights"]["change_self_mods"] = row.change_self_mods
+                result["rights"]["change_mods"] = row.change_mods
+                result["rights"]["delete_self_mods"] = row.admin
+                result["rights"]["delete_mods"] = row.delete_mods
+                result["rights"]["mute_users"] = row.mute_users
+                result["rights"]["create_forums"] = row.create_forums
+                result["rights"]["change_authorship_forums"] = row.change_authorship_forums
+                result["rights"]["change_self_forumss"] = row.change_self_forums
+                result["rights"]["change_forums"] = row.change_forums
+                result["rights"]["delete_self_forums"] = row.delete_self_forums
+                result["rights"]["delete_forums"] = row.delete_forums
+                result["rights"]["change_username"] = row.change_username
+                result["rights"]["change_about"] = row.change_about
+                result["rights"]["change_avatar"] = row.change_avatar
+                result["rights"]["vote_for_reputation"] = row.vote_for_reputation
+        else:
+            return JSONResponse(status_code=403, content="Недействительный ключ сессии!")
+
+    if general:
+        result["general"] = {}
+        result["general"]["username"] = row.username
+        result["general"]["about"] = row.about
+        result["general"]["avatar_url"] = row.avatar_url
+        result["general"]["grade"] = row.grade
+        result["general"]["comments"] = row.comments
+        result["general"]["author_mods"] = row.author_mods
+        result["general"]["registration_date"] = row.registration_date
+        result["general"]["reputation"] = row.reputation
+        result["general"]["mute"] = row.mute_until if row.mute_until and row.mute_until < datetime.datetime.now() else False # есть ли мут, если да, то до какого времени действует
+
+    return result
 
 @app.post(MAIN_URL+"/profile/edit/{user_id}")
-async def edit_profile(user_id:int):
+async def edit_profile(user_id:int, email:str = None, username:str = None, about:str = None, avatar: UploadFile = None,
+                       grade:str = None, new_password:str = None):
     """
     Тестовая функция
     """
