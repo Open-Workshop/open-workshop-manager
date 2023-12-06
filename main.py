@@ -345,23 +345,41 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
         # Проверка, может ли просящий выполнить такую операцию
         query = session.query(account.Account).filter_by(id=owner_id)
         row = query.first()
-        #TODO сделать чтобы конкретизированные права пользователя тоже учитывались при принятии решения
         if owner_id != user_id:
-            if not row.admin: # даже админ не может менять пароли
-                return JSONResponse(status_code=403, content="Доступ запрещен!")
+            if not row.admin:
+                # Перебираем все запрещенные поля и убеждаемся, что их изменить не пытаются
+                for i in [email, username, about, avatar, empty_avatar, grade, off_password, new_password]:
+                    if i is not None:
+                        return JSONResponse(status_code=403, content="Доступ запрещен!")
+                else:
+                    # Проверяем, есть ли у запрашивающего право мутить других пользователей и пытается ли он замутить
+                    if not row.mute_users or mute is None: #разрешено ли мутить, пытается ли замутить
+                        return JSONResponse(status_code=403, content="Доступ запрещен!")
             elif new_password is not None or off_password is not None:
                 return JSONResponse(status_code=403, content="Даже администраторы не могут менять пароли!")
         else:
             if mute is not None:
-                return JSONResponse(status_code=403, content="Нельзя замутить самого себя!")
+                return JSONResponse(status_code=400, content="Нельзя замутить самого себя!")
             elif not row.admin: # Админы могут менять свои пароли и имена пользователей без ограничений
+                if row.mute_until and row.mute_until > today: # Даже если админ замутен, то на него ограничение не распространяется
+                    return JSONResponse(status_code=425, content="Вам выдано временное ограничение на социальную активность :(")
+
                 if grade is not None:
                     return JSONResponse(status_code=403, content="Не админ не может менять грейды!")
 
                 if new_password is not None and row.last_password_reset and row.last_password_reset+datetime.timedelta(minutes=5) > today:
                     return JSONResponse(status_code=425, content=(row.last_password_reset+datetime.timedelta(minutes=5)).strftime(STANDART_STR_TIME))
-                elif username is not None and row.last_username_reset and row.last_username_reset+datetime.timedelta(days=30) > today:
-                    return JSONResponse(status_code=425, content=(row.last_username_reset+datetime.timedelta(days=30)).strftime(STANDART_STR_TIME))
+                if username is not None:
+                    if not row.change_username:
+                        return JSONResponse(status_code=403, content="Вам по какой-то причине запрещено менять никнейм!")
+                    elif row.last_username_reset and (row.last_username_reset + datetime.timedelta(days=30)) > today:
+                        return JSONResponse(status_code=425, content=(row.last_username_reset+datetime.timedelta(days=30)).strftime(STANDART_STR_TIME))
+                if avatar is not None or empty_avatar is not None:
+                    if not row.change_avatar:
+                        return JSONResponse(status_code=403, content="Вам по какой-то причине запрещено менять аватар!")
+                if about is not None:
+                    if not row.change_about:
+                        return JSONResponse(status_code=403, content="Вам по какой-то причине запрещено менять \"обо мне\"!")
 
 
         # Подготавливаемся к выполнению операции и смотрим чтобы переданные данные были корректны
@@ -408,7 +426,7 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
             query_update["last_password_reset"] = today
 
         if mute:
-            if mute > today:
+            if mute < today:
                 return JSONResponse(status_code=411, content="Указанная дата окончания мута уже прошла!")
 
             query_update["mute_until"] = mute
