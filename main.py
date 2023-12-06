@@ -60,10 +60,36 @@ async def yandex_send_link():
 @app.post(MAIN_URL+"/authorization/password")
 async def password_authorization(response: Response, login: str, password: str):
     """
-    Авторизация в систему через пароль.
+    Авторизация в систему через пароль. Не очень безопасный метод :)
     """
-    # TODO сделать авторизацию по паролю
-    return 1
+    # Создание сессии
+    USession = sessionmaker(bind=account.engine)
+    session = USession()
+
+    # Получаем запись о юзере
+    user_query = session.query(account.Account.id, account.Account.password_hash).filter_by(username=login)
+    user = user_query.first()
+
+
+    if user and user.password_hash is not None and len(user.password_hash) > 1 and \
+            bcrypt.checkpw(password=password.encode('utf-8'), hashed_password=user.password_hash.encode('utf-8')):
+        sessions_data = await account.gen_session(user_id=user.id, session=session, login_method="password")
+
+        session.commit()
+        session.close()
+
+        response.set_cookie(key='accessToken', value=sessions_data["access"]["token"], httponly=True, secure=True,
+                            max_age=2100)
+        response.set_cookie(key='refreshToken', value=sessions_data["refresh"]["token"], httponly=True, secure=True,
+                            max_age=5184000)
+
+        response.set_cookie(key='loginJS', value=sessions_data["refresh"]["end"].strftime(STANDART_STR_TIME),
+                            max_age=5184000)
+        response.set_cookie(key='accessJS', value=sessions_data["access"]["end"].strftime(STANDART_STR_TIME),
+                            max_age=5184000)
+
+        return True
+    return JSONResponse(status_code=412, content=False)
 
 @app.get(MAIN_URL+"/authorization/yandex/complite", response_class=HTMLResponse)
 async def yandex_complite(response: Response, code:int):
@@ -290,7 +316,7 @@ async def info_profile(request: Request, user_id:int, general:bool = True, right
 @app.post(MAIN_URL+"/profile/edit/{user_id}")
 async def edit_profile(request: Request, user_id: int, email: str = None, username: str = None, about: str = None,
                        avatar: UploadFile = None, empty_avatar: bool = None, grade: str = None,
-                       new_password: str = None, mute: datetime.datetime = None):
+                       off_password:bool = None, new_password: str = None, mute: datetime.datetime = None):
     """
     Редактирование пользователей *(самого себя или другого юзера)*.
     """
@@ -322,7 +348,7 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
         if owner_id != user_id:
             if not row.admin: # даже админ не может менять пароли
                 return JSONResponse(status_code=403, content="Доступ запрещен!")
-            elif new_password is not None:
+            elif new_password is not None or off_password is not None:
                 return JSONResponse(status_code=403, content="Даже администраторы не могут менять пароли!")
         else:
             if mute is not None:
@@ -367,7 +393,11 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
                 return JSONResponse(status_code=413, content="Слишком длинный грейд! (максимальная длина 100 символов)")
 
             query_update["grade"] = grade
-        if new_password:
+
+        if off_password:
+            query_update["password_hash"] = None
+            query_update["last_password_reset"] = today
+        elif new_password:
             if len(new_password) < 6:
                 return JSONResponse(status_code=411, content="Слишком короткий пароль! (минимальная длина 6 символа)")
             elif len(new_password) > 100:
@@ -375,6 +405,7 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
 
             query_update["password_hash"] = (bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt(9))).decode('utf-8')
             query_update["last_password_reset"] = today
+
         if mute:
             if mute > today:
                 return JSONResponse(status_code=411, content="Указанная дата окончания мута уже прошла!")
