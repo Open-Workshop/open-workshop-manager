@@ -345,6 +345,7 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
         # Проверка, может ли просящий выполнить такую операцию
         query = session.query(account.Account).filter_by(id=owner_id)
         row = query.first()
+        #TODO сделать чтобы конкретизированные права пользователя тоже учитывались при принятии решения
         if owner_id != user_id:
             if not row.admin: # даже админ не может менять пароли
                 return JSONResponse(status_code=403, content="Доступ запрещен!")
@@ -421,6 +422,9 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
         elif avatar: # Проверка на аватар в самом конце, т.к. он приводит к изменениям в файловой системе
             query_update["avatar_url"] = "local"
 
+            if avatar.size >= 2097152:
+                return JSONResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
+
             try:
                 im = Image.open(avatar.file)
                 if im.mode in ("RGBA", "P"):
@@ -428,7 +432,6 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
                 im.save(f'accounts_avatars/{user_id}.jpeg', 'JPEG', quality=50)
             except Exception:
                 avatar.file.close()
-                im.close()
                 return JSONResponse(status_code=500, content='Что-то пошло не так при сохранении аватара ._.')
 
 
