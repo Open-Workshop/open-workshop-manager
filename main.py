@@ -472,15 +472,15 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
                             return JSONResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
 
                         try:
-                            im = Image.open(await avatar.read())
+                            im = Image.open(BytesIO(await avatar.read()))
                             if im.mode in ("RGBA", "P"):
                                 im = im.convert("RGB")
                             im.save(f'accounts_avatars/{user_id}.jpeg', 'JPEG', quality=50)
-                        except Exception as ff:
+                        except:
                             avatar.file.close()
-                            return JSONResponse(status_code=500, content=f"Что-то пошло не так при обработке аватара ._. {ff.__dict__}")
-                except Exception as ff:
-                    return JSONResponse(status_code=500, content=f'Что-то пошло не так при подготовке данных (avatar) на обновление БД... {ff.__dict__}')
+                            return JSONResponse(status_code=500, content="Что-то пошло не так при обработке аватара ._.")
+                except:
+                    return JSONResponse(status_code=500, content='Что-то пошло не так при подготовке данных (avatar) на обновление БД...')
             except:
                 return JSONResponse(status_code=500, content='Что-то пошло не так при подготовке данных на обновление БД...')
 
