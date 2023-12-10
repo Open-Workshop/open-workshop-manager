@@ -453,7 +453,7 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
                         if im.mode in ("RGBA", "P"):
                             im = im.convert("RGB")
                         im.save(f'accounts_avatars/{user_id}.jpeg', 'JPEG', quality=50)
-                    except Exception:
+                    except:
                         avatar.file.close()
                         return JSONResponse(status_code=500, content='Что-то пошло не так при сохранении аватара ._.')
             except:
