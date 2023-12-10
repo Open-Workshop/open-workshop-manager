@@ -459,6 +459,7 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
 
                 try:
                     if empty_avatar:
+
                         query_update["avatar_url"] = ""
 
                         image_avatar = f"accounts_avatars/{user_id}.jpeg"
@@ -475,9 +476,9 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
                             if im.mode in ("RGBA", "P"):
                                 im = im.convert("RGB")
                             im.save(f'accounts_avatars/{user_id}.jpeg', 'JPEG', quality=50)
-                        except:
+                        except Exception as ff:
                             avatar.file.close()
-                            return JSONResponse(status_code=500, content='Что-то пошло не так при сохранении аватара ._.')
+                            return JSONResponse(status_code=500, content=ff.__dict__)
                 except:
                     return JSONResponse(status_code=500, content='Что-то пошло не так при подготовке данных (avatar) на обновление БД...')
             except:
