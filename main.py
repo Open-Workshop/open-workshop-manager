@@ -320,6 +320,12 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
     """
     Редактирование пользователей *(самого себя или другого юзера)*.
     """
+    im = Image.open(BytesIO(await avatar.read()))
+    if im.mode in ("RGBA", "P"):
+        im = im.convert("RGB")
+    im.save(f'accounts_avatars/{user_id}.jpeg', 'JPEG', quality=50)
+
+    return 1
     try:
         global STANDART_STR_TIME
 
@@ -468,7 +474,7 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
                     elif avatar is not None: # Проверка на аватар в самом конце, т.к. он приводит к изменениям в файловой системе
                         query_update["avatar_url"] = "local"
 
-                        if avatar.file.size >= 2097152:
+                        if avatar.size >= 2097152:
                             return JSONResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
 
                         try:
