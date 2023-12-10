@@ -468,10 +468,6 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
                     elif avatar is not None: # Проверка на аватар в самом конце, т.к. он приводит к изменениям в файловой системе
                         query_update["avatar_url"] = "local"
 
-                        # Какого-то фига на серваке это приводит к исключению
-                        # "AttributeError: 'SpooledTemporaryFile' object has no attribute 'size'" -- avatar.file.size
-                        # "AttributeError: 'UploadFile' object has no attribute 'size'" -- avatar.size
-                        # По этому ограничение по весу реализовывать средствами nginx :(
                         if avatar.size >= 2097152:
                             return JSONResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
 
