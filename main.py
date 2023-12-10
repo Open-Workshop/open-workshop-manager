@@ -478,9 +478,9 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
                             im.save(f'accounts_avatars/{user_id}.jpeg', 'JPEG', quality=50)
                         except Exception as ff:
                             avatar.file.close()
-                            return JSONResponse(status_code=500, content=ff.__dict__)
-                except:
-                    return JSONResponse(status_code=500, content='Что-то пошло не так при подготовке данных (avatar) на обновление БД...')
+                            return JSONResponse(status_code=500, content=f"Что-то пошло не так при обработке аватара ._. {ff.__dict__}")
+                except Exception as ff:
+                    return JSONResponse(status_code=500, content=f'Что-то пошло не так при подготовке данных (avatar) на обновление БД... {ff.__dict__}')
             except:
                 return JSONResponse(status_code=500, content='Что-то пошло не так при подготовке данных на обновление БД...')
 
