@@ -465,7 +465,7 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
                         image_avatar = f"accounts_avatars/{user_id}.jpeg"
                         if os.path.isfile(image_avatar):
                             os.remove(image_avatar)
-                    elif avatar: # Проверка на аватар в самом конце, т.к. он приводит к изменениям в файловой системе
+                    elif avatar is not None: # Проверка на аватар в самом конце, т.к. он приводит к изменениям в файловой системе
                         query_update["avatar_url"] = "local"
 
                         if avatar.size >= 2097152:
