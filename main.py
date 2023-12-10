@@ -320,149 +320,158 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
     """
     Редактирование пользователей *(самого себя или другого юзера)*.
     """
-    global STANDART_STR_TIME
+    try:
+        global STANDART_STR_TIME
 
-    access_result = await account.check_session(request.cookies.get("accessToken", ""))
+        access_result = await account.check_session(request.cookies.get("accessToken", ""))
 
-    # Смотрим действительна ли она (сессия)
-    if access_result and access_result.get("owner_id", -1) >= 0:
-        owner_id = access_result.get("owner_id", -1) # id юзера запрашивающего данные
+        # Смотрим действительна ли она (сессия)
+        if access_result and access_result.get("owner_id", -1) >= 0:
+            owner_id = access_result.get("owner_id", -1) # id юзера запрашивающего данные
 
-        # Создание сессии
-        USession = sessionmaker(bind=account.engine)
-        session = USession()
+            # Создание сессии
+            USession = sessionmaker(bind=account.engine)
+            session = USession()
 
-        # Получаем запись о юзере
-        user_query = session.query(account.Account).filter_by(id=user_id)
-        user = user_query.first()
+            # Получаем запись о юзере
+            user_query = session.query(account.Account).filter_by(id=user_id)
+            user = user_query.first()
 
-        # Проверка, существует ли пользователь
-        if not user:
-            return JSONResponse(status_code=404, content="Пользователь не найден!")
+            # Проверка, существует ли пользователь
+            if not user:
+                return JSONResponse(status_code=404, content="Пользователь не найден!")
 
-
-        today = datetime.datetime.now()
-        # Проверка, может ли просящий выполнить такую операцию
-        query = session.query(account.Account).filter_by(id=owner_id)
-        row = query.first()
-        if owner_id != user_id:
-            if not row.admin:
-                # Перебираем все запрещенные поля и убеждаемся, что их изменить не пытаются
-                for i in [email, username, about, avatar, empty_avatar, grade, off_password, new_password]:
-                    if i is not None:
-                        return JSONResponse(status_code=403, content="Доступ запрещен!")
-                else:
-                    # Проверяем, есть ли у запрашивающего право мутить других пользователей и пытается ли он замутить
-                    if not row.mute_users or mute is None: #разрешено ли мутить, пытается ли замутить
-                        return JSONResponse(status_code=403, content="Доступ запрещен!")
-            elif new_password is not None or off_password is not None:
-                return JSONResponse(status_code=403, content="Даже администраторы не могут менять пароли!")
-        else:
-            if mute is not None:
-                return JSONResponse(status_code=400, content="Нельзя замутить самого себя!")
-            elif not row.admin: # Админы могут менять свои пароли и имена пользователей без ограничений
-                if row.mute_until and row.mute_until > today: # Даже если админ замутен, то на него ограничение не распространяется
-                    return JSONResponse(status_code=425, content="Вам выдано временное ограничение на социальную активность :(")
-
-                if grade is not None:
-                    return JSONResponse(status_code=403, content="Не админ не может менять грейды!")
-
-                if new_password is not None and row.last_password_reset and row.last_password_reset+datetime.timedelta(minutes=5) > today:
-                    return JSONResponse(status_code=425, content=(row.last_password_reset+datetime.timedelta(minutes=5)).strftime(STANDART_STR_TIME))
-                if username is not None:
-                    if not row.change_username:
-                        return JSONResponse(status_code=403, content="Вам по какой-то причине запрещено менять никнейм!")
-                    elif row.last_username_reset and (row.last_username_reset + datetime.timedelta(days=30)) > today:
-                        return JSONResponse(status_code=425, content=(row.last_username_reset+datetime.timedelta(days=30)).strftime(STANDART_STR_TIME))
-                if avatar is not None or empty_avatar is not None:
-                    if not row.change_avatar:
-                        return JSONResponse(status_code=403, content="Вам по какой-то причине запрещено менять аватар!")
-                if about is not None:
-                    if not row.change_about:
-                        return JSONResponse(status_code=403, content="Вам по какой-то причине запрещено менять \"обо мне\"!")
-
-
-        # Подготавливаемся к выполнению операции и смотрим чтобы переданные данные были корректны
-        query_update = {}
-
-        if email:
-            if not bool(re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", email)):
-                return JSONResponse(status_code=400, content="Некорректный электронный адрес!")
-            elif len(email) > 512:
-                return JSONResponse(status_code=413, content="Слишком длинный электронный адрес!")
-
-            query_update["email"] = email
-        if username:
-            if len(username) < 2:
-                return JSONResponse(status_code=411, content="Слишком короткий никнейм! (минимальная длина 2 символа)")
-            elif len(username) > 50:
-                return JSONResponse(status_code=413, content="Слишком длинный никнейм! (максимальная длина 50 символов)")
-
-            query_update["username"] = username
-            query_update["last_username_reset"] = today
-        if about:
-            if len(about) > 512:
-                return JSONResponse(status_code=413, content="Слишком длинное поле \"обо мне\"! (максимальная длина 512 символов)")
-
-            query_update["about"] = about
-        if grade:
-            if len(grade) < 2:
-                return JSONResponse(status_code=411, content="Слишком короткий грейд! (минимальная длина 2 символа)")
-            elif len(grade) > 100:
-                return JSONResponse(status_code=413, content="Слишком длинный грейд! (максимальная длина 100 символов)")
-
-            query_update["grade"] = grade
-
-        if off_password:
-            query_update["password_hash"] = None
-            query_update["last_password_reset"] = today
-        elif new_password:
-            if len(new_password) < 6:
-                return JSONResponse(status_code=411, content="Слишком короткий пароль! (минимальная длина 6 символа)")
-            elif len(new_password) > 100:
-                return JSONResponse(status_code=413, content="Слишком длинный пароль! (максимальная длина 100 символов)")
-
-            query_update["password_hash"] = (bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt(9))).decode('utf-8')
-            query_update["last_password_reset"] = today
-
-        if mute:
-            if mute < today:
-                return JSONResponse(status_code=411, content="Указанная дата окончания мута уже прошла!")
-
-            query_update["mute_until"] = mute
-
-        if empty_avatar:
-            query_update["avatar_url"] = ""
-
-            image_avatar = f"accounts_avatars/{user_id}.jpeg"
-            if os.path.isfile(image_avatar):
-                os.remove(image_avatar)
-        elif avatar: # Проверка на аватар в самом конце, т.к. он приводит к изменениям в файловой системе
-            query_update["avatar_url"] = "local"
-
-            if avatar.size >= 2097152:
-                return JSONResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
 
             try:
-                im = Image.open(avatar.file)
-                if im.mode in ("RGBA", "P"):
-                    im = im.convert("RGB")
-                im.save(f'accounts_avatars/{user_id}.jpeg', 'JPEG', quality=50)
-            except Exception:
-                avatar.file.close()
-                return JSONResponse(status_code=500, content='Что-то пошло не так при сохранении аватара ._.')
+                today = datetime.datetime.now()
+                # Проверка, может ли просящий выполнить такую операцию
+                query = session.query(account.Account).filter_by(id=owner_id)
+                row = query.first()
+                if owner_id != user_id:
+                    if not row.admin:
+                        # Перебираем все запрещенные поля и убеждаемся, что их изменить не пытаются
+                        for i in [email, username, about, avatar, empty_avatar, grade, off_password, new_password]:
+                            if i is not None:
+                                return JSONResponse(status_code=403, content="Доступ запрещен!")
+                        else:
+                            # Проверяем, есть ли у запрашивающего право мутить других пользователей и пытается ли он замутить
+                            if not row.mute_users or mute is None: #разрешено ли мутить, пытается ли замутить
+                                return JSONResponse(status_code=403, content="Доступ запрещен!")
+                    elif new_password is not None or off_password is not None:
+                        return JSONResponse(status_code=403, content="Даже администраторы не могут менять пароли!")
+                else:
+                    if mute is not None:
+                        return JSONResponse(status_code=400, content="Нельзя замутить самого себя!")
+                    elif not row.admin: # Админы могут менять свои пароли и имена пользователей без ограничений
+                        if row.mute_until and row.mute_until > today: # Даже если админ замутен, то на него ограничение не распространяется
+                            return JSONResponse(status_code=425, content="Вам выдано временное ограничение на социальную активность :(")
+
+                        if grade is not None:
+                            return JSONResponse(status_code=403, content="Не админ не может менять грейды!")
+
+                        if new_password is not None and row.last_password_reset and row.last_password_reset+datetime.timedelta(minutes=5) > today:
+                            return JSONResponse(status_code=425, content=(row.last_password_reset+datetime.timedelta(minutes=5)).strftime(STANDART_STR_TIME))
+                        if username is not None:
+                            if not row.change_username:
+                                return JSONResponse(status_code=403, content="Вам по какой-то причине запрещено менять никнейм!")
+                            elif row.last_username_reset and (row.last_username_reset + datetime.timedelta(days=30)) > today:
+                                return JSONResponse(status_code=425, content=(row.last_username_reset+datetime.timedelta(days=30)).strftime(STANDART_STR_TIME))
+                        if avatar is not None or empty_avatar is not None:
+                            if not row.change_avatar:
+                                return JSONResponse(status_code=403, content="Вам по какой-то причине запрещено менять аватар!")
+                        if about is not None:
+                            if not row.change_about:
+                                return JSONResponse(status_code=403, content="Вам по какой-то причине запрещено менять \"обо мне\"!")
+            except:
+                return JSONResponse(status_code=500, content='Что-то пошло не так при проверке ваших прав...')
 
 
-        # Выполняем запрошенную операцию
-        user_query.update(query_update)
-        session.commit()
-        session.close()
+            # Подготавливаемся к выполнению операции и смотрим чтобы переданные данные были корректны
+            query_update = {}
+
+            try:
+                if email:
+                    if not bool(re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", email)):
+                        return JSONResponse(status_code=400, content="Некорректный электронный адрес!")
+                    elif len(email) > 512:
+                        return JSONResponse(status_code=413, content="Слишком длинный электронный адрес!")
+
+                    query_update["email"] = email
+                if username:
+                    if len(username) < 2:
+                        return JSONResponse(status_code=411, content="Слишком короткий никнейм! (минимальная длина 2 символа)")
+                    elif len(username) > 50:
+                        return JSONResponse(status_code=413, content="Слишком длинный никнейм! (максимальная длина 50 символов)")
+
+                    query_update["username"] = username
+                    query_update["last_username_reset"] = today
+                if about:
+                    if len(about) > 512:
+                        return JSONResponse(status_code=413, content="Слишком длинное поле \"обо мне\"! (максимальная длина 512 символов)")
+
+                    query_update["about"] = about
+                if grade:
+                    if len(grade) < 2:
+                        return JSONResponse(status_code=411, content="Слишком короткий грейд! (минимальная длина 2 символа)")
+                    elif len(grade) > 100:
+                        return JSONResponse(status_code=413, content="Слишком длинный грейд! (максимальная длина 100 символов)")
+
+                    query_update["grade"] = grade
+
+                if off_password:
+                    query_update["password_hash"] = None
+                    query_update["last_password_reset"] = today
+                elif new_password:
+                    if len(new_password) < 6:
+                        return JSONResponse(status_code=411, content="Слишком короткий пароль! (минимальная длина 6 символа)")
+                    elif len(new_password) > 100:
+                        return JSONResponse(status_code=413, content="Слишком длинный пароль! (максимальная длина 100 символов)")
+
+                    query_update["password_hash"] = (bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt(9))).decode('utf-8')
+                    query_update["last_password_reset"] = today
+
+                if mute:
+                    if mute < today:
+                        return JSONResponse(status_code=411, content="Указанная дата окончания мута уже прошла!")
+
+                    query_update["mute_until"] = mute
+
+                if empty_avatar:
+                    query_update["avatar_url"] = ""
+
+                    image_avatar = f"accounts_avatars/{user_id}.jpeg"
+                    if os.path.isfile(image_avatar):
+                        os.remove(image_avatar)
+                elif avatar: # Проверка на аватар в самом конце, т.к. он приводит к изменениям в файловой системе
+                    query_update["avatar_url"] = "local"
+
+                    if avatar.size >= 2097152:
+                        return JSONResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
+
+                    try:
+                        im = Image.open(avatar.file)
+                        if im.mode in ("RGBA", "P"):
+                            im = im.convert("RGB")
+                        im.save(f'accounts_avatars/{user_id}.jpeg', 'JPEG', quality=50)
+                    except Exception:
+                        avatar.file.close()
+                        return JSONResponse(status_code=500, content='Что-то пошло не так при сохранении аватара ._.')
+            except:
+                return JSONResponse(status_code=500, content='Что-то пошло не так при подготовке данных на обновление БД...')
 
 
-        # Возвращаем успешный результат
-        return JSONResponse(status_code=202, content='Изменения приняты :)')
-    else:
-        return JSONResponse(status_code=403, content="Недействительный ключ сессии!")
+            # Выполняем запрошенную операцию
+            user_query.update(query_update)
+            session.commit()
+            session.close()
+
+
+            # Возвращаем успешный результат
+            return JSONResponse(status_code=202, content='Изменения приняты :)')
+        else:
+            return JSONResponse(status_code=403, content="Недействительный ключ сессии!")
+    except:
+        return JSONResponse(status_code=500, content='В огромной функции произошла неизвестная ошибка...')
 
 
 @app.get(MAIN_URL+"/profile/avatar/{user_id}")
