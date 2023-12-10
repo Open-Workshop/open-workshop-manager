@@ -472,8 +472,8 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
                         # "AttributeError: 'SpooledTemporaryFile' object has no attribute 'size'" -- avatar.file.size
                         # "AttributeError: 'UploadFile' object has no attribute 'size'" -- avatar.size
                         # По этому ограничение по весу реализовывать средствами nginx :(
-                        #if avatar.size >= 2097152:
-                        #    return JSONResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
+                        if avatar.size >= 2097152:
+                            return JSONResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
 
                         try:
                             im = Image.open(BytesIO(await avatar.read()))
