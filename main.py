@@ -472,7 +472,7 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
                             return JSONResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
 
                         try:
-                            im = Image.open(avatar.file)
+                            im = Image.open(await avatar.read())
                             if im.mode in ("RGBA", "P"):
                                 im = im.convert("RGB")
                             im.save(f'accounts_avatars/{user_id}.jpeg', 'JPEG', quality=50)
