@@ -390,72 +390,96 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
             query_update = {}
 
             try:
-                if email:
-                    if not bool(re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", email)):
-                        return JSONResponse(status_code=400, content="Некорректный электронный адрес!")
-                    elif len(email) > 512:
-                        return JSONResponse(status_code=413, content="Слишком длинный электронный адрес!")
+                try:
+                    if email:
+                        if not bool(re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", email)):
+                            return JSONResponse(status_code=400, content="Некорректный электронный адрес!")
+                        elif len(email) > 512:
+                            return JSONResponse(status_code=413, content="Слишком длинный электронный адрес!")
 
-                    query_update["email"] = email
-                if username:
-                    if len(username) < 2:
-                        return JSONResponse(status_code=411, content="Слишком короткий никнейм! (минимальная длина 2 символа)")
-                    elif len(username) > 50:
-                        return JSONResponse(status_code=413, content="Слишком длинный никнейм! (максимальная длина 50 символов)")
+                        query_update["email"] = email
+                except:
+                    return JSONResponse(status_code=500, content='Что-то пошло не так при подготовке данных (email) на обновление БД...')
+                
+                try:
+                    if username:
+                        if len(username) < 2:
+                            return JSONResponse(status_code=411, content="Слишком короткий никнейм! (минимальная длина 2 символа)")
+                        elif len(username) > 50:
+                            return JSONResponse(status_code=413, content="Слишком длинный никнейм! (максимальная длина 50 символов)")
 
-                    query_update["username"] = username
-                    query_update["last_username_reset"] = today
-                if about:
-                    if len(about) > 512:
-                        return JSONResponse(status_code=413, content="Слишком длинное поле \"обо мне\"! (максимальная длина 512 символов)")
+                        query_update["username"] = username
+                        query_update["last_username_reset"] = today
+                except:
+                    return JSONResponse(status_code=500, content='Что-то пошло не так при подготовке данных (username) на обновление БД...')
+                
+                try:
+                    if about:
+                        if len(about) > 512:
+                            return JSONResponse(status_code=413, content="Слишком длинное поле \"обо мне\"! (максимальная длина 512 символов)")
 
-                    query_update["about"] = about
-                if grade:
-                    if len(grade) < 2:
-                        return JSONResponse(status_code=411, content="Слишком короткий грейд! (минимальная длина 2 символа)")
-                    elif len(grade) > 100:
-                        return JSONResponse(status_code=413, content="Слишком длинный грейд! (максимальная длина 100 символов)")
+                        query_update["about"] = about
+                except:
+                    return JSONResponse(status_code=500, content='Что-то пошло не так при подготовке данных (about) на обновление БД...')
+                        
+                try:
+                    if grade:
+                        if len(grade) < 2:
+                            return JSONResponse(status_code=411, content="Слишком короткий грейд! (минимальная длина 2 символа)")
+                        elif len(grade) > 100:
+                            return JSONResponse(status_code=413, content="Слишком длинный грейд! (максимальная длина 100 символов)")
 
-                    query_update["grade"] = grade
+                        query_update["grade"] = grade
+                except:
+                    return JSONResponse(status_code=500, content='Что-то пошло не так при подготовке данных (grade) на обновление БД...')
 
-                if off_password:
-                    query_update["password_hash"] = None
-                    query_update["last_password_reset"] = today
-                elif new_password:
-                    if len(new_password) < 6:
-                        return JSONResponse(status_code=411, content="Слишком короткий пароль! (минимальная длина 6 символа)")
-                    elif len(new_password) > 100:
-                        return JSONResponse(status_code=413, content="Слишком длинный пароль! (максимальная длина 100 символов)")
+                try:
+                    if off_password:
+                        query_update["password_hash"] = None
+                        query_update["last_password_reset"] = today
+                    elif new_password:
+                        if len(new_password) < 6:
+                            return JSONResponse(status_code=411, content="Слишком короткий пароль! (минимальная длина 6 символа)")
+                        elif len(new_password) > 100:
+                            return JSONResponse(status_code=413, content="Слишком длинный пароль! (максимальная длина 100 символов)")
 
-                    query_update["password_hash"] = (bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt(9))).decode('utf-8')
-                    query_update["last_password_reset"] = today
+                        query_update["password_hash"] = (bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt(9))).decode('utf-8')
+                        query_update["last_password_reset"] = today
+                except:
+                    return JSONResponse(status_code=500, content='Что-то пошло не так при подготовке данных (password) на обновление БД...')
 
-                if mute:
-                    if mute < today:
-                        return JSONResponse(status_code=411, content="Указанная дата окончания мута уже прошла!")
+                try:
+                    if mute:
+                        if mute < today:
+                            return JSONResponse(status_code=411, content="Указанная дата окончания мута уже прошла!")
 
-                    query_update["mute_until"] = mute
+                        query_update["mute_until"] = mute
+                except:
+                    return JSONResponse(status_code=500, content='Что-то пошло не так при подготовке данных (mute) на обновление БД...')
 
-                if empty_avatar:
-                    query_update["avatar_url"] = ""
+                try:
+                    if empty_avatar:
+                        query_update["avatar_url"] = ""
 
-                    image_avatar = f"accounts_avatars/{user_id}.jpeg"
-                    if os.path.isfile(image_avatar):
-                        os.remove(image_avatar)
-                elif avatar: # Проверка на аватар в самом конце, т.к. он приводит к изменениям в файловой системе
-                    query_update["avatar_url"] = "local"
+                        image_avatar = f"accounts_avatars/{user_id}.jpeg"
+                        if os.path.isfile(image_avatar):
+                            os.remove(image_avatar)
+                    elif avatar: # Проверка на аватар в самом конце, т.к. он приводит к изменениям в файловой системе
+                        query_update["avatar_url"] = "local"
 
-                    if avatar.size >= 2097152:
-                        return JSONResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
+                        if avatar.size >= 2097152:
+                            return JSONResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
 
-                    try:
-                        im = Image.open(avatar.file)
-                        if im.mode in ("RGBA", "P"):
-                            im = im.convert("RGB")
-                        im.save(f'accounts_avatars/{user_id}.jpeg', 'JPEG', quality=50)
-                    except:
-                        avatar.file.close()
-                        return JSONResponse(status_code=500, content='Что-то пошло не так при сохранении аватара ._.')
+                        try:
+                            im = Image.open(avatar.file)
+                            if im.mode in ("RGBA", "P"):
+                                im = im.convert("RGB")
+                            im.save(f'accounts_avatars/{user_id}.jpeg', 'JPEG', quality=50)
+                        except:
+                            avatar.file.close()
+                            return JSONResponse(status_code=500, content='Что-то пошло не так при сохранении аватара ._.')
+                except:
+                    return JSONResponse(status_code=500, content='Что-то пошло не так при подготовке данных (avatar) на обновление БД...')
             except:
                 return JSONResponse(status_code=500, content='Что-то пошло не так при подготовке данных на обновление БД...')
 
