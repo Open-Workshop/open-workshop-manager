@@ -325,7 +325,7 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
         if os.path.isfile(image_avatar):
             os.remove(image_avatar)
     elif avatar is not None:  # Проверка на аватар в самом конце, т.к. он приводит к изменениям в файловой системе
-        if avatar.size >= 2097152:
+        if avatar.file.size >= 2097152:
             return JSONResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
 
         im = Image.open(BytesIO(await avatar.read()))
