@@ -75,18 +75,19 @@ async def password_authorization(response: Response, login: str, password: str):
             bcrypt.checkpw(password=password.encode('utf-8'), hashed_password=user.password_hash.encode('utf-8')):
         sessions_data = await account.gen_session(user_id=user.id, session=session, login_method="password")
 
-        session.commit()
-        session.close()
-
         response.set_cookie(key='accessToken', value=sessions_data["access"]["token"], httponly=True, secure=True,
                             max_age=2100)
         response.set_cookie(key='refreshToken', value=sessions_data["refresh"]["token"], httponly=True, secure=True,
                             max_age=5184000)
 
         response.set_cookie(key='loginJS', value=sessions_data["refresh"]["end"].strftime(STANDART_STR_TIME),
-                            max_age=5184000)
+                            secure=True, max_age=5184000)
         response.set_cookie(key='accessJS', value=sessions_data["access"]["end"].strftime(STANDART_STR_TIME),
-                            max_age=5184000)
+                            secure=True, max_age=5184000)
+        response.set_cookie(key='userID', value=user.id, secure=True, max_age=5184000)
+
+        session.commit()
+        session.close()
 
         return True
     return JSONResponse(status_code=412, content=False)
@@ -159,8 +160,9 @@ async def yandex_complite(response: Response, code:int):
     response.set_cookie(key='accessToken', value=sessions_data["access"]["token"], httponly=True, secure=True, max_age=2100)
     response.set_cookie(key='refreshToken', value=sessions_data["refresh"]["token"], httponly=True, secure=True, max_age=5184000)
 
-    response.set_cookie(key='loginJS', value=sessions_data["refresh"]["end"].strftime(STANDART_STR_TIME), max_age=5184000)
-    response.set_cookie(key='accessJS', value=sessions_data["access"]["end"].strftime(STANDART_STR_TIME), max_age=5184000)
+    response.set_cookie(key='loginJS', value=sessions_data["refresh"]["end"].strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
+    response.set_cookie(key='accessJS', value=sessions_data["access"]["end"].strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
+    response.set_cookie(key='userID', value=id, secure=True, max_age=5184000)
 
     return "Если это окно не закрылось автоматически, можете закрыть его сами :)"
 
@@ -180,7 +182,8 @@ async def refresh(response: Response, request: Request):
     today = datetime.datetime.now()
     row = row.filter(account.Session.end_date_refresh > today)
 
-    if row.first():
+    res = row.first()
+    if res:
         access_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(6))).decode('utf-8')
         refresh_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(7))).decode('utf-8')
 
@@ -196,8 +199,9 @@ async def refresh(response: Response, request: Request):
         response.set_cookie(key='accessToken', value=access_token, httponly=True, secure=True, max_age=2100)
         response.set_cookie(key='refreshToken', value=refresh_token, httponly=True, secure=True, max_age=5184000)
 
-        response.set_cookie(key='loginJS', value=end_refresh.strftime(STANDART_STR_TIME), max_age=5184000)
-        response.set_cookie(key='accessJS', value=end_access.strftime(STANDART_STR_TIME), max_age=5184000)
+        response.set_cookie(key='loginJS', value=end_refresh.strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
+        response.set_cookie(key='accessJS', value=end_access.strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
+        response.set_cookie(key='userID', value=res.owner_id, secure=True, max_age=5184000)
 
         return True
     return False
@@ -223,6 +227,7 @@ async def logout(response: Response, request: Request):
     response.delete_cookie(key='refreshToken')
     response.delete_cookie(key='loginJS')
     response.delete_cookie(key='accessJS')
+    response.delete_cookie(key='userID')
 
     return True
 
