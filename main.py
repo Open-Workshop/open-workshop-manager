@@ -314,7 +314,7 @@ async def info_profile(request: Request, user_id:int, general:bool = True, right
         result["general"]["author_mods"] = row.author_mods
         result["general"]["registration_date"] = row.registration_date
         result["general"]["reputation"] = row.reputation
-        result["general"]["mute"] = row.mute_until if row.mute_until and row.mute_until < datetime.datetime.now() else False # есть ли мут, если да, то до какого времени действует
+        result["general"]["mute"] = row.mute_until if row.mute_until and row.mute_until > datetime.datetime.now() else False # есть ли мут, если да, то до какого времени действует
 
     return result
 
