@@ -227,25 +227,20 @@ async def info_profile(response: Response, request: Request, user_id:int, genera
         if access_result and access_result.get("owner_id", -1) >= 0:
             owner_id = access_result.get("owner_id", -1) # id юзера запрашивающего данные
 
-            if private:
-                if user_id != owner_id: #Доп проверка если запрос делает не сам пользователь "про себя"
-                    query = session.query(account.Account.admin).filter_by(id=owner_id)
-                    row = query.first()
-                    if not row.admin:
-                        return JSONResponse(status_code=403, content="Вы не имеете доступа к этой информации!")
+            if user_id != owner_id: # Доп проверка если запрос делает не сам пользователь "про себя"
+                query = session.query(account.Account.admin).filter_by(id=owner_id)
+                row = query.first()
+                print(row)
+                if not row.admin:
+                    return JSONResponse(status_code=403, content="Вы не имеете доступа к этой информации!")
 
+            if private:
                 result["private"] = {}
                 result["private"]["last_username_reset"] = row.last_username_reset
                 result["private"]["last_password_reset"] = row.last_password_reset
                 result["private"]["email"] = row.email
 
             if rights:
-                if user_id != owner_id: #Доп проверка если запрос делает не сам пользователь "про себя"
-                    query = session.query(account.Account.admin).filter_by(id=owner_id)
-                    row = query.first()
-                    if not row.admin:
-                        return JSONResponse(status_code=403, content="Вы не имеете доступа к этой информации!")
-
                 result["rights"] = {}
                 result["rights"]["admin"] = row.admin
                 result["rights"]["write_comments"] = row.write_comments
