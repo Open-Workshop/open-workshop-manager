@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Table, ForeignKey, Boolean, insert
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
+from fastapi import Request, Response
 import bcrypt
 import datetime
 
@@ -8,7 +9,7 @@ import datetime
 engine = create_engine('sqlite:///accounts/account.db')
 base = declarative_base()
 
-
+STANDART_STR_TIME = "%d.%m.%Y/%H:%M:%S"
 
 class Account(base): # Аккаунты юзеров
     __tablename__ = 'accounts'
@@ -187,6 +188,45 @@ async def gen_session(user_id:int, session, ip:str = "unknown", login_method:str
     return {"access": {"token": access_token, "end": end_access},
             "refresh": {"token": refresh_token, "end": end_refresh}}
 
+async def update_session(response: Response, request: Request, result_row: bool = False):
+    # Создание сессии
+    USession = sessionmaker(bind=engine)
+    session = USession()
+
+    # Выполнение запроса
+    old_refresh_token = request.cookies.get("refreshToken", "")
+    row = session.query(Session).filter_by(refresh_token=old_refresh_token, broken=None)
+
+    today = datetime.datetime.now()
+    row = row.filter(Session.end_date_refresh > today)
+
+    res = row.first()
+    if res:
+        access_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(6))).decode('utf-8')
+        refresh_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(7))).decode('utf-8')
+
+        end_access = today+datetime.timedelta(minutes=40)
+        end_refresh = today+datetime.timedelta(days=60)
+
+        # Обновление БД
+        row.update({"end_date_access": end_access, "end_date_refresh": end_refresh,
+                    "access_token": access_token, "refresh_token": refresh_token,
+                    "last_request_date": today})
+        session.commit()
+
+        # Обновление данных в куки юзера
+        response.set_cookie(key='accessToken', value=access_token, httponly=True, secure=True, max_age=2100)
+        response.set_cookie(key='refreshToken', value=refresh_token, httponly=True, secure=True, max_age=5184000)
+
+        response.set_cookie(key='loginJS', value=end_refresh.strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
+        response.set_cookie(key='accessJS', value=end_access.strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
+        response.set_cookie(key='userID', value=res.owner_id, secure=True, max_age=5184000)
+
+        if result_row:
+            return session.query(Session).filter_by(id=res.id).first().__dict__
+        else:
+            return True
+    return False
 
 async def check_session(user_access_token:str):
     try:
@@ -212,6 +252,15 @@ async def check_session(user_access_token:str):
         return False
     except:
         return False
+
+async def check_access(response: Response, request: Request):
+    if "accessToken" in request.cookies:
+        access = await check_session(request.cookies.get("accessToken", ""))
+        if access: return access
+    if "refreshToken" in request.cookies:
+        refresh = await update_session(response=response, request=request, result_row=True)
+        if refresh: return refresh
+    return False
 
 
 base.metadata.create_all(engine)

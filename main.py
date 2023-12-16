@@ -17,7 +17,7 @@ import re
 
 SERVER_ADDRESS = "http://127.0.0.1:8000"
 MAIN_URL = "/api/accounts"
-STANDART_STR_TIME = "%d.%m.%Y/%H:%M:%S"
+STANDART_STR_TIME = account.STANDART_STR_TIME
 
 
 
@@ -171,40 +171,7 @@ async def refresh(response: Response, request: Request):
     """
     Получение новой пары access+refresh токенов на основе еще живого refresh токена
     """
-    # Создание сессии
-    Session = sessionmaker(bind=account.engine)
-    session = Session()
-
-    # Выполнение запроса
-    old_refresh_token = request.cookies.get("refreshToken", "")
-    row = session.query(account.Session).filter_by(refresh_token=old_refresh_token, broken=None)
-
-    today = datetime.datetime.now()
-    row = row.filter(account.Session.end_date_refresh > today)
-
-    res = row.first()
-    if res:
-        access_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(6))).decode('utf-8')
-        refresh_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(7))).decode('utf-8')
-
-        end_access = today+datetime.timedelta(minutes=40)
-        end_refresh = today+datetime.timedelta(days=60)
-
-        # Обновление БД
-        row.update({"end_date_access": end_access, "end_date_refresh": end_refresh,
-                    "access_token": access_token, "refresh_token": refresh_token})
-        session.commit()
-
-        # Обновление данных в куки юзера
-        response.set_cookie(key='accessToken', value=access_token, httponly=True, secure=True, max_age=2100)
-        response.set_cookie(key='refreshToken', value=refresh_token, httponly=True, secure=True, max_age=5184000)
-
-        response.set_cookie(key='loginJS', value=end_refresh.strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
-        response.set_cookie(key='accessJS', value=end_access.strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
-        response.set_cookie(key='userID', value=res.owner_id, secure=True, max_age=5184000)
-
-        return True
-    return False
+    return bool(await account.update_session(response=response, request=request))
 
 @app.post(MAIN_URL+"/authorization/logout")
 async def logout(response: Response, request: Request):
@@ -233,7 +200,7 @@ async def logout(response: Response, request: Request):
 
 
 @app.get(MAIN_URL+"/profile/info/{user_id}")
-async def info_profile(request: Request, user_id:int, general:bool = True, rights:bool = False, private:bool = False):
+async def info_profile(response: Response, request: Request, user_id:int, general:bool = True, rights:bool = False, private:bool = False):
     """
     Возвращает информацию о пользователях.
 
@@ -254,7 +221,7 @@ async def info_profile(request: Request, user_id:int, general:bool = True, right
     if rights or private:
         # Чекаем сессию юзера
         print(request.cookies.get("accessToken", ""))
-        access_result = await account.check_session(request.cookies.get("accessToken", ""))
+        access_result = await account.check_access(request=request, response=response)
 
         # Смотрим действительна ли она (сессия)
         if access_result and access_result.get("owner_id", -1) >= 0:
@@ -319,8 +286,8 @@ async def info_profile(request: Request, user_id:int, general:bool = True, right
     return result
 
 @app.post(MAIN_URL+"/profile/edit/{user_id}")
-async def edit_profile(request: Request, user_id: int, email: str = None, username: str = None, about: str = None,
-                       avatar: UploadFile = None, empty_avatar: bool = None, grade: str = None,
+async def edit_profile(response: Response, request: Request, user_id: int, email: str = None, username: str = None,
+                       about: str = None, avatar: UploadFile = None, empty_avatar: bool = None, grade: str = None,
                        off_password:bool = None, new_password: str = None, mute: datetime.datetime = None):
     """
     Редактирование пользователей *(самого себя или другого юзера)*.
@@ -328,7 +295,7 @@ async def edit_profile(request: Request, user_id: int, email: str = None, userna
     try:
         global STANDART_STR_TIME
 
-        access_result = await account.check_session(request.cookies.get("accessToken", ""))
+        access_result = await account.check_access(request=request, response=response)
 
         # Смотрим действительна ли она (сессия)
         if access_result and access_result.get("owner_id", -1) >= 0:
