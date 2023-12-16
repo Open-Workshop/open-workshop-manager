@@ -229,9 +229,9 @@ async def info_profile(response: Response, request: Request, user_id:int, genera
 
             if user_id != owner_id: # Доп проверка если запрос делает не сам пользователь "про себя"
                 query = session.query(account.Account.admin).filter_by(id=owner_id)
-                row = query.first()
-                print(row)
-                if not row.admin:
+                owner_row = query.first()
+
+                if not owner_row.admin:
                     return JSONResponse(status_code=403, content="Вы не имеете доступа к этой информации!")
 
             if private:
