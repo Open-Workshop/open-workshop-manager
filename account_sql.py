@@ -223,9 +223,13 @@ async def update_session(response: Response, request: Request, result_row: bool 
         response.set_cookie(key='userID', value=res.owner_id, secure=True, max_age=5184000)
 
         if result_row:
-            return session.query(Session).filter_by(id=res.id).first().__dict__
+            rr = session.query(Session).filter_by(id=res.id).first().__dict__
+            session.close()
+            return rr
         else:
+            session.close()
             return True
+    session.close()
     return False
 
 async def check_session(user_access_token:str):
@@ -246,11 +250,14 @@ async def check_session(user_access_token:str):
             # Обновление БД
             row.update({"last_request_date": today})
             session.commit()
+            session.close()
 
             return res
 
+        session.close()
         return False
     except:
+        session.close()
         return False
 
 async def check_access(response: Response, request: Request):
