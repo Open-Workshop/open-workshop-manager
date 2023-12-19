@@ -274,6 +274,7 @@ async def info_profile(response: Response, request: Request, user_id:int, genera
 
     if general:
         result["general"] = {}
+        result["general"]["id"] = row.id
         result["general"]["username"] = row.username
         result["general"]["about"] = row.about
         result["general"]["avatar_url"] = row.avatar_url
