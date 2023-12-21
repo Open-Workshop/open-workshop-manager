@@ -1,5 +1,5 @@
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Table, ForeignKey, Boolean, insert
-from sqlalchemy.orm import relationship, sessionmaker
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from fastapi import Request, Response
 import bcrypt
@@ -16,6 +16,7 @@ class Account(base): # Аккаунты юзеров
     id = Column(Integer, primary_key=True)
 
     yandex_id = Column(Integer)
+    google_id = Column(String)
 
     email = Column(String)
 

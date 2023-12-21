@@ -13,6 +13,11 @@ from PIL import Image
 from io import BytesIO
 import os
 import re
+from google_auth_oauthlib.flow import Flow
+import json
+import urllib
+import random
+import string
 
 
 SERVER_ADDRESS = "http://127.0.0.1:8000"
@@ -21,6 +26,20 @@ STANDART_STR_TIME = account.STANDART_STR_TIME
 
 
 
+# Создаем объект Flow
+with open('credentials.json', 'r') as config_file:
+    google_config = json.load(config_file)
+data = {
+    'client_id': google_config["web"]["client_id"],
+    'client_secret': google_config["web"]["client_secret"],
+    'redirect_uri': google_config["web"]["redirect_uris"][0],
+    'grant_type': 'authorization_code'
+}
+flow = Flow.from_client_config(
+    google_config,
+    scopes=['https://www.googleapis.com/auth/userinfo.email'],
+    redirect_uri=google_config["web"]["redirect_uris"][0]
+)
 yandex_oauth = AsyncYandexOAuth(
     client_id=config.yandex_client_id,
     client_secret=config.yandex_client_secret,
@@ -49,6 +68,14 @@ async def main_redirect():
     Переадресация на документацию.
     """
     return RedirectResponse(url=MAIN_URL)
+
+@app.get(MAIN_URL+"/authorization/google/link")
+async def google_send_link():
+    """
+    Получение ссылки на авторизацию через Google
+    """
+    authorization_url, state = flow.authorization_url()
+    return RedirectResponse(url=authorization_url)
 
 @app.get(MAIN_URL+"/authorization/yandex/link")
 async def yandex_send_link():
@@ -94,10 +121,123 @@ async def password_authorization(response: Response, login: str, password: str):
     session.close()
     return JSONResponse(status_code=412, content=False)
 
-@app.get(MAIN_URL+"/authorization/yandex/complite", response_class=HTMLResponse)
-async def yandex_complite(response: Response, code:int):
+@app.get(MAIN_URL+"/authorization/google/complite", response_class=HTMLResponse)
+async def google_complite(response: Response, request: Request, code:str, _state:str = "", _scope:str = "",
+                          _authuser:int = -1, _prompt:str = ""):
     """
-    Авторизация в систему через YandexID
+    Авторизация в систему через Google.
+
+    Если данный аккаунт не привязан ни к одному из аккаунтов OW и при этом передать access_token то произойдет коннект.
+    """
+    async with aiohttp.ClientSession() as session:
+        data_complite = data.copy()
+        data_complite["code"] = urllib.parse.unquote(code)
+
+        async with session.post('https://oauth2.googleapis.com/token', data=data_complite) as token_response:
+            google_access = await token_response.json()
+            print(google_access)
+
+            async with session.get('https://www.googleapis.com/oauth2/v1/userinfo', headers={
+                'Authorization': f'Bearer {google_access["access_token"]}'}) as user_info_response:
+                user_data = await user_info_response.json()
+
+
+    # Создание сессии
+    Session = sessionmaker(bind=account.engine)
+
+    # Выполнение запроса
+    session = Session()
+    rows = session.query(account.Account.id).filter(account.Account.google_id == user_data["id"]).first()
+
+    if not rows:
+        access_result = await account.check_access(request=request, response=response)
+
+        if access_result and access_result.get("owner_id", -1) >= 0:
+            row_connect = session.query(account.Account).filter_by(google_id=None, id=access_result.get("owner_id", -1))
+            row_connect_result = row_connect.first()
+
+            if row_connect_result:
+                row_connect.update({"google_id": user_data["id"]})
+                session.commit()
+                id = row_connect_result.id
+            else:
+                session.close()
+                return JSONResponse(status_code=400, content="Пользователь привязанный за токеном не найден, или к его аккаунту уже подключен Google ID")
+        else:
+            dtime = datetime.datetime.now()
+
+            async def generate_unique_username():
+                prefix = "OW user "
+                suffix = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+                return prefix + suffix
+
+            print(dtime, type(dtime))
+            insert_statement = insert(account.Account).values(
+                google_id=user_data["id"],
+
+                username=await generate_unique_username(),
+
+                email=user_data["email"],
+
+                comments=0,
+                author_mods=0,
+
+                registration_date=dtime,
+
+                reputation=0
+            ).returning(account.Account.id)
+            # Выполнение операции INSERT
+            result = session.execute(insert_statement)
+            id = result.fetchone()[0]  # Получаем значение `id` созданного элемента
+
+            if len(user_data.get("picture", "")) > 0:
+                session.commit()
+                session.close()
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(user_data["picture"]) as resp:
+                        if resp.status == 200:
+                            # Сохраняем изображение
+                            # Чтение и конвертация изображения
+                            img = Image.open(BytesIO(await resp.read()))
+
+                            if img.mode in ("RGBA", "P"):
+                                img = img.convert("RGB")
+
+                            img.save(f"accounts_avatars/{str(id)}.jpeg", "JPEG", quality=50)
+
+                            # Помечаем в БД пользователя, что у него есть аватар
+                            session = Session()
+                            session.query(account.Account).filter(account.Account.id == id).update({"avatar_url": "local"})
+                        else:
+                            session = Session()
+                            print("Google регистрация: во время сохранения изображения произошла ошибка!")
+    else:
+        id = rows.id
+
+    sessions_data = await account.gen_session(user_id=id, session=session, login_method="google")
+
+    session.commit()
+    session.close()
+
+    response.set_cookie(key='accessToken', value=sessions_data["access"]["token"], httponly=True, secure=True,
+                        max_age=2100)
+    response.set_cookie(key='refreshToken', value=sessions_data["refresh"]["token"], httponly=True, secure=True,
+                        max_age=5184000)
+
+    response.set_cookie(key='loginJS', value=sessions_data["refresh"]["end"].strftime(STANDART_STR_TIME), secure=True,
+                        max_age=5184000)
+    response.set_cookie(key='accessJS', value=sessions_data["access"]["end"].strftime(STANDART_STR_TIME), secure=True,
+                        max_age=5184000)
+    response.set_cookie(key='userID', value=id, secure=True, max_age=5184000)
+
+    return "Если это окно не закрылось автоматически, можете закрыть его сами :)"
+
+@app.get(MAIN_URL+"/authorization/yandex/complite", response_class=HTMLResponse)
+async def yandex_complite(response: Response, request: Request, code:int):
+    """
+    Авторизация в систему через YandexID.
+
+    Если данный аккаунт не привязан ни к одному из аккаунтов OW и при этом передать access_token то произойдет коннект.
     """
     token = await yandex_oauth.get_token_from_code(code)
     user_data = await AsyncYandexID(oauth_token=token.access_token).get_user_info_json()
@@ -110,47 +250,61 @@ async def yandex_complite(response: Response, code:int):
     rows = session.query(account.Account.id).filter(account.Account.yandex_id == user_data.id).first()
 
     if not rows:
-        dtime = datetime.datetime.now()
-        print(dtime, type(dtime))
-        insert_statement = insert(account.Account).values(
-            yandex_id=user_data.id,
+        access_result = await account.check_access(request=request, response=response)
 
-            username=user_data.login,
+        if access_result and access_result.get("owner_id", -1) >= 0:
+            row_connect = session.query(account.Account).filter_by(yandex_id=None, id=access_result.get("owner_id", -1))
+            row_connect_result = row_connect.first()
 
-            email=user_data.default_email,
+            if row_connect_result:
+                row_connect.update({"yandex_id": user_data.id})
+                session.commit()
+                id = row_connect_result.id
+            else:
+                session.close()
+                return JSONResponse(status_code=400, content="Пользователь привязанный за токеном не найден, или к его аккаунту уже подключен Yandex ID")
+        else:
+            dtime = datetime.datetime.now()
+            print(dtime, type(dtime))
+            insert_statement = insert(account.Account).values(
+                yandex_id=user_data.id,
 
-            comments=0,
-            author_mods=0,
+                username=user_data.login,
 
-            registration_date=dtime,
+                email=user_data.default_email,
 
-            reputation=0
-        ).returning(account.Account.id)
-        # Выполнение операции INSERT
-        result = session.execute(insert_statement)
-        id = result.fetchone()[0]  # Получаем значение `id` созданного элемента
+                comments=0,
+                author_mods=0,
 
-        if not user_data.is_avatar_empty:
-            session.commit()
-            session.close()
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"https://avatars.yandex.net/get-yapic/{user_data.default_avatar_id}/islands-200") as resp:
-                    if resp.status == 200:
-                        # Сохраняем изображение
-                        # Чтение и конвертация изображения
-                        img = Image.open(BytesIO(await resp.read()))
+                registration_date=dtime,
 
-                        if img.mode in ("RGBA", "P"):
-                            img = img.convert("RGB")
+                reputation=0
+            ).returning(account.Account.id)
+            # Выполнение операции INSERT
+            result = session.execute(insert_statement)
+            id = result.fetchone()[0]  # Получаем значение `id` созданного элемента
 
-                        img.save(f"accounts_avatars/{str(id)}.jpeg", "JPEG", quality=50)
+            if not user_data.is_avatar_empty:
+                session.commit()
+                session.close()
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"https://avatars.yandex.net/get-yapic/{user_data.default_avatar_id}/islands-200") as resp:
+                        if resp.status == 200:
+                            # Сохраняем изображение
+                            # Чтение и конвертация изображения
+                            img = Image.open(BytesIO(await resp.read()))
 
-                        # Помечаем в БД пользователя, что у него есть аватар
-                        session = Session()
-                        session.query(account.Account).filter(account.Account.id == id).update({"avatar_url": "local"})
-                    else:
-                        session = Session()
-                        print("Яндекс регистрация: во время сохранения изображения произошла ошибка!")
+                            if img.mode in ("RGBA", "P"):
+                                img = img.convert("RGB")
+
+                            img.save(f"accounts_avatars/{str(id)}.jpeg", "JPEG", quality=50)
+
+                            # Помечаем в БД пользователя, что у него есть аватар
+                            session = Session()
+                            session.query(account.Account).filter(account.Account.id == id).update({"avatar_url": "local"})
+                        else:
+                            session = Session()
+                            print("Яндекс регистрация: во время сохранения изображения произошла ошибка!")
     else:
         id = rows.id
 
@@ -167,6 +321,55 @@ async def yandex_complite(response: Response, code:int):
     response.set_cookie(key='userID', value=id, secure=True, max_age=5184000)
 
     return "Если это окно не закрылось автоматически, можете закрыть его сами :)"
+
+@app.get(MAIN_URL+"/authorization/disconnect")
+async def disconnect_service(response: Response, request: Request, service_name: str):
+    """
+    Отвязываем один из сервисов от аккаунта, при этом OW не допустит чтобы от аккаунта были отвязаны все сервисы.
+
+    `service_name` - доступные параметры: `google`, `yandex`
+    """
+    services = ["google", "yandex"]
+
+    if service_name not in services:
+        return JSONResponse(status_code=400, content="Недопустимое значение service_name!")
+
+    access_result = await account.check_access(request=request, response=response)
+
+    if access_result and access_result.get("owner_id", -1) >= 0:
+        # Создание сессии
+        Session = sessionmaker(bind=account.engine)
+
+        # Выполнение запроса
+        session = Session()
+        row = session.query(account.Account).filter_by(id=access_result.get("owner_id", -1))
+        row_result = row.first()
+        if row_result:
+            if row_result.yandex_id and row_result.google_id:
+                row.update({service_name+"_id": None})
+
+                session.commit()
+                session.close()
+
+                return JSONResponse(status_code=200, content="Успешно!")
+            else:
+                session.close()
+                return JSONResponse(status_code=406, content="Нельзя отсоединить все сервисы от аккаунта!")
+        else:
+            session.close()
+            return JSONResponse(status_code=404, content="Пользователь не найден!")
+    else:
+        return JSONResponse(status_code=403, content="Недействительный ключ сессии!")
+
+@app.get(MAIN_URL+"/authorization/delete")
+async def delete_account(response: Response, request: Request, service_name: str):
+    """
+    Удаление аккаунта. Сделать это может только сам пользователь, при этом удаляются только персональные данные пользователя.
+    Т.е. - аватар, никнейм, "обо мне", электронный адрес, ассоциация с сервисами авторизации, текста комментариев.
+    "следы" такие, как история сессий, комментарии (сохраняется факт их наличия, содержимое удаляется) и т.п..
+    """
+    #TODO delete_account
+    return 500
 
 @app.post(MAIN_URL+"/authorization/refresh")
 async def refresh(response: Response, request: Request):
@@ -244,6 +447,8 @@ async def info_profile(response: Response, request: Request, user_id:int, genera
                 result["private"]["last_username_reset"] = row.last_username_reset
                 result["private"]["last_password_reset"] = row.last_password_reset
                 result["private"]["email"] = row.email
+                result["private"]["yandex"] = bool(row.yandex_id)
+                result["private"]["google"] = bool(row.google_id)
 
             if rights:
                 result["rights"] = {}
