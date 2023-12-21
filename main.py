@@ -362,14 +362,44 @@ async def disconnect_service(response: Response, request: Request, service_name:
         return JSONResponse(status_code=403, content="Недействительный ключ сессии!")
 
 @app.get(MAIN_URL+"/authorization/delete")
-async def delete_account(response: Response, request: Request, service_name: str):
+async def delete_account(response: Response, request: Request):
     """
     Удаление аккаунта. Сделать это может только сам пользователь, при этом удаляются только персональные данные пользователя.
     Т.е. - аватар, никнейм, "обо мне", электронный адрес, ассоциация с сервисами авторизации, текста комментариев.
     "следы" такие, как история сессий, комментарии (сохраняется факт их наличия, содержимое удаляется) и т.п..
     """
-    #TODO delete_account
-    return 500
+    access_result = await account.check_access(request=request, response=response)
+
+    if access_result and access_result.get("owner_id", -1) >= 0:
+        # Создание сессии
+        Session = sessionmaker(bind=account.engine)
+
+        # Выполнение запроса
+        session = Session()
+
+        user_id = access_result.get("owner_id", -1)
+
+        session.query(account.Account).filter_by(id=user_id).update({
+            "yandex_id": None,
+            "google_id": None,
+            "email": None,
+            "username": None,
+            "about": None,
+            "avatar_url": None,
+            "grade": None,
+            "password_hash": None
+        })
+        session.query(account.Session).filter_by(owner_id=user_id).update({
+            "broken": "account deleted",
+            "ip": None,
+        })
+
+        session.commit()
+        session.close()
+
+        return JSONResponse(status_code=200, content="Успешно!")
+    else:
+        return JSONResponse(status_code=403, content="Недействительный ключ сессии!")
 
 @app.post(MAIN_URL+"/authorization/refresh")
 async def refresh(response: Response, request: Request):
