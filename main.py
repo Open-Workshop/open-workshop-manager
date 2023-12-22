@@ -37,7 +37,7 @@ data = {
 }
 flow = Flow.from_client_config(
     google_config,
-    scopes=['https://www.googleapis.com/auth/userinfo.email'],
+    scopes=['openid', 'profile'],
     redirect_uri=google_config["web"]["redirect_uris"][0]
 )
 yandex_oauth = AsyncYandexOAuth(
@@ -177,8 +177,6 @@ async def google_complite(response: Response, request: Request, code:str, _state
 
                 username=await generate_unique_username(),
 
-                email=user_data["email"],
-
                 comments=0,
                 author_mods=0,
 
@@ -270,8 +268,6 @@ async def yandex_complite(response: Response, request: Request, code:int):
                 yandex_id=user_data.id,
 
                 username=user_data.login,
-
-                email=user_data.default_email,
 
                 comments=0,
                 author_mods=0,
@@ -382,7 +378,6 @@ async def delete_account(response: Response, request: Request):
         session.query(account.Account).filter_by(id=user_id).update({
             "yandex_id": None,
             "google_id": None,
-            "email": None,
             "username": None,
             "about": None,
             "avatar_url": None,
@@ -391,7 +386,6 @@ async def delete_account(response: Response, request: Request):
         })
         session.query(account.Session).filter_by(owner_id=user_id).update({
             "broken": "account deleted",
-            "ip": None,
         })
 
         session.commit()
@@ -476,7 +470,6 @@ async def info_profile(response: Response, request: Request, user_id:int, genera
                 result["private"] = {}
                 result["private"]["last_username_reset"] = row.last_username_reset
                 result["private"]["last_password_reset"] = row.last_password_reset
-                result["private"]["email"] = row.email
                 result["private"]["yandex"] = bool(row.yandex_id)
                 result["private"]["google"] = bool(row.google_id)
 
@@ -524,7 +517,7 @@ async def info_profile(response: Response, request: Request, user_id:int, genera
     return result
 
 @app.post(MAIN_URL+"/profile/edit/{user_id}")
-async def edit_profile(response: Response, request: Request, user_id: int, email: str = None, username: str = None,
+async def edit_profile(response: Response, request: Request, user_id: int, username: str = None,
                        about: str = None, avatar: UploadFile = None, empty_avatar: bool = None, grade: str = None,
                        off_password:bool = None, new_password: str = None, mute: datetime.datetime = None):
     """
@@ -561,7 +554,7 @@ async def edit_profile(response: Response, request: Request, user_id: int, email
                 if owner_id != user_id:
                     if not row.admin:
                         # Перебираем все запрещенные поля и убеждаемся, что их изменить не пытаются
-                        for i in [email, username, about, avatar, empty_avatar, grade, off_password, new_password]:
+                        for i in [username, about, avatar, empty_avatar, grade, off_password, new_password]:
                             if i is not None:
                                 session.close()
                                 return JSONResponse(status_code=403, content="Доступ запрещен!")
@@ -613,20 +606,6 @@ async def edit_profile(response: Response, request: Request, user_id: int, email
             query_update = {}
 
             try:
-                try:
-                    if email:
-                        if not bool(re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", email)):
-                            session.close()
-                            return JSONResponse(status_code=400, content="Некорректный электронный адрес!")
-                        elif len(email) > 512:
-                            session.close()
-                            return JSONResponse(status_code=413, content="Слишком длинный электронный адрес!")
-
-                        query_update["email"] = email
-                except:
-                    session.close()
-                    return JSONResponse(status_code=500, content='Что-то пошло не так при подготовке данных (email) на обновление БД...')
-                
                 try:
                     if username:
                         if len(username) < 2:

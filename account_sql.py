@@ -18,8 +18,6 @@ class Account(base): # Аккаунты юзеров
     yandex_id = Column(Integer)
     google_id = Column(String)
 
-    email = Column(String)
-
     username = Column(String)
     last_username_reset = Column(DateTime)
 
@@ -79,8 +77,6 @@ class Session(base): # Теги для модов
     refresh_token = Column(String)
 
     broken = Column(String) # Сессия закрыта по причине - `logout`, `too many sessions`
-
-    ip = Column(String)
 
     login_method = Column(String)
 
@@ -150,7 +146,7 @@ class Reaction(base): # Жанры для игр
 
 
 
-async def gen_session(user_id:int, session, ip:str = "unknown", login_method:str = "unknown"):
+async def gen_session(user_id:int, session, login_method:str = "unknown"):
     ddate = datetime.datetime.now()
     # Проверяем есть ли более 5 активных сессий
     # Если есть - аннулируем все сессии
@@ -176,7 +172,6 @@ async def gen_session(user_id:int, session, ip:str = "unknown", login_method:str
         access_token=access_token,
         refresh_token=refresh_token,
 
-        ip=ip,
         login_method=login_method,
 
         start_date=ddate,
