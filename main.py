@@ -62,6 +62,14 @@ app = FastAPI(
 )
 
 
+@app.get(MAIN_URL+"/test/test")
+async def test_test(request: Request):
+    """
+    Тестовая функция :)
+    """
+    my_header = request.headers.get('x-real-ip')
+    return {"real-ip": my_header, "ip": request.client.host}
+
 @app.get("/")
 async def main_redirect():
     """
