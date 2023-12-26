@@ -77,11 +77,14 @@ async def main_redirect():
     """
     return RedirectResponse(url=MAIN_URL)
 
-@app.get(MAIN_URL+"/authorization/google/link")
-async def google_send_link():
+@app.get(MAIN_URL+"/authorization/google/link", response_class=HTMLResponse)
+async def google_send_link(request: Request):
     """
     Получение ссылки на авторизацию через Google
     """
+    ru = await account.no_from_russia(request=request)
+    if ru: return ru
+
     authorization_url, state = flow.authorization_url()
     return RedirectResponse(url=authorization_url)
 
@@ -137,6 +140,9 @@ async def google_complite(response: Response, request: Request, code:str, _state
 
     Если данный аккаунт не привязан ни к одному из аккаунтов OW и при этом передать access_token то произойдет коннект.
     """
+    ru = await account.no_from_russia(request=request)
+    if ru: return ru
+
     async with aiohttp.ClientSession() as session:
         data_complite = data.copy()
         data_complite["code"] = urllib.parse.unquote(code)

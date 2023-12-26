@@ -266,4 +266,12 @@ async def check_access(response: Response, request: Request):
     return False
 
 
+async def no_from_russia(request: Request):
+    russia_cookie = request.cookies.get("fromRussia", "false")
+
+    if russia_cookie == "true":
+        return "Вы должны выбрать российский сервис авторизации согласно законодательству РФ!"
+
+    return False
+
 base.metadata.create_all(engine)
