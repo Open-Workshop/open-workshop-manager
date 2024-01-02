@@ -12,7 +12,6 @@ import aiohttp
 from PIL import Image
 from io import BytesIO
 import os
-import re
 from google_auth_oauthlib.flow import Flow
 import json
 import urllib
@@ -734,6 +733,85 @@ async def edit_profile(response: Response, request: Request, user_id: int, usern
         session.close()
         return JSONResponse(status_code=500, content='В огромной функции произошла неизвестная ошибка...')
 
+@app.post(MAIN_URL+"/edit/profile/rights")
+async def edit_profile_rights(response: Response, request: Request, user_id:int, write_comments: bool = None,
+                              set_reactions: bool = None, create_reactions: bool = None, mute_users: bool = None,
+                              publish_mods: bool = None, change_authorship_mods: bool = None,
+                              change_self_mods: bool = None, change_mods: bool = None, delete_self_mods: bool = None,
+                              delete_mods: bool = None, create_forums: bool = None,
+                              change_authorship_forums: bool = None, change_self_forums: bool = None,
+                              change_forums: bool = None, delete_self_forums: bool = None, delete_forums: bool = None,
+                              change_username: bool = None, change_about: bool = None, change_avatar: bool = None,
+                              vote_for_reputation: bool = None):
+    """
+    Функция для изменения прав пользователей
+    """
+    access_result = await account.check_access(request=request, response=response)
+
+    if access_result and access_result.get("owner_id", -1) >= 0: # авторизован ли юзер в системе
+        owner_id = access_result.get("owner_id", -1)  # id юзера запрашивающего изменения
+
+        # Создание сессии
+        USession = sessionmaker(bind=account.engine)
+        session = USession()
+
+        # Получаем запись о юзере
+        user_query = session.query(account.Account).filter_by(id=user_id)
+        user = user_query.first()
+
+        # Проверка, существует ли пользователь
+        if not user:
+            session.close()
+            return JSONResponse(status_code=404, content="Пользователь не найден!")
+
+
+        # Проверка, может ли просящий выполнить такую операцию
+        query = session.query(account.Account).filter_by(id=owner_id)
+        row = query.first()
+        if not row.admin:
+            session.close()
+            return JSONResponse(status_code=403, content="Только админ может менять права!")
+
+
+        # Подготавливаемся к выполнению операции и смотрим чтобы переданные данные были корректны
+        sample_query_update = {
+            "write_comments": write_comments,
+            "set_reactions": set_reactions,
+            "create_reactions": create_reactions,
+            "mute_user": mute_users,
+            "publish_mods": publish_mods,
+            "change_authorship_mods": change_authorship_mods,
+            "change_self_mods": change_self_mods,
+            "change_mods": change_mods,
+            "delete_self_mods": delete_self_mods,
+            "delete_mods": delete_mods,
+            "create_forums": create_forums,
+            "change_authorship_forums": change_authorship_forums,
+            "change_self_forums": change_self_forums,
+            "change_forums": change_forums,
+            "delete_self_forums": delete_self_forums,
+            "delete_forums": delete_forums,
+            "change_username": change_username,
+            "change_about": change_about,
+            "change_avatar": change_avatar,
+            "vote_for_reputation": vote_for_reputation
+        }
+
+        query_update = {}
+        for key in sample_query_update.keys():
+            if sample_query_update[key] is not None:
+                query_update[key] = sample_query_update[key]
+
+
+        # Выполняем запрошенную операцию
+        user_query.update(query_update)
+        session.commit()
+        session.close()
+
+        # Возвращаем успешный результат
+        return JSONResponse(status_code=202, content='Изменения приняты :)')
+    else:
+        return JSONResponse(status_code=403, content="Недействительный ключ сессии!")
 
 @app.get(MAIN_URL+"/profile/avatar/{user_id}")
 async def avatar_profile(user_id:int):
@@ -784,14 +862,6 @@ async def list_comment(forum_id: int):
 
 @app.get(MAIN_URL+"/list/reaction/")
 async def list_reaction():
-    """
-    Тестовая функция
-    """
-    return 0
-
-
-@app.post(MAIN_URL+"/edit/profile/rights")
-async def edit_profile_rights():
     """
     Тестовая функция
     """
