@@ -9,6 +9,7 @@ from yandexid import AsyncYandexOAuth, AsyncYandexID
 import datetime
 import bcrypt
 import aiohttp
+import tools
 from PIL import Image
 from io import BytesIO
 import os
@@ -875,27 +876,8 @@ async def add_game(response: Response, request: Request, game_name: str, game_sh
     """
     Тестовая функция
     """
-    access_result = await account.check_access(request=request, response=response)
-
-    if access_result and access_result.get("owner_id", -1) >= 0:
-        # Создание сессии
-        Session = sessionmaker(bind=account.engine)
-
-        # Выполнение запроса
-        session = Session()
-        row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1))
-        row_result = row.first()
-
-        if row_result.admin:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(SERVER_ADDRESS+f'/account/add/game?token={config.token_add_game}&game_name={game_name}&game_short_desc={game_short_desc}&game_desc={game_desc}&game_type={game_type}&game_logo={game_logo}') as response:
-                    result = await response.text()
-
-                    return JSONResponse(status_code=200, content=result)
-        else:
-            return JSONResponse(status_code=403, content="Вы не админ!")
-    else:
-        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+    url = SERVER_ADDRESS+f'/account/add/game?token={config.token_add_game}&game_name={game_name}&game_short_desc={game_short_desc}&game_desc={game_desc}&game_type={game_type}&game_logo={game_logo}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/add/genre")
 async def add_genre(genre_name: str):
@@ -969,28 +951,8 @@ async def delete_game(response: Response, request: Request, game_id: int):
     """
     Тестовая функция
     """
-    access_result = await account.check_access(request=request, response=response)
-
-    if access_result and access_result.get("owner_id", -1) >= 0:
-        # Создание сессии
-        Session = sessionmaker(bind=account.engine)
-
-        # Выполнение запроса
-        session = Session()
-        row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1))
-        row_result = row.first()
-
-        if row_result.admin:
-            async with aiohttp.ClientSession() as session:
-                print(SERVER_ADDRESS+f'/account/delete/game?token={config.token_delete_game}&game_id={game_id}')
-                async with session.post(SERVER_ADDRESS+f'/account/delete/game?token={config.token_delete_game}&game_id={game_id}') as response:
-                    result = await response.text()
-
-                    return JSONResponse(status_code=200, content=result)
-        else:
-            return JSONResponse(status_code=403, content="Вы не админ!")
-    else:
-        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+    url = SERVER_ADDRESS+f'/account/delete/game?token={config.token_delete_game}&game_id={game_id}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/delete/genre")
 async def delete_genre(genre_id: int):
