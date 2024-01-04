@@ -868,29 +868,51 @@ async def list_reaction():
     return 0
 
 
+#TODO экстраполировать шаблон на все функции ниже
 @app.post(MAIN_URL+"/add/game")
-async def add_game():
+async def add_game(response: Response, request: Request, game_name: str, game_short_desc: str, game_desc: str,
+                   game_type: str = "game", game_logo: str = ""):
     """
     Тестовая функция
     """
-    return 0
+    access_result = await account.check_access(request=request, response=response)
+
+    if access_result and access_result.get("owner_id", -1) >= 0:
+        # Создание сессии
+        Session = sessionmaker(bind=account.engine)
+
+        # Выполнение запроса
+        session = Session()
+        row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1))
+        row_result = row.first()
+
+        if row_result.admin:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(SERVER_ADDRESS+f'/account/add/game?token={config.token_add_game}&game_name={game_name}&game_short_desc={game_short_desc}&game_desc={game_desc}&game_type={game_type}&game_logo={game_logo}') as response:
+                    result = await response.text()
+
+                    return JSONResponse(status_code=200, content=result)
+        else:
+            return JSONResponse(status_code=403, content="Вы не админ!")
+    else:
+        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
 @app.post(MAIN_URL+"/add/genre")
-async def add_genre():
+async def add_genre(genre_name: str):
     """
     Тестовая функция
     """
     return 0
 
 @app.post(MAIN_URL+"/add/tag")
-async def add_tag():
+async def add_tag(tag_name: str):
     """
     Тестовая функция
     """
     return 0
 
 @app.post(MAIN_URL+"/add/resource")
-async def add_resource():
+async def add_resource(resource_type_name: str, resource_url: str, resource_owner_id: int):
     """
     Тестовая функция
     """
@@ -905,28 +927,30 @@ async def add_mod():
 
 
 @app.post(MAIN_URL+"/edit/game")
-async def edit_game():
+async def edit_game(game_id: int, game_name: str = None, game_short_desc: str = None, game_desc: str = None,
+                    game_type: str = None, game_logo: str = None, game_source: str = None):
     """
     Тестовая функция
     """
     return 0
 
 @app.post(MAIN_URL+"/edit/genre")
-async def edit_genre():
+async def edit_genre(genre_id: int, genre_name: str = None):
     """
     Тестовая функция
     """
     return 0
 
 @app.post(MAIN_URL+"/edit/tag")
-async def edit_tag():
+async def edit_tag(tag_id: int, tag_name: str = None):
     """
     Тестовая функция
     """
     return 0
 
 @app.post(MAIN_URL+"/edit/resource")
-async def edit_resource():
+async def edit_resource(resource_id: int, resource_type: str = None, resource_url: str = None,
+                        resource_owner_id: int = None):
     """
     Тестовая функция
     """
@@ -941,35 +965,55 @@ async def edit_mod():
 
 
 @app.post(MAIN_URL+"/delete/game")
-async def delete_game():
+async def delete_game(response: Response, request: Request, game_id: int):
     """
     Тестовая функция
     """
-    return 0
+    access_result = await account.check_access(request=request, response=response)
+
+    if access_result and access_result.get("owner_id", -1) >= 0:
+        # Создание сессии
+        Session = sessionmaker(bind=account.engine)
+
+        # Выполнение запроса
+        session = Session()
+        row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1))
+        row_result = row.first()
+
+        if row_result.admin:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(SERVER_ADDRESS+f'/account/add/game?token={config.token_delete_game}&game_id={game_id}') as response:
+                    result = await response.text()
+
+                    return JSONResponse(status_code=200, content=result)
+        else:
+            return JSONResponse(status_code=403, content="Вы не админ!")
+    else:
+        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
 @app.post(MAIN_URL+"/delete/genre")
-async def delete_genre():
+async def delete_genre(genre_id: int):
     """
     Тестовая функция
     """
     return 0
 
 @app.post(MAIN_URL+"/delete/tag")
-async def delete_tag():
+async def delete_tag(tag_id: int):
     """
     Тестовая функция
     """
     return 0
 
 @app.post(MAIN_URL+"/delete/resource")
-async def delete_resource():
+async def delete_resource(resource_id: int):
     """
     Тестовая функция
     """
     return 0
 
 @app.post(MAIN_URL+"/delete/mod")
-async def delete_mod():
+async def delete_mod(mod_id: int):
     """
     Тестовая функция
     """
@@ -977,28 +1021,28 @@ async def delete_mod():
 
 
 @app.post(MAIN_URL+"/association/game/genre")
-async def association_game_with_genre():
+async def association_game_with_genre(game_id: int, mode: bool, genre_id: int):
     """
     Тестовая функция
     """
     return 0
 
 @app.post(MAIN_URL+"/association/game/tag")
-async def association_game_with_tag():
+async def association_game_with_tag(game_id: int, mode: bool, tag_id: int):
     """
     Тестовая функция
     """
     return 0
 
 @app.post(MAIN_URL+"/association/mod/tag")
-async def association_mod_with_tag():
+async def association_mod_with_tag(mod_id: int, mode: bool, tag_id: int):
     """
     Тестовая функция
     """
     return 0
 
 @app.post(MAIN_URL+"/association/mod/dependencie")
-async def association_mod_with_dependencie():
+async def association_mod_with_dependencie(mod_id: int, mode: bool, dependencie: int):
     """
     Тестовая функция
     """
