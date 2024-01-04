@@ -982,7 +982,8 @@ async def delete_game(response: Response, request: Request, game_id: int):
 
         if row_result.admin:
             async with aiohttp.ClientSession() as session:
-                async with session.post(SERVER_ADDRESS+f'/account/add/game?token={config.token_delete_game}&game_id={game_id}') as response:
+                print(SERVER_ADDRESS+f'/account/delete/game?token={config.token_delete_game}&game_id={game_id}')
+                async with session.post(SERVER_ADDRESS+f'/account/delete/game?token={config.token_delete_game}&game_id={game_id}') as response:
                     result = await response.text()
 
                     return JSONResponse(status_code=200, content=result)
