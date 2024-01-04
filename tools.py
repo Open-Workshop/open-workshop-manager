@@ -19,9 +19,7 @@ async def to_backend(response: Response, request: Request, url:str):
         if row_result.admin:
             async with aiohttp.ClientSession() as session:
                 async with session.post(url) as response:
-                    result = await response.text()
-
-                    return JSONResponse(status_code=200, content=result)
+                    return JSONResponse(status_code=200, content=response.content)
         else:
             return JSONResponse(status_code=403, content="Вы не админ!")
     else:
