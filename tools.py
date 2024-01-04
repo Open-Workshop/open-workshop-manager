@@ -21,7 +21,7 @@ async def to_backend(response: Response, request: Request, url:str):
                 async with session.post(url) as response:
                     result = await response.text()
 
-                    return JSONResponse(status_code=200, content=result, headers=response.headers)
+                    return JSONResponse(status_code=200, content=result)
         else:
             return JSONResponse(status_code=403, content="Вы не админ!")
     else:
