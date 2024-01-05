@@ -911,6 +911,7 @@ async def add_mod(response: Response, request: Request, mod_name: str, mod_short
     """
     url = SERVER_ADDRESS + f'/account/add/mod?token={config.token_add_mod}&mod_name={mod_name}&mod_short_description={mod_short_description}&mod_description={mod_description}&mod_source={mod_source}&mod_game={mod_game}&mod_public={mod_public}'
     real_mod_file = io.BytesIO(await mod_file.read())
+    real_mod_file.name = mod_file.filename
 
     result_code, result = await tools.mod_to_backend(response=response, request=request, url=url, body={"mod_file": real_mod_file})
 
@@ -1002,6 +1003,7 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
     """
     url = SERVER_ADDRESS + f'/account/add/mod?token={config.token_edit_mod}&mod_id={mod_id}&mod_name={mod_name}&mod_short_description={mod_short_description}&mod_description={mod_description}&mod_source={mod_source}&mod_game={mod_game}&mod_public={mod_public}'
     real_mod_file = io.BytesIO(await mod_file.read())
+    real_mod_file.name = mod_file.filename
 
     result_code, result = await tools.mod_to_backend(response=response, request=request, url=url, body={"mod_file": real_mod_file})
 
