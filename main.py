@@ -913,10 +913,10 @@ async def add_mod(response: Response, request: Request, mod_name: str, mod_short
     real_mod_file = io.BytesIO(await mod_file.read())
     real_mod_file.name = mod_file.filename
 
-    result_code, result = await tools.mod_to_backend(response=response, request=request, url=url, body={"mod_file": real_mod_file})
+    result_code, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url, body={"mod_file": real_mod_file})
 
     print(int(request.cookies.get('userID', 0)), result_code, flush=True)
-    print(result.content, flush=True)
+    print(result_data, flush=True)
 
     if result_code in [201]:
         # Создание сессии
@@ -927,7 +927,7 @@ async def add_mod(response: Response, request: Request, mod_name: str, mod_short
         insert_statement = insert(account.mod_and_author).values(
             user_id=int(request.cookies.get('userID', 0)),
             owner=True,
-            mod_id=result.content
+            mod_id=int(result_data)
         )
         session.execute(insert_statement)
 
@@ -1008,7 +1008,7 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
     real_mod_file = io.BytesIO(await mod_file.read())
     real_mod_file.name = mod_file.filename
 
-    result_code, result = await tools.mod_to_backend(response=response, request=request, url=url, body={"mod_file": real_mod_file})
+    result_code, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url, body={"mod_file": real_mod_file})
 
     return result
 
@@ -1051,7 +1051,7 @@ async def delete_mod(response: Response, request: Request, mod_id: int):
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/delete/mod?token={config.token_delete_mod}&mod_id={mod_id}'
-    code_result, result = await tools.mod_to_backend(response=response, request=request, url=url)
+    code_result, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url)
 
     if code_result in [202]:
         # Создание сессии
@@ -1091,7 +1091,7 @@ async def association_mod_with_tag(response: Response, request: Request, mod_id:
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/association/mod/tag?token={config.token_association_mod_tag}&mod_id={mod_id}&mode={mode}&tag_id={tag_id}'
-    code_result, result = await tools.mod_to_backend(response=response, request=request, url=url)
+    code_result, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url)
     return result
 
 @app.post(MAIN_URL+"/association/mod/dependencie")
@@ -1100,7 +1100,7 @@ async def association_mod_with_dependencie(response: Response, request: Request,
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/association/mod/dependencie?token={config.token_association_mod_dependencie}&mod_id={mod_id}&mode={mode}&dependencie={dependencie}'
-    code_result, result = await tools.mod_to_backend(response=response, request=request, url=url)
+    code_result, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url)
     return result
 
 

@@ -45,10 +45,10 @@ async def mod_to_backend(response: Response, request: Request, url:str, body:dic
         if row_result.admin:
             async with aiohttp.ClientSession() as session:
                 async with session.post(url=url, data=body) as response:
-                    result = await response.text()
+                    result = json.loads(await response.text())
 
-                    return response.status, JSONResponse(status_code=200, content=json.loads(result))
+                    return response.status, result, JSONResponse(status_code=200, content=result)
         else:
-            return -2, JSONResponse(status_code=403, content="Вы не админ!")
+            return -2, '', JSONResponse(status_code=403, content="Вы не админ!")
     else:
-        return -1, JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+        return -1, '', JSONResponse(status_code=401, content="Недействительный ключ сессии!")
