@@ -45,7 +45,9 @@ async def mod_to_backend(response: Response, request: Request, url:str, body:dic
         if row_result.admin:
             async with aiohttp.ClientSession() as session:
                 async with session.post(url=url, data=body) as response:
-                    result = json.loads(await response.text())
+                    result = await response.text()
+                    if response.status >= 200 and response.status < 300:
+                        result = json.loads(result)
 
                     return response.status, result, JSONResponse(status_code=200, content=result)
         else:
