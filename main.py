@@ -831,6 +831,7 @@ async def info_mod():
     """
     Тестовая функция
     """
+    #TODO сделать info_mod
     return 0
 
 @app.get(MAIN_URL+"/list/resources_mods/{mods_list_id}")
@@ -945,7 +946,14 @@ async def edit_game(response: Response, request: Request, game_id: int, game_nam
     """
     Тестовая функция
     """
-    url = SERVER_ADDRESS + f'/account/edit/game?token={config.token_edit_game}&game_id={game_id}&game_name={game_name}&game_short_desc={game_short_desc}&game_desc={game_desc}&game_type={game_type}&game_logo={game_logo}&game_source={game_source}'
+    url = SERVER_ADDRESS + f'/account/edit/game?token={config.token_edit_game}&game_id={game_id}'
+    if game_name: url += f'&game_name={game_name}'
+    if game_short_desc: url += f'&game_short_desc={game_short_desc}'
+    if game_desc: url += f'&game_desc={game_desc}'
+    if game_type: url += f'&game_type={game_type}'
+    if game_logo: url += f'&game_logo={game_logo}'
+    if game_source: url += f'&game_source={game_source}'
+
     return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/edit/genre")
@@ -953,7 +961,9 @@ async def edit_genre(response: Response, request: Request, genre_id: int, genre_
     """
     Тестовая функция
     """
-    url = SERVER_ADDRESS + f'/account/edit/genre?token={config.token_edit_genre}&genre_id={genre_id}&genre_name={genre_name}'
+    url = SERVER_ADDRESS + f'/account/edit/genre?token={config.token_edit_genre}&genre_id={genre_id}'
+    if genre_name: url+=f'&genre_name={genre_name}'
+
     return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/edit/tag")
@@ -961,7 +971,9 @@ async def edit_tag(response: Response, request: Request, tag_id: int, tag_name: 
     """
     Тестовая функция
     """
-    url = SERVER_ADDRESS + f'/account/edit/tag?token={config.token_edit_tag}&tag_id={tag_id}&tag_name={tag_name}'
+    url = SERVER_ADDRESS + f'/account/edit/tag?token={config.token_edit_tag}&tag_id={tag_id}'
+    if tag_name: url+=f'&tag_name={tag_name}'
+
     return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/edit/resource")
@@ -970,7 +982,11 @@ async def edit_resource(response: Response, request: Request, resource_id: int, 
     """
     Тестовая функция
     """
-    url = SERVER_ADDRESS + f'/account/edit/resource?token={config.token_edit_resource}&resource_id={resource_id}&resource_type={resource_type}&resource_url={resource_url}&resource_owner_id={resource_owner_id}'
+    url = SERVER_ADDRESS + f'/account/edit/resource?token={config.token_edit_resource}&resource_id={resource_id}'
+    if resource_type: url+=f'&resource_type={resource_type}'
+    if resource_url: url+=f'&resource_url={resource_url}'
+    if resource_owner_id: url+=f'&resource_owner_id={resource_owner_id}'
+
     return await tools.to_backend(response=response, request=request, url=url)
 
 
@@ -997,7 +1013,6 @@ async def edit_authors_mod(mod_id:int, mode:bool, author:int):
     session.commit()
     session.close()
 
-#TODO сделать не полную отправку формы во всех edit на примере как тута
 @app.post(MAIN_URL+"/edit/mod")
 async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: str = None,
                    mod_short_description: str = None, mod_description: str = None, mod_source: str = None,
