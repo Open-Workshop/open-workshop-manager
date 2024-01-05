@@ -1059,7 +1059,7 @@ async def delete_mod(response: Response, request: Request, mod_id: int):
         session = Session()
 
         # Выполнение запроса
-        delete_mod = account.game_genres.delete().where(account.mod_and_author.c.mod_id == mod_id)
+        delete_mod = account.mod_and_author.delete().where(account.mod_and_author.c.mod_id == mod_id)
 
         # Выполнение операции DELETE
         session.execute(delete_mod)
