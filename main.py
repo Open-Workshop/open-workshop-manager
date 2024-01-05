@@ -18,6 +18,7 @@ import json
 import urllib
 import random
 import string
+import io
 
 
 SERVER_ADDRESS = "http://127.0.0.1:8000"
@@ -903,12 +904,34 @@ async def add_resource(response: Response, request: Request, resource_type_name:
     return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/add/mod")
-async def add_mod():
+async def add_mod(response: Response, request: Request, mod_name: str, mod_short_description: str,
+                  mod_description: str, mod_source: str, mod_game: int, mod_public: int, mod_file: UploadFile):
     """
     Тестовая функция
     """
-    #TODO сделать add_mod
-    return 0
+    url = SERVER_ADDRESS + f'/account/add/mod?token={config.token_add_mod}&mod_name={mod_name}&mod_short_description={mod_short_description}&mod_description={mod_description}&mod_source={mod_source}&mod_game={mod_game}&mod_public={mod_public}'
+    real_mod_file = io.BytesIO(mod_file.read())
+
+    result_code, result = await tools.mod_to_backend(response=response, request=request, url=url, body={"mod_file": real_mod_file})
+
+    if result_code in [201]:
+        # Создание сессии
+        Session = sessionmaker(bind=account.engine)
+        session = Session()
+
+        # Выполнение запроса
+        insert_statement = insert(account.mod_and_author).values(
+            user_id=int(request.cookies.get('userID', 0)),
+            owner=True,
+            mod_id=result
+        )
+        session.execute(insert_statement)
+
+        # Подтверждение
+        session.commit()
+        session.close()
+
+    return result
 
 
 @app.post(MAIN_URL+"/edit/game")
@@ -946,13 +969,43 @@ async def edit_resource(response: Response, request: Request, resource_id: int, 
     url = SERVER_ADDRESS + f'/account/edit/resource?token={config.token_edit_resource}&resource_id={resource_id}&resource_type={resource_type}&resource_url={resource_url}&resource_owner_id={resource_owner_id}'
     return await tools.to_backend(response=response, request=request, url=url)
 
-@app.post(MAIN_URL+"/edit/mod")
-async def edit_mod():
+
+@app.post(MAIN_URL+"/edit/mod/authors")
+async def edit_authors_mod(mod_id:int, mode:bool, author:int):
     """
     Тестовая функция
     """
-    #TODO сделать edit_mod
-    return 0
+    #TODO сделать edit_authors_mod (предпологаем что создателей мода может быть несколько)
+    return 1
+    # Создание сессии
+    Session = sessionmaker(bind=account.engine)
+    session = Session()
+
+    # Выполнение запроса
+    insert_statement = insert(account.mod_and_author).values(
+        user_id=author,
+        owner=mode,
+        mod_id=mod_id
+    )
+    session.execute(insert_statement)
+
+    # Подтверждение
+    session.commit()
+    session.close()
+
+@app.post(MAIN_URL+"/edit/mod")
+async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: str = None,
+                   mod_short_description: str = None, mod_description: str = None, mod_source: str = None,
+                   mod_game: int = None, mod_public: int = None, mod_file: UploadFile = None):
+    """
+    Тестовая функция
+    """
+    url = SERVER_ADDRESS + f'/account/add/mod?token={config.token_edit_mod}&mod_id={mod_id}&mod_name={mod_name}&mod_short_description={mod_short_description}&mod_description={mod_description}&mod_source={mod_source}&mod_game={mod_game}&mod_public={mod_public}'
+    real_mod_file = io.BytesIO(mod_file.read())
+
+    result_code, result = await tools.mod_to_backend(response=response, request=request, url=url, body={"mod_file": real_mod_file})
+
+    return result
 
 
 @app.post(MAIN_URL+"/delete/game")
@@ -993,7 +1046,22 @@ async def delete_mod(response: Response, request: Request, mod_id: int):
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/delete/mod?token={config.token_delete_mod}&mod_id={mod_id}'
-    return await tools.to_backend(response=response, request=request, url=url)
+    code_result, result = await tools.mod_to_backend(response=response, request=request, url=url)
+
+    if code_result in [202]:
+        # Создание сессии
+        Session = sessionmaker(bind=account.engine)
+        session = Session()
+
+        # Выполнение запроса
+        delete_mod = account.game_genres.delete().where(account.mod_and_author.c.mod_id == mod_id)
+
+        # Выполнение операции DELETE
+        session.execute(delete_mod)
+        session.commit()
+        session.close()
+
+    return result
 
 
 @app.post(MAIN_URL+"/association/game/genre")
@@ -1018,7 +1086,8 @@ async def association_mod_with_tag(response: Response, request: Request, mod_id:
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/association/mod/tag?token={config.token_association_mod_tag}&mod_id={mod_id}&mode={mode}&tag_id={tag_id}'
-    return await tools.to_backend(response=response, request=request, url=url)
+    code_result, result = await tools.mod_to_backend(response=response, request=request, url=url)
+    return result
 
 @app.post(MAIN_URL+"/association/mod/dependencie")
 async def association_mod_with_dependencie(response: Response, request: Request, mod_id: int, mode: bool, dependencie: int):
@@ -1026,7 +1095,8 @@ async def association_mod_with_dependencie(response: Response, request: Request,
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/association/mod/dependencie?token={config.token_association_mod_dependencie}&mod_id={mod_id}&mode={mode}&dependencie={dependencie}'
-    return await tools.to_backend(response=response, request=request, url=url)
+    code_result, result = await tools.mod_to_backend(response=response, request=request, url=url)
+    return result
 
 
 @app.post(MAIN_URL+"/add/forum")

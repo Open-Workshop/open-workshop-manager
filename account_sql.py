@@ -91,8 +91,9 @@ black_list = Table('black_list', base.metadata,
     Column('when', DateTime),
 )
 
-mod = Table('mods', base.metadata,
+mod_and_author = Table('mods', base.metadata,
     Column('user_id', Integer, ForeignKey('accounts.id')),
+    Column('owner', Boolean), #только овнеры могут удалять свои моды, передавать овнерство другим, приглашать других на правах члена (не может удалить мод и не может приглашать новых членов)
     Column('mod_id', Integer)
 )
 
