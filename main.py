@@ -915,6 +915,8 @@ async def add_mod(response: Response, request: Request, mod_name: str, mod_short
 
     result_code, result = await tools.mod_to_backend(response=response, request=request, url=url, body={"mod_file": real_mod_file})
 
+    print(int(request.cookies.get('userID', 0)), result_code, flush=True)
+
     if result_code in [201]:
         # Создание сессии
         Session = sessionmaker(bind=account.engine)
