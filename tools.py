@@ -3,6 +3,7 @@ from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import sessionmaker
 import aiohttp
+import json
 
 async def to_backend(response: Response, request: Request, url:str):
     access_result = await account.check_access(request=request, response=response)
@@ -19,7 +20,9 @@ async def to_backend(response: Response, request: Request, url:str):
         if row_result.admin:
             async with aiohttp.ClientSession() as session:
                 async with session.post(url) as response:
-                    return JSONResponse(status_code=200, content=response.content)
+                    result = await response.text()
+
+                    return JSONResponse(status_code=200, content=json.loads(result))
         else:
             return JSONResponse(status_code=403, content="Вы не админ!")
     else:
