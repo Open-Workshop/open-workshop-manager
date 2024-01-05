@@ -1004,7 +1004,7 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
     """
     Тестовая функция
     """
-    url = SERVER_ADDRESS + f'/account/add/mod?token={config.token_edit_mod}&mod_id={mod_id}&mod_name={mod_name}&mod_short_description={mod_short_description}&mod_description={mod_description}&mod_source={mod_source}&mod_game={mod_game}&mod_public={mod_public}'
+    url = SERVER_ADDRESS + f'/account/edit/mod?token={config.token_edit_mod}&mod_id={mod_id}&mod_name={mod_name}&mod_short_description={mod_short_description}&mod_description={mod_description}&mod_source={mod_source}&mod_game={mod_game}&mod_public={mod_public}'
 
     if mod_file:
         real_mod_file = io.BytesIO(await mod_file.read())
