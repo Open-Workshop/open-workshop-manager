@@ -869,7 +869,6 @@ async def list_reaction():
     return 0
 
 
-#TODO экстраполировать шаблон на все функции ниже
 @app.post(MAIN_URL+"/add/game")
 async def add_game(response: Response, request: Request, game_name: str, game_short_desc: str, game_desc: str,
                    game_type: str = "game", game_logo: str = ""):
@@ -880,69 +879,79 @@ async def add_game(response: Response, request: Request, game_name: str, game_sh
     return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/add/genre")
-async def add_genre(genre_name: str):
+async def add_genre(response: Response, request: Request, genre_name: str):
     """
     Тестовая функция
     """
-    return 0
+    url = SERVER_ADDRESS + f'/account/add/genre?token={config.token_add_genre}&genre_name={genre_name}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/add/tag")
-async def add_tag(tag_name: str):
+async def add_tag(response: Response, request: Request, tag_name: str):
     """
     Тестовая функция
     """
-    return 0
+    url = SERVER_ADDRESS + f'/account/add/tag?token={config.token_add_tag}&tag_name={tag_name}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/add/resource")
-async def add_resource(resource_type_name: str, resource_url: str, resource_owner_id: int):
+async def add_resource(response: Response, request: Request, resource_type_name: str, resource_url: str, resource_owner_id: int):
     """
     Тестовая функция
     """
-    return 0
+    url = SERVER_ADDRESS + f'/account/add/resource?token={config.token_add_resource}&resource_type_name={resource_type_name}&resource_url={resource_url}&resource_owner_id={resource_owner_id}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/add/mod")
 async def add_mod():
     """
     Тестовая функция
     """
+    #TODO сделать add_mod
     return 0
 
 
 @app.post(MAIN_URL+"/edit/game")
-async def edit_game(game_id: int, game_name: str = None, game_short_desc: str = None, game_desc: str = None,
-                    game_type: str = None, game_logo: str = None, game_source: str = None):
+async def edit_game(response: Response, request: Request, game_id: int, game_name: str = None,
+                    game_short_desc: str = None, game_desc: str = None, game_type: str = None, game_logo: str = None,
+                    game_source: str = None):
     """
     Тестовая функция
     """
-    return 0
+    url = SERVER_ADDRESS + f'/account/edit/game?token={config.token_edit_game}&game_id={game_id}&game_name={game_name}&game_short_desc={game_short_desc}&game_desc={game_desc}&game_type={game_type}&game_logo={game_logo}&game_source={game_source}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/edit/genre")
-async def edit_genre(genre_id: int, genre_name: str = None):
+async def edit_genre(response: Response, request: Request, genre_id: int, genre_name: str = None):
     """
     Тестовая функция
     """
-    return 0
+    url = SERVER_ADDRESS + f'/account/edit/genre?token={config.token_edit_genre}&genre_id={genre_id}&genre_name={genre_name}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/edit/tag")
-async def edit_tag(tag_id: int, tag_name: str = None):
+async def edit_tag(response: Response, request: Request, tag_id: int, tag_name: str = None):
     """
     Тестовая функция
     """
-    return 0
+    url = SERVER_ADDRESS + f'/account/edit/tag?token={config.token_edit_tag}&tag_id={tag_id}&tag_name={tag_name}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/edit/resource")
-async def edit_resource(resource_id: int, resource_type: str = None, resource_url: str = None,
-                        resource_owner_id: int = None):
+async def edit_resource(response: Response, request: Request, resource_id: int, resource_type: str = None,
+                        resource_url: str = None, resource_owner_id: int = None):
     """
     Тестовая функция
     """
-    return 0
+    url = SERVER_ADDRESS + f'/account/edit/resource?token={config.token_edit_resource}&resource_id={resource_id}&resource_type={resource_type}&resource_url={resource_url}&resource_owner_id={resource_owner_id}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/edit/mod")
 async def edit_mod():
     """
     Тестовая функция
     """
+    #TODO сделать edit_mod
     return 0
 
 
@@ -955,61 +964,69 @@ async def delete_game(response: Response, request: Request, game_id: int):
     return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/delete/genre")
-async def delete_genre(genre_id: int):
+async def delete_genre(response: Response, request: Request, genre_id: int):
     """
     Тестовая функция
     """
-    return 0
+    url = SERVER_ADDRESS + f'/account/delete/genre?token={config.token_delete_genre}&genre_id={genre_id}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/delete/tag")
-async def delete_tag(tag_id: int):
+async def delete_tag(response: Response, request: Request, tag_id: int):
     """
     Тестовая функция
     """
-    return 0
+    url = SERVER_ADDRESS + f'/account/delete/tag?token={config.token_delete_tag}&tag_id={tag_id}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/delete/resource")
-async def delete_resource(resource_id: int):
+async def delete_resource(response: Response, request: Request, resource_id: int):
     """
     Тестовая функция
     """
-    return 0
+    url = SERVER_ADDRESS + f'/account/delete/resource?token={config.token_delete_resource}&resource_id={resource_id}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/delete/mod")
-async def delete_mod(mod_id: int):
+async def delete_mod(response: Response, request: Request, mod_id: int):
     """
     Тестовая функция
     """
-    return 0
+    url = SERVER_ADDRESS + f'/account/delete/mod?token={config.token_delete_mod}&mod_id={mod_id}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 
 @app.post(MAIN_URL+"/association/game/genre")
-async def association_game_with_genre(game_id: int, mode: bool, genre_id: int):
+async def association_game_with_genre(response: Response, request: Request, game_id: int, mode: bool, genre_id: int):
     """
     Тестовая функция
     """
-    return 0
+    url = SERVER_ADDRESS + f'/account/association/game/genre?token={config.token_association_game_genre}&game_id={game_id}&mode={mode}&genre_id={genre_id}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/association/game/tag")
-async def association_game_with_tag(game_id: int, mode: bool, tag_id: int):
+async def association_game_with_tag(response: Response, request: Request, game_id: int, mode: bool, tag_id: int):
     """
     Тестовая функция
     """
-    return 0
+    url = SERVER_ADDRESS + f'/account/association/game/tag?token={config.token_association_game_tag}&game_id={game_id}&mode={mode}&tag_id={tag_id}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/association/mod/tag")
-async def association_mod_with_tag(mod_id: int, mode: bool, tag_id: int):
+async def association_mod_with_tag(response: Response, request: Request, mod_id: int, mode: bool, tag_id: int):
     """
     Тестовая функция
     """
-    return 0
+    url = SERVER_ADDRESS + f'/account/association/mod/tag?token={config.token_association_mod_tag}&mod_id={mod_id}&mode={mode}&tag_id={tag_id}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 @app.post(MAIN_URL+"/association/mod/dependencie")
-async def association_mod_with_dependencie(mod_id: int, mode: bool, dependencie: int):
+async def association_mod_with_dependencie(response: Response, request: Request, mod_id: int, mode: bool, dependencie: int):
     """
     Тестовая функция
     """
-    return 0
+    url = SERVER_ADDRESS + f'/account/association/mod/dependencie?token={config.token_association_mod_dependencie}&mod_id={mod_id}&mode={mode}&dependencie={dependencie}'
+    return await tools.to_backend(response=response, request=request, url=url)
 
 
 @app.post(MAIN_URL+"/add/forum")
