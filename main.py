@@ -997,6 +997,7 @@ async def edit_authors_mod(mod_id:int, mode:bool, author:int):
     session.commit()
     session.close()
 
+#TODO сделать не полную отправку формы во всех edit на примере как тута
 @app.post(MAIN_URL+"/edit/mod")
 async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: str = None,
                    mod_short_description: str = None, mod_description: str = None, mod_source: str = None,
@@ -1004,13 +1005,19 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
     """
     Тестовая функция
     """
-    url = SERVER_ADDRESS + f'/account/edit/mod?token={config.token_edit_mod}&mod_id={mod_id}&mod_name={mod_name}&mod_short_description={mod_short_description}&mod_description={mod_description}&mod_source={mod_source}&mod_game={mod_game}&mod_public={mod_public}'
+    url = SERVER_ADDRESS + f'/account/edit/mod?token={config.token_edit_mod}&mod_id={mod_id}'
+    if mod_name: url+=f'&mod_name={mod_name}'
+    if mod_short_description: url += f'&mod_short_description={mod_short_description}'
+    if mod_description: url += f'&mod_description={mod_description}'
+    if mod_source: url += f'&mod_source={mod_source}'
+    if mod_game: url += f'&mod_game={mod_game}'
+    if mod_public: url += f'&mod_public={mod_public}'
 
     if mod_file:
         real_mod_file = io.BytesIO(await mod_file.read())
         real_mod_file.name = mod_file.filename
     else:
-        real_mod_file = None
+        real_mod_file = ''
 
     result_code, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url, body={"mod_file": real_mod_file})
 
