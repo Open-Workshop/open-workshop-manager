@@ -930,12 +930,17 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
                 if access_result and access_result.get("owner_id", -1) >= 0:
                     row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1)).first()
 
-                    if row.admin: return JSONResponse(status_code=200, content=result)
+                    if row.admin:
+                        session.close()
+                        return JSONResponse(status_code=200, content=result)
 
                     row = session.query(account.mod_and_author).filter_by(mod_id=mod_id, user_id=access_result.get("owner_id", -1))
 
-                    if row.first(): return JSONResponse(status_code=200, content=result)
+                    if row.first():
+                        session.close()
+                        return JSONResponse(status_code=200, content=result)
 
+                    session.close()
                     return JSONResponse(status_code=403, content="Доступ воспрещен!")
                 else:
                     session.close()
