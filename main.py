@@ -869,7 +869,7 @@ async def list_mods(response: Response, request: Request, user_id:int, page:int 
         return {}
 
     async with aiohttp.ClientSession() as session:
-        url = SERVER_ADDRESS + f'/public/mod/{str(row_list_ids)}'
+        url = SERVER_ADDRESS + f'/public/mod/{str(row_list_ids)}?catalog=true'
         print(url)
         async with session.get(url=url) as ioresponse:
             result = await ioresponse.text()
