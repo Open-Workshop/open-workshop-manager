@@ -1208,8 +1208,8 @@ async def edit_authors_mod(response: Response, request: Request, mod_id:int, mod
         session = Session()
 
         req_user_id = access_result.get("owner_id", -1)
-        user_req = session.query(account.Account).filter_by(mod_id=req_user_id).first()
-        user_add = session.query(account.Account).filter_by(mod_id=mod_id).first()
+        user_req = session.query(account.Account).filter_by(id=req_user_id).first()
+        user_add = session.query(account.Account).filter_by(id=mod_id).first()
 
         async def mini():
             if not user_add:
