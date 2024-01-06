@@ -825,27 +825,138 @@ async def avatar_profile(user_id:int):
         return FileResponse(path=image_path)
     return JSONResponse(status_code=404, content="File not found! :(")
 
+@app.get(MAIN_URL+"/list/mods/{user_id}")
+async def list_mods(response: Response, request: Request, user_id:int, page:int = 0, page_size:int = 30,
+                    public:bool = True):
+    """
+    Тестовая функция
+    """
+    if page_size > 50 or page_size < 1:
+        return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 1})
+    elif page < 0:
+        return JSONResponse(status_code=413, content={"message": "incorrect page", "error_id": 2})
+
+    if not public:
+        access_result = await account.check_access(request=request, response=response)
+
+        if not access_result or access_result.get("owner_id", -1) < 0:
+            return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+
+
+    # Создание сессии
+    Session = sessionmaker(bind=account.engine)
+    session = Session()
+
+    if not public and user_id != access_result.get("owner_id", -1):
+        # Выполнение запроса
+        row = session.query(account.Account).filter_by(id=access_result.get("owner_id", -1))
+        row_result = row.first()
+        if not row_result or not row_result.admin:
+            session.close()
+            return JSONResponse(status_code=403, content="Вы не имеете доступа к этой информации!")
+
+    offset = page_size * page
+    row = session.query(account.mod_and_author).filter_by(user_id=user_id).offset(offset).limit(page_size).all()
+
+    row_list_ids = []
+    row_result = {}
+    for i in row:
+        row_list_ids.append(i.mod_id)
+        row_result[i.mod_id] = i.owner
+
+    async with aiohttp.ClientSession() as session:
+        url = SERVER_ADDRESS + f'/public/mod/{str(row_list_ids)}'
+        async with session.post(url=url) as ioresponse:
+            result = json.loads(await ioresponse.text())
+
+            rw = {}
+            for i in result:
+                if public:
+                    rw[i] = row_result[i]
+                elif not public:
+                    del row_result[i]
+
+            if public: row_result = rw
+
+            session.close()
+            return row_result
+
 
 @app.get(MAIN_URL+"/info/mod/{mod_id}")
-async def info_mod():
+async def info_mod(response: Response, request: Request, mod_id: int, dependencies: bool = None,
+                   short_description: bool = None, description: bool = None, dates: bool = None,
+                   general: bool = True, game: bool = None, authors: bool = None):
     """
     Тестовая функция
     """
-    #TODO сделать info_mod
-    return 0
+    url = SERVER_ADDRESS + f'/info/mod/{mod_id}?token={config.token_info_mod}&general=true'
+    if dependencies: url+=f'&dependencies={dependencies}'
+    if short_description: url+=f'&short_description={short_description}'
+    if description: url+=f'&description={description}'
+    if dates: url+=f'&dates={dates}'
+    if game: url+=f'&game={game}'
+
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url=url) as ioresponse:
+            result = await ioresponse.text()
+            if ioresponse.status >= 200 and ioresponse.status < 300:
+                result = json.loads(result)
+
+            # Создание сессии
+            Session = sessionmaker(bind=account.engine)
+            session = Session()
+
+            if authors:
+                row = session.query(account.mod_and_author).filter_by(mod_id=mod_id)
+                row_results = row.all()
+                result["authors"] = []
+
+                for i in row_results:
+                    result["authors"].append({"user": i.user_id, "owner": i.owner})
+
+            if result["result"]["public"] >= 2:
+                access_result = await account.check_access(request=request, response=response)
+
+                if access_result and access_result.get("owner_id", -1) >= 0:
+                    row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1)).first()
+
+                    if row.admin: return JSONResponse(status_code=200, content=result)
+
+                    row = session.query(account.mod_and_author).filter_by(mod_id=mod_id, user_id=access_result.get("owner_id", -1))
+
+                    if row.first(): return JSONResponse(status_code=200, content=result)
+
+                    return JSONResponse(status_code=403, content="Доступ воспрещен!")
+                else:
+                    session.close()
+                    return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+            else:
+                session.close()
+
+                if not general:
+                    del result["result"]["name"]
+                    del result["result"]["size"]
+                    del result["result"]["source"]
+                    del result["result"]["downloads"]
+                    del result["result"]["public"]
+
+                return JSONResponse(status_code=200, content=result)
 
 @app.get(MAIN_URL+"/list/resources_mods/{mods_list_id}")
-async def list_resources_for_mods():
+async def list_resources_for_mods(mods_ids_list:list[int]):
     """
     Тестовая функция
     """
+    #TODO сделать list_resources_for_mods
     return 0
 
 @app.get(MAIN_URL+"/list/tags/mods/{mods_ids_list}")
-async def list_tags_for_mods():
+async def list_tags_for_mods(mods_ids_list:list[int]):
     """
     Тестовая функция
     """
+    #TODO сделать list_tags_for_mods
     return 0
 
 
@@ -991,27 +1102,28 @@ async def edit_resource(response: Response, request: Request, resource_id: int, 
 
 
 @app.post(MAIN_URL+"/edit/mod/authors")
-async def edit_authors_mod(mod_id:int, mode:bool, author:int):
+async def edit_authors_mod(mod_id:int, mode:bool, author:int, owner:bool = False):
     """
     Тестовая функция
     """
     #TODO сделать edit_authors_mod (предпологаем что создателей мода может быть несколько)
     return 1
-    # Создание сессии
-    Session = sessionmaker(bind=account.engine)
-    session = Session()
+    access_result = await account.check_access(request=request, response=response)
 
-    # Выполнение запроса
-    insert_statement = insert(account.mod_and_author).values(
-        user_id=author,
-        owner=mode,
-        mod_id=mod_id
-    )
-    session.execute(insert_statement)
+    if access_result and access_result.get("owner_id", -1) >= 0:
+        ...
+        # АДМИН
+        # или
+        # ВЛАДЕЛЕЦ и НЕ В МУТЕ и ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ СВОИХ МОДОВ и НЕ ПЫТАЕТСЯ УДАЛИТЬ СЕБЯ
+        # или
+        # УЧАСТНИК и НЕ В МУТЕ и ПЫТАЕТСЯ УДАЛИТЬ СЕБЯ
+        # или
+        # НЕ В МУТЕ и ИМЕЕТ ПРАВО НА ПЕРЕОПРЕДЕЛЕНИЯ АВТОРСТВА ЧУЖИХ МОДОВ
 
-    # Подтверждение
-    session.commit()
-    session.close()
+        # *если добавляют нового владельца, старого сбрасывают с должности
+    else:
+        session.close()
+        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
 @app.post(MAIN_URL+"/edit/mod")
 async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: str = None,
@@ -1077,7 +1189,7 @@ async def delete_mod(response: Response, request: Request, mod_id: int):
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/delete/mod?token={config.token_delete_mod}&mod_id={mod_id}'
-    code_result, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url)
+    code_result, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url, no_members_access=True)
 
     if code_result in [202]:
         # Создание сессии

@@ -29,7 +29,7 @@ async def to_backend(response: Response, request: Request, url:str, body:dict = 
     else:
         return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
-async def mod_to_backend(response: Response, request: Request, url:str, body:dict = {}):
+async def mod_to_backend(response: Response, request: Request, url:str, body:dict = {}, no_members_access:bool = False):
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
@@ -42,6 +42,18 @@ async def mod_to_backend(response: Response, request: Request, url:str, body:dic
         row_result = row.first()
 
         #TODO тут нужна детальная проверка правомерности: чей мод, в каком статусе если в числе авторов и в этом контексте есть ли права на его редактирование
+
+        # АДМИН
+        # или
+        # ВЛАДЕЛЕЦ МОДА и НЕ В МУТЕ и ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ СВОИХ МОДОВ
+        # или
+        # УЧАСТНИК и НЕ В МУТЕ и ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ СВОИХ МОДОВ и ДЕЙСТВИЕ НЕ ЗАПРЕЩЕНО УЧАСТНИКАМ
+        # или
+        # НЕ В МУТЕ И ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ ЧУЖИХ МОДОВ
+
+        #т.е.:
+        #АДМИН или (НЕ В МУТЕ и ((в числе участников И имеет право на редактирование своих модов И (владелец ИЛИ действие не запрещено участникам)) ИЛИ не участник И имеет право на редактирование чужих модов))
+
         if row_result.admin:
             async with aiohttp.ClientSession() as session:
                 async with session.post(url=url, data=body) as response:
