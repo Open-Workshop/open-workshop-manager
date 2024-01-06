@@ -1196,27 +1196,75 @@ async def edit_resource(response: Response, request: Request, resource_id: int, 
 
 
 @app.post(MAIN_URL+"/edit/mod/authors")
-async def edit_authors_mod(mod_id:int, mode:bool, author:int, owner:bool = False):
+async def edit_authors_mod(response: Response, request: Request, mod_id:int, mode:bool, author:int, owner:bool = False):
     """
     Тестовая функция
     """
-    #TODO сделать edit_authors_mod (предпологаем что создателей мода может быть несколько)
-    return 1
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
-        ...
-        # АДМИН
-        # или
-        # ВЛАДЕЛЕЦ и НЕ В МУТЕ и ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ СВОИХ МОДОВ и НЕ ПЫТАЕТСЯ УДАЛИТЬ СЕБЯ
-        # или
-        # УЧАСТНИК и НЕ В МУТЕ и ПЫТАЕТСЯ УДАЛИТЬ СЕБЯ
-        # или
-        # НЕ В МУТЕ и ИМЕЕТ ПРАВО НА ПЕРЕОПРЕДЕЛЕНИЯ АВТОРСТВА ЧУЖИХ МОДОВ
+        # Создание сессии
+        Session = sessionmaker(bind=account.engine)
+        session = Session()
 
-        # *если добавляют нового владельца, старого сбрасывают с должности
+        req_user_id = access_result.get("owner_id", -1)
+        user_req = session.query(account.Account).filter_by(mod_id=req_user_id).first()
+        user_add = session.query(account.Account).filter_by(mod_id=mod_id).first()
+
+        async def mini():
+            if not user_add:
+                return False
+            elif user_req.admin:
+                return True
+            else:
+                if user_req.mute_until and user_req.mute_until > datetime.datetime.now():
+                    return False
+
+                in_mod = session.query(account.mod_and_author).filter_by(mod_id=mod_id, user_id=req_user_id).first()
+
+                if in_mod:
+                    if in_mod.owner:
+                        if req_user_id == author and mode == False:
+                            return False
+
+                        return True
+                    elif req_user_id == author and mode == False:
+                        return True
+                elif user_req.change_authorship_mods:
+                    return True
+            return False
+
+
+        if await mini():
+            if mode:
+                has_owner = session.query(account.mod_and_author).filter_by(mod_id=mod_id, owner=True).first()
+                if owner and has_owner:
+                    delete_member = account.mod_and_author.delete().where(account.mod_and_author.c.mod_id == mod_id,
+                                                                          account.mod_and_author.c.user_id == has_owner.user_id)
+                    # Выполнение операции DELETE
+                    session.execute(delete_member)
+                    session.commit()
+
+                insert_statement = insert(account.mod_and_author).values(
+                    user_id=author,
+                    owner=owner,
+                    mod_id=mod_id
+                )
+                session.execute(insert_statement)
+                session.commit()
+            else:
+                delete_member = account.mod_and_author.delete().where(account.mod_and_author.c.mod_id == mod_id,
+                                                                      account.mod_and_author.c.user_id == author)
+                # Выполнение операции DELETE
+                session.execute(delete_member)
+                session.commit()
+
+            session.close()
+            return JSONResponse(status_code=200, content="Выполнено")
+        else:
+            session.close()
+            return JSONResponse(status_code=403, content="Операция заблокирована!")
     else:
-        session.close()
         return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
 @app.post(MAIN_URL+"/edit/mod")
