@@ -1239,10 +1239,7 @@ async def edit_authors_mod(response: Response, request: Request, mod_id:int, mod
             if mode:
                 has_owner = session.query(account.mod_and_author).filter_by(mod_id=mod_id, owner=True).first()
                 if owner and has_owner:
-                    delete_member = account.mod_and_author.delete().where(account.mod_and_author.c.mod_id == mod_id,
-                                                                          account.mod_and_author.c.user_id == has_owner.user_id)
-                    # Выполнение операции DELETE
-                    session.execute(delete_member)
+                    session.query(account.mod_and_author).filter_by(mod_id=mod_id, owner=True).update({'owner': False})
                     session.commit()
 
                 insert_statement = insert(account.mod_and_author).values(
