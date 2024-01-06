@@ -1196,7 +1196,7 @@ async def delete_mod(response: Response, request: Request, mod_id: int):
     url = SERVER_ADDRESS + f'/account/delete/mod?token={config.token_delete_mod}&mod_id={mod_id}'
     code_result, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url, no_members_access=True)
 
-    if code_result in [202]:
+    if code_result in [202, 500]:
         # Создание сессии
         Session = sessionmaker(bind=account.engine)
         session = Session()
