@@ -909,6 +909,8 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
             result = await ioresponse.text()
             if ioresponse.status >= 200 and ioresponse.status < 300:
                 result = json.loads(result)
+            else:
+                return JSONResponse(status_code=404, content="Не найдено!")
 
             # Создание сессии
             Session = sessionmaker(bind=account.engine)
