@@ -864,6 +864,10 @@ async def list_mods(response: Response, request: Request, user_id:int, page:int 
         row_list_ids.append(i.mod_id)
         row_result[i.mod_id] = i.owner
 
+    if len(row_result) <= 0:
+        session.close()
+        return {}
+
     async with aiohttp.ClientSession() as session:
         url = SERVER_ADDRESS + f'/public/mod/{str(row_list_ids)}'
         print(url)
