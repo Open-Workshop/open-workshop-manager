@@ -5,6 +5,14 @@ from sqlalchemy.orm import sessionmaker
 import aiohttp
 import json
 
+def str_to_list(string: str):
+    try:
+        string = json.loads(string)
+        if type(string) is not list:
+            string = []
+    except:
+        string = []
+    return string
 
 async def to_backend(response: Response, request: Request, url:str, body:dict = {}) -> JSONResponse:
     access_result = await account.check_access(request=request, response=response)

@@ -958,20 +958,100 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
                 return JSONResponse(status_code=200, content=result)
 
 @app.get(MAIN_URL+"/list/resources_mods/{mods_list_id}")
-async def list_resources_for_mods(mods_ids_list):
+async def list_resources_for_mods(response: Response, request: Request, mods_ids_list, page_size: int = 10,
+                                  page: int = 0, types_resources=[]):
     """
     Тестовая функция
     """
-    #TODO сделать list_resources_for_mods
-    return 0
+    mods_ids_list = tools.str_to_list(mods_ids_list)
+    types_resources = tools.str_to_list(types_resources)
+    if len(mods_ids_list) < 1 or len(mods_ids_list) > 50:
+        return JSONResponse(status_code=413, content={"message": "the size of the array is not correct", "error_id": 1})
+    if len(types_resources) + len(mods_ids_list) > 80:
+        return JSONResponse(status_code=413, content={"message": "the maximum complexity of filters is 80 elements in sum", "error_id": 2})
+    elif page_size > 50 or page_size < 1:
+        return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 3})
+    elif page < 0:
+        return JSONResponse(status_code=413, content={"message": "incorrect page", "error_id": 4})
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url=SERVER_ADDRESS+f'/public/mod/{str(mods_ids_list)}') as ioresponse:
+            result = json.loads(await ioresponse.text())
+
+            l = []
+            for i in mods_ids_list:
+                if i not in result:
+                    l.append(i)
+
+            if len(l) > 0:
+                access_result = await account.check_access(request=request, response=response)
+
+                if access_result and access_result.get("owner_id", -1) >= 0:
+                    row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1)).first()
+
+                    rowT = session.query(account.mod_and_author).filter_by(user_id=access_result.get("owner_id", -1))
+                    rowT = rowT.filter(account.mod_and_author.c.mod_id.in_(l))
+
+                    if rowT.count() != len(l) and not row.admin:
+                        session.close()
+                        return JSONResponse(status_code=403, content="Доступ воспрещен!")
+                else:
+                    session.close()
+                    return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+
+            async with aiohttp.ClientSession() as session:
+                url = SERVER_ADDRESS+f'/list/resources_mods/{str(mods_ids_list)}?token={config.token_info_mod}'
+                if page_size is not None: url+=f'&page_size={page_size}'
+                if page is not None: url+=f'&page={page}'
+                if types_resources is not None: url+=f'&types_resources={types_resources}'
+
+                async with session.get(url=url) as aioresponse:
+                    return json.loads(await aioresponse.text())
 
 @app.get(MAIN_URL+"/list/tags/mods/{mods_ids_list}")
-async def list_tags_for_mods(mods_ids_list):
+async def list_tags_for_mods(response: Response, request: Request, mods_ids_list, tags=[], only_ids: bool = False):
     """
     Тестовая функция
     """
-    #TODO сделать list_tags_for_mods
-    return 0
+    mods_ids_list = tools.str_to_list(mods_ids_list)
+    tags = tools.str_to_list(tags)
+    if len(mods_ids_list) < 1 or len(mods_ids_list) > 50:
+        return JSONResponse(status_code=413, content={"message": "the size of the array is not correct", "error_id": 1})
+    if len(tags) + len(mods_ids_list) > 80:
+        return JSONResponse(status_code=413, content={"message": "the maximum complexity of filters is 80 elements in sum", "error_id": 2})
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url=SERVER_ADDRESS+f'/public/mod/{str(mods_ids_list)}') as ioresponse:
+            result = json.loads(await ioresponse.text())
+
+            l = []
+            for i in mods_ids_list:
+                if i not in result:
+                    l.append(i)
+
+            if len(l) > 0:
+                access_result = await account.check_access(request=request, response=response)
+
+                if access_result and access_result.get("owner_id", -1) >= 0:
+                    row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1)).first()
+
+                    rowT = session.query(account.mod_and_author).filter_by(user_id=access_result.get("owner_id", -1))
+                    rowT = rowT.filter(account.mod_and_author.c.mod_id.in_(l))
+
+                    if rowT.count() != len(l) and not row.admin:
+                        session.close()
+                        return JSONResponse(status_code=403, content="Доступ воспрещен!")
+                else:
+                    session.close()
+                    return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+
+            async with aiohttp.ClientSession() as session:
+                url = SERVER_ADDRESS+f'/list/tags/mods/{str(mods_ids_list)}?token={config.token_info_mod}'
+                if tags is not None: url+=f'&tags={str(tags)}'
+                if only_ids is not None: url+=f'&only_ids={only_ids}'
+
+                async with session.get(url=url) as aioresponse:
+                    return json.loads(await aioresponse.text())
 
 
 @app.get(MAIN_URL+"/list/forum/")
