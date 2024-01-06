@@ -866,8 +866,11 @@ async def list_mods(response: Response, request: Request, user_id:int, page:int 
 
     async with aiohttp.ClientSession() as session:
         url = SERVER_ADDRESS + f'/public/mod/{str(row_list_ids)}'
+        print(url)
         async with session.post(url=url) as ioresponse:
-            result = json.loads(await ioresponse.text())
+            result = await ioresponse.text()
+            print(result)
+            result = json.loads(result)
 
             rw = {}
             for i in result:
