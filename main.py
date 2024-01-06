@@ -1061,12 +1061,12 @@ async def edit_game(response: Response, request: Request, game_id: int, game_nam
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/edit/game?token={config.token_edit_game}&game_id={game_id}'
-    if game_name: url += f'&game_name={game_name}'
-    if game_short_desc: url += f'&game_short_desc={game_short_desc}'
-    if game_desc: url += f'&game_desc={game_desc}'
-    if game_type: url += f'&game_type={game_type}'
-    if game_logo: url += f'&game_logo={game_logo}'
-    if game_source: url += f'&game_source={game_source}'
+    if game_name is not None: url += f'&game_name={game_name}'
+    if game_short_desc is not None: url += f'&game_short_desc={game_short_desc}'
+    if game_desc is not None: url += f'&game_desc={game_desc}'
+    if game_type is not None: url += f'&game_type={game_type}'
+    if game_logo is not None: url += f'&game_logo={game_logo}'
+    if game_source is not None: url += f'&game_source={game_source}'
 
     return await tools.to_backend(response=response, request=request, url=url)
 
@@ -1076,7 +1076,7 @@ async def edit_genre(response: Response, request: Request, genre_id: int, genre_
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/edit/genre?token={config.token_edit_genre}&genre_id={genre_id}'
-    if genre_name: url+=f'&genre_name={genre_name}'
+    if genre_name is not None: url+=f'&genre_name={genre_name}'
 
     return await tools.to_backend(response=response, request=request, url=url)
 
@@ -1086,7 +1086,7 @@ async def edit_tag(response: Response, request: Request, tag_id: int, tag_name: 
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/edit/tag?token={config.token_edit_tag}&tag_id={tag_id}'
-    if tag_name: url+=f'&tag_name={tag_name}'
+    if tag_name is not None: url+=f'&tag_name={tag_name}'
 
     return await tools.to_backend(response=response, request=request, url=url)
 
@@ -1097,9 +1097,9 @@ async def edit_resource(response: Response, request: Request, resource_id: int, 
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/edit/resource?token={config.token_edit_resource}&resource_id={resource_id}'
-    if resource_type: url+=f'&resource_type={resource_type}'
-    if resource_url: url+=f'&resource_url={resource_url}'
-    if resource_owner_id: url+=f'&resource_owner_id={resource_owner_id}'
+    if resource_type is not None: url+=f'&resource_type={resource_type}'
+    if resource_url is not None: url+=f'&resource_url={resource_url}'
+    if resource_owner_id is not None: url+=f'&resource_owner_id={resource_owner_id}'
 
     return await tools.to_backend(response=response, request=request, url=url)
 
@@ -1136,12 +1136,12 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/edit/mod?token={config.token_edit_mod}&mod_id={mod_id}'
-    if mod_name: url+=f'&mod_name={mod_name}'
-    if mod_short_description: url += f'&mod_short_description={mod_short_description}'
-    if mod_description: url += f'&mod_description={mod_description}'
-    if mod_source: url += f'&mod_source={mod_source}'
-    if mod_game: url += f'&mod_game={mod_game}'
-    if mod_public: url += f'&mod_public={mod_public}'
+    if mod_name is not None: url+=f'&mod_name={mod_name}'
+    if mod_short_description is not None: url += f'&mod_short_description={mod_short_description}'
+    if mod_description is not None: url += f'&mod_description={mod_description}'
+    if mod_source is not None: url += f'&mod_source={mod_source}'
+    if mod_game is not None: url += f'&mod_game={mod_game}'
+    if mod_public is not None: url += f'&mod_public={mod_public}'
 
     if mod_file:
         real_mod_file = io.BytesIO(await mod_file.read())
