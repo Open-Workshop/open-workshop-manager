@@ -867,7 +867,7 @@ async def list_mods(response: Response, request: Request, user_id:int, page:int 
     async with aiohttp.ClientSession() as session:
         url = SERVER_ADDRESS + f'/public/mod/{str(row_list_ids)}'
         print(url)
-        async with session.post(url=url) as ioresponse:
+        async with session.get(url=url) as ioresponse:
             result = await ioresponse.text()
             print(result)
             result = json.loads(result)
@@ -901,7 +901,7 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
 
 
     async with aiohttp.ClientSession() as session:
-        async with session.post(url=url) as ioresponse:
+        async with session.get(url=url) as ioresponse:
             result = await ioresponse.text()
             if ioresponse.status >= 200 and ioresponse.status < 300:
                 result = json.loads(result)
