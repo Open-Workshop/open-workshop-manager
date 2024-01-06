@@ -1143,6 +1143,8 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
     if mod_game is not None: url += f'&mod_game={mod_game}'
     if mod_public is not None: url += f'&mod_public={mod_public}'
 
+    print(url)
+
     if mod_file:
         real_mod_file = io.BytesIO(await mod_file.read())
         real_mod_file.name = mod_file.filename
