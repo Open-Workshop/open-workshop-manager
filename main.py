@@ -944,7 +944,7 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
                 return JSONResponse(status_code=200, content=result)
 
 @app.get(MAIN_URL+"/list/resources_mods/{mods_list_id}")
-async def list_resources_for_mods(mods_ids_list:list[int]):
+async def list_resources_for_mods(mods_ids_list):
     """
     Тестовая функция
     """
@@ -952,7 +952,7 @@ async def list_resources_for_mods(mods_ids_list:list[int]):
     return 0
 
 @app.get(MAIN_URL+"/list/tags/mods/{mods_ids_list}")
-async def list_tags_for_mods(mods_ids_list:list[int]):
+async def list_tags_for_mods(mods_ids_list):
     """
     Тестовая функция
     """
