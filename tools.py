@@ -3,6 +3,7 @@ from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import sessionmaker
 import aiohttp
+import datetime
 import json
 
 def str_to_list(string: str):
@@ -37,7 +38,7 @@ async def to_backend(response: Response, request: Request, url:str, body:dict = 
     else:
         return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
-async def mod_to_backend(response: Response, request: Request, url:str, body:dict = {}, no_members_access:bool = False):
+async def mod_to_backend(response: Response, request: Request, url:str, mod_id:int, body:dict = {}):
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
@@ -46,11 +47,24 @@ async def mod_to_backend(response: Response, request: Request, url:str, body:dic
 
         # Выполнение запроса
         session = Session()
-        row = session.query(account.Account).filter_by(id=access_result.get("owner_id", -1))
-        row_result = row.first()
+        user_req = session.query(account.Account).filter_by(id=access_result.get("owner_id", -1)).first()
 
-        #TODO тут нужна детальная проверка правомерности: чей мод, в каком статусе если в числе авторов и в этом контексте есть ли права на его редактирование
+        async def mini():
+            if user_req.admin:
+                return True
+            else:
+                if user_req.mute_until and user_req.mute_until > datetime.datetime.now():
+                    return False
 
+                in_mod = session.query(account.mod_and_author).filter_by(mod_id=mod_id, user_id=access_result.get("owner_id", -1)).first()
+
+                if in_mod:
+                    if user_req.change_self_mods:
+                        if in_mod.owner:
+                            return True
+                elif user_req.change_mods:
+                    return True
+            return False
         # АДМИН
         # или
         # ВЛАДЕЛЕЦ МОДА и НЕ В МУТЕ и ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ СВОИХ МОДОВ
@@ -62,15 +76,17 @@ async def mod_to_backend(response: Response, request: Request, url:str, body:dic
         #т.е.:
         #АДМИН или (НЕ В МУТЕ и ((в числе участников И имеет право на редактирование своих модов И (владелец ИЛИ действие не запрещено участникам)) ИЛИ не участник И имеет право на редактирование чужих модов))
 
-        if row_result.admin:
+        if await mini():
             async with aiohttp.ClientSession() as session:
                 async with session.post(url=url, data=body) as response:
                     result = await response.text()
                     if response.status >= 200 and response.status < 300:
                         result = json.loads(result)
 
+                    session.close()
                     return response.status, result, JSONResponse(status_code=200, content=result)
         else:
-            return -2, '', JSONResponse(status_code=403, content="Вы не админ!")
+            session.close()
+            return -2, '', JSONResponse(status_code=403, content="Заблокировано!")
     else:
         return -1, '', JSONResponse(status_code=401, content="Недействительный ключ сессии!")

@@ -1115,33 +1115,61 @@ async def add_mod(response: Response, request: Request, mod_name: str, mod_short
     """
     Тестовая функция
     """
-    url = SERVER_ADDRESS + f'/account/add/mod?token={config.token_add_mod}&mod_name={mod_name}&mod_short_description={mod_short_description}&mod_description={mod_description}&mod_source={mod_source}&mod_game={mod_game}&mod_public={mod_public}'
-    real_mod_file = io.BytesIO(await mod_file.read())
-    real_mod_file.name = mod_file.filename
+    access_result = await account.check_access(request=request, response=response)
 
-    result_code, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url, body={"mod_file": real_mod_file})
-
-    print(int(request.cookies.get('userID', 0)), result_code, flush=True)
-    print(result_data, flush=True)
-
-    if result_code in [201]:
+    if access_result and access_result.get("owner_id", -1) >= 0:
         # Создание сессии
         Session = sessionmaker(bind=account.engine)
-        session = Session()
 
         # Выполнение запроса
-        insert_statement = insert(account.mod_and_author).values(
-            user_id=int(request.cookies.get('userID', 0)),
-            owner=True,
-            mod_id=int(result_data)
-        )
-        session.execute(insert_statement)
+        session = Session()
+        user_req = session.query(account.Account).filter_by(id=access_result.get("owner_id", -1)).first()
 
-        # Подтверждение
-        session.commit()
-        session.close()
+        async def mini():
+            if user_req.admin:
+                return True
+            else:
+                if user_req.mute_until and user_req.mute_until > datetime.datetime.now():
+                    return False
+                elif user_req.publish_mods:
+                    return True
+            return False
 
-    return result
+        if await mini():
+            async with aiohttp.ClientSession() as session:
+                real_mod_file = io.BytesIO(await mod_file.read())
+                real_mod_file.name = mod_file.filename
+
+                url = SERVER_ADDRESS+f'/account/add/mod?token={config.token_add_mod}&mod_name={mod_name}&mod_short_description={mod_short_description}&mod_description={mod_description}&mod_source={mod_source}&mod_game={mod_game}&mod_public={mod_public}'
+
+                async with session.post(url=url, body={"mod_file": real_mod_file}) as response:
+                    result = await response.text()
+                    if response.status >= 200 and response.status < 300:
+                        result = json.loads(result)
+
+                    if response.status in [201]:
+                        # Создание сессии
+                        Session = sessionmaker(bind=account.engine)
+                        session = Session()
+
+                        # Выполнение запроса
+                        insert_statement = insert(account.mod_and_author).values(
+                            user_id=int(access_result.get("owner_id", -1)),
+                            owner=True,
+                            mod_id=int(result)
+                        )
+                        session.execute(insert_statement)
+
+                        # Подтверждение
+                        session.commit()
+
+                    session.close()
+                    return JSONResponse(status_code=200, content=result)
+        else:
+            session.close()
+            return JSONResponse(status_code=403, content="Заблокировано!")
+    else:
+        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
 
 @app.post(MAIN_URL+"/edit/game")
@@ -1291,7 +1319,7 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
     else:
         real_mod_file = ''
 
-    result_code, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url, body={"mod_file": real_mod_file})
+    result_code, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url, mod_id=mod_id, body={"mod_file": real_mod_file})
 
     return result
 
@@ -1333,23 +1361,55 @@ async def delete_mod(response: Response, request: Request, mod_id: int):
     """
     Тестовая функция
     """
-    url = SERVER_ADDRESS + f'/account/delete/mod?token={config.token_delete_mod}&mod_id={mod_id}'
-    code_result, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url, no_members_access=True)
+    access_result = await account.check_access(request=request, response=response)
 
-    if code_result in [202, 500]:
+    if access_result and access_result.get("owner_id", -1) >= 0:
         # Создание сессии
         Session = sessionmaker(bind=account.engine)
-        session = Session()
 
         # Выполнение запроса
-        delete_mod = account.mod_and_author.delete().where(account.mod_and_author.c.mod_id == mod_id)
+        session = Session()
+        user_req = session.query(account.Account).filter_by(id=access_result.get("owner_id", -1)).first()
 
-        # Выполнение операции DELETE
-        session.execute(delete_mod)
-        session.commit()
-        session.close()
+        async def mini():
+            if user_req.admin:
+                return True
+            else:
+                if user_req.mute_until and user_req.mute_until > datetime.datetime.now():
+                    return False
 
-    return result
+                in_mod = session.query(account.mod_and_author).filter_by(mod_id=mod_id, user_id=access_result.get("owner_id", -1)).first()
+
+                if in_mod:
+                    if user_req.delete_self_mods and in_mod.owner:
+                        return True
+                elif user_req.delete_mods:
+                    return True
+            return False
+
+        if await mini():
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url=SERVER_ADDRESS+f'/account/delete/mod?token={config.token_delete_mod}&mod_id={mod_id}') as response:
+                    result = await response.text()
+                    if response.status >= 200 and response.status < 300:
+                        result = json.loads(result)
+
+                    if response.status in [202, 500]:
+                        # Выполнение запроса
+                        delete_mod = account.mod_and_author.delete().where(account.mod_and_author.c.mod_id == mod_id)
+
+                        # Выполнение операции DELETE
+                        session.execute(delete_mod)
+                        session.commit()
+
+                    session.close()
+                    return JSONResponse(status_code=200, content=result)
+        else:
+            session.close()
+            return JSONResponse(status_code=403, content="Заблокировано!")
+    else:
+        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+
 
 
 @app.post(MAIN_URL+"/association/game/genre")
@@ -1374,7 +1434,7 @@ async def association_mod_with_tag(response: Response, request: Request, mod_id:
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/association/mod/tag?token={config.token_association_mod_tag}&mod_id={mod_id}&mode={mode}&tag_id={tag_id}'
-    code_result, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url)
+    code_result, result_data, result = await tools.mod_to_backend(response=response, request=request, mod_id=mod_id, url=url)
     return result
 
 @app.post(MAIN_URL+"/association/mod/dependencie")
@@ -1383,7 +1443,7 @@ async def association_mod_with_dependencie(response: Response, request: Request,
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/association/mod/dependencie?token={config.token_association_mod_dependencie}&mod_id={mod_id}&mode={mode}&dependencie={dependencie}'
-    code_result, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url)
+    code_result, result_data, result = await tools.mod_to_backend(response=response, request=request, mod_id=mod_id, url=url)
     return result
 
 
