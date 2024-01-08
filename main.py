@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Response, UploadFile
+from fastapi import FastAPI, Request, Response, UploadFile, File, Form
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.responses import RedirectResponse, HTMLResponse
 from sqlalchemy.orm import sessionmaker
@@ -445,7 +445,8 @@ async def logout(response: Response, request: Request):
 
 
 @app.get(MAIN_URL+"/profile/info/{user_id}")
-async def info_profile(response: Response, request: Request, user_id:int, general:bool = True, rights:bool = False, private:bool = False):
+async def info_profile(response: Response, request: Request, user_id:int, general:bool = True, rights:bool = False,
+                       private:bool = False):
     """
     Возвращает информацию о пользователях.
 
@@ -532,9 +533,10 @@ async def info_profile(response: Response, request: Request, user_id:int, genera
     return result
 
 @app.post(MAIN_URL+"/profile/edit/{user_id}")
-async def edit_profile(response: Response, request: Request, user_id: int, username: str = None,
-                       about: str = None, avatar: UploadFile = None, empty_avatar: bool = None, grade: str = None,
-                       off_password:bool = None, new_password: str = None, mute: datetime.datetime = None):
+async def edit_profile(response: Response, request: Request, user_id: int, username: str = Form(None),
+                       about: str = Form(None), avatar: UploadFile = File(None), empty_avatar: bool = Form(None),
+                       grade: str = Form(None), off_password:bool = Form(None), new_password: str = Form(None),
+                       mute: datetime.datetime = Form(None)):
     """
     Редактирование пользователей *(самого себя или другого юзера)*.
     """
@@ -736,15 +738,17 @@ async def edit_profile(response: Response, request: Request, user_id: int, usern
         return JSONResponse(status_code=500, content='В огромной функции произошла неизвестная ошибка...')
 
 @app.post(MAIN_URL+"/edit/profile/rights")
-async def edit_profile_rights(response: Response, request: Request, user_id:int, write_comments: bool = None,
-                              set_reactions: bool = None, create_reactions: bool = None, mute_users: bool = None,
-                              publish_mods: bool = None, change_authorship_mods: bool = None,
-                              change_self_mods: bool = None, change_mods: bool = None, delete_self_mods: bool = None,
-                              delete_mods: bool = None, create_forums: bool = None,
-                              change_authorship_forums: bool = None, change_self_forums: bool = None,
-                              change_forums: bool = None, delete_self_forums: bool = None, delete_forums: bool = None,
-                              change_username: bool = None, change_about: bool = None, change_avatar: bool = None,
-                              vote_for_reputation: bool = None):
+async def edit_profile_rights(response: Response, request: Request, user_id:int, write_comments: bool = Form(None),
+                              set_reactions: bool = Form(None), create_reactions: bool = Form(None),
+                              mute_users: bool = Form(None), publish_mods: bool = Form(None),
+                              change_authorship_mods: bool = Form(None), change_self_mods: bool = Form(None),
+                              change_mods: bool = Form(None), delete_self_mods: bool = Form(None),
+                              delete_mods: bool = Form(None), create_forums: bool = Form(None),
+                              change_authorship_forums: bool = Form(None), change_self_forums: bool = Form(None),
+                              change_forums: bool = Form(None), delete_self_forums: bool = Form(None),
+                              delete_forums: bool = Form(None), change_username: bool = Form(None),
+                              change_about: bool = Form(None), change_avatar: bool = Form(None),
+                              vote_for_reputation: bool = Form(None)):
     """
     Функция для изменения прав пользователей
     """
@@ -1077,41 +1081,57 @@ async def list_reaction():
 
 
 @app.post(MAIN_URL+"/add/game")
-async def add_game(response: Response, request: Request, game_name: str, game_short_desc: str, game_desc: str,
-                   game_type: str = "game", game_logo: str = ""):
+async def add_game(response: Response, request: Request, game_name: str = Form(...), game_short_desc: str = Form(...),
+                   game_desc: str = Form(...), game_type: str = Form("game"), game_logo: str = Form("")):
     """
     Тестовая функция
     """
-    url = SERVER_ADDRESS+f'/account/add/game?token={config.token_add_game}&game_name={game_name}&game_short_desc={game_short_desc}&game_desc={game_desc}&game_type={game_type}&game_logo={game_logo}'
-    return await tools.to_backend(response=response, request=request, url=url)
+    url = SERVER_ADDRESS+f'/account/add/game?token={config.token_add_game}'
+    return await tools.to_backend(response=response, request=request, url=url, body={
+        "game_name": game_name,
+        "game_short_desc": game_short_desc,
+        "game_desc": game_desc,
+        "game_type": game_type,
+        "game_logo": game_logo
+    })
 
 @app.post(MAIN_URL+"/add/genre")
-async def add_genre(response: Response, request: Request, genre_name: str):
+async def add_genre(response: Response, request: Request, genre_name: str = Form(...)):
     """
     Тестовая функция
     """
-    url = SERVER_ADDRESS + f'/account/add/genre?token={config.token_add_genre}&genre_name={genre_name}'
-    return await tools.to_backend(response=response, request=request, url=url)
+    url = SERVER_ADDRESS + f'/account/add/genre?token={config.token_add_genre}'
+    return await tools.to_backend(response=response, request=request, url=url, body={
+        "genre_name": genre_name
+    })
 
 @app.post(MAIN_URL+"/add/tag")
-async def add_tag(response: Response, request: Request, tag_name: str):
+async def add_tag(response: Response, request: Request, tag_name: str = Form(...)):
     """
     Тестовая функция
     """
-    url = SERVER_ADDRESS + f'/account/add/tag?token={config.token_add_tag}&tag_name={tag_name}'
-    return await tools.to_backend(response=response, request=request, url=url)
+    url = SERVER_ADDRESS + f'/account/add/tag?token={config.token_add_tag}'
+    return await tools.to_backend(response=response, request=request, url=url, body={
+        "tag_name": tag_name
+    })
 
 @app.post(MAIN_URL+"/add/resource")
-async def add_resource(response: Response, request: Request, resource_type_name: str, resource_url: str, resource_owner_id: int):
+async def add_resource(response: Response, request: Request, resource_type_name: str = Form(...),
+                       resource_url: str = Form(...), resource_owner_id: int = Form(...)):
     """
     Тестовая функция
     """
-    url = SERVER_ADDRESS + f'/account/add/resource?token={config.token_add_resource}&resource_type_name={resource_type_name}&resource_url={resource_url}&resource_owner_id={resource_owner_id}'
-    return await tools.to_backend(response=response, request=request, url=url)
+    url = SERVER_ADDRESS + f'/account/add/resource?token={config.token_add_resource}'
+    return await tools.to_backend(response=response, request=request, url=url, body={
+        "resource_type_name": resource_type_name,
+        "resource_url": resource_url,
+        "resource_owner_id": resource_owner_id
+    })
 
 @app.post(MAIN_URL+"/add/mod")
-async def add_mod(response: Response, request: Request, mod_name: str, mod_short_description: str,
-                  mod_description: str, mod_source: str, mod_game: int, mod_public: int, mod_file: UploadFile):
+async def add_mod(response: Response, request: Request, mod_name: str = Form(...),
+                  mod_short_description: str = Form(...), mod_description: str = Form(...), mod_source: str = Form(...),
+                  mod_game: int = Form(...), mod_public: int = Form(...), mod_file: UploadFile = File(...)):
     """
     Тестовая функция
     """
@@ -1140,9 +1160,17 @@ async def add_mod(response: Response, request: Request, mod_name: str, mod_short
                 real_mod_file = io.BytesIO(await mod_file.read())
                 real_mod_file.name = mod_file.filename
 
-                url = SERVER_ADDRESS+f'/account/add/mod?token={config.token_add_mod}&mod_name={mod_name}&mod_short_description={mod_short_description}&mod_description={mod_description}&mod_source={mod_source}&mod_game={mod_game}&mod_public={mod_public}'
+                url = SERVER_ADDRESS+f'/account/add/mod?token={config.token_add_mod}'
 
-                async with session.post(url=url, body={"mod_file": real_mod_file}) as response:
+                async with session.post(url=url, body={
+                    "mod_file": real_mod_file,
+                    "mod_name": mod_name,
+                    "mod_short_description": mod_short_description,
+                    "mod_description": mod_description,
+                    "mod_source": mod_source,
+                    "mod_game": mod_game,
+                    "mod_public": mod_public
+                }) as response:
                     result = await response.text()
                     if response.status >= 200 and response.status < 300:
                         result = json.loads(result)
@@ -1173,58 +1201,63 @@ async def add_mod(response: Response, request: Request, mod_name: str, mod_short
 
 
 @app.post(MAIN_URL+"/edit/game")
-async def edit_game(response: Response, request: Request, game_id: int, game_name: str = None,
-                    game_short_desc: str = None, game_desc: str = None, game_type: str = None, game_logo: str = None,
-                    game_source: str = None):
+async def edit_game(response: Response, request: Request, game_id: int, game_name: str = Form(None),
+                    game_short_desc: str = Form(None), game_desc: str = Form(None), game_type: str = Form(None),
+                    game_logo: str = Form(None), game_source: str = Form(None)):
     """
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/edit/game?token={config.token_edit_game}&game_id={game_id}'
-    if game_name is not None: url += f'&game_name={game_name}'
-    if game_short_desc is not None: url += f'&game_short_desc={game_short_desc}'
-    if game_desc is not None: url += f'&game_desc={game_desc}'
-    if game_type is not None: url += f'&game_type={game_type}'
-    if game_logo is not None: url += f'&game_logo={game_logo}'
-    if game_source is not None: url += f'&game_source={game_source}'
+    body = {}
+    if game_name is not None: body["game_name"] = game_name
+    if game_short_desc is not None: body["game_short_desc"] = game_short_desc
+    if game_desc is not None: body["game_desc"] = game_desc
+    if game_type is not None: body["game_type"] = game_type
+    if game_logo is not None: body["game_logo"] = game_logo
+    if game_source is not None: body["game_source"] = game_source
 
-    return await tools.to_backend(response=response, request=request, url=url)
+    return await tools.to_backend(response=response, request=request, url=url, body=body)
 
 @app.post(MAIN_URL+"/edit/genre")
-async def edit_genre(response: Response, request: Request, genre_id: int, genre_name: str = None):
+async def edit_genre(response: Response, request: Request, genre_id: int, genre_name: str = Form(None)):
     """
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/edit/genre?token={config.token_edit_genre}&genre_id={genre_id}'
-    if genre_name is not None: url+=f'&genre_name={genre_name}'
+    body = {}
+    if genre_name is not None: body["genre_name"] = genre_name
 
-    return await tools.to_backend(response=response, request=request, url=url)
+    return await tools.to_backend(response=response, request=request, url=url, body=body)
 
 @app.post(MAIN_URL+"/edit/tag")
-async def edit_tag(response: Response, request: Request, tag_id: int, tag_name: str = None):
+async def edit_tag(response: Response, request: Request, tag_id: int, tag_name: str = Form(None)):
     """
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/edit/tag?token={config.token_edit_tag}&tag_id={tag_id}'
-    if tag_name is not None: url+=f'&tag_name={tag_name}'
+    body = {}
+    if tag_name is not None: body["tag_name"] = tag_name
 
-    return await tools.to_backend(response=response, request=request, url=url)
+    return await tools.to_backend(response=response, request=request, url=url, body=body)
 
 @app.post(MAIN_URL+"/edit/resource")
-async def edit_resource(response: Response, request: Request, resource_id: int, resource_type: str = None,
-                        resource_url: str = None, resource_owner_id: int = None):
+async def edit_resource(response: Response, request: Request, resource_id: int, resource_type: str = Form(None),
+                        resource_url: str = Form(None), resource_owner_id: int = Form(None)):
     """
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/edit/resource?token={config.token_edit_resource}&resource_id={resource_id}'
-    if resource_type is not None: url+=f'&resource_type={resource_type}'
-    if resource_url is not None: url+=f'&resource_url={resource_url}'
-    if resource_owner_id is not None: url+=f'&resource_owner_id={resource_owner_id}'
+    body = {}
+    if resource_type is not None: body["resource_type"] = resource_type
+    if resource_url is not None: body["resource_url"] = resource_url
+    if resource_owner_id is not None: body["resource_owner_id"] = resource_owner_id
 
-    return await tools.to_backend(response=response, request=request, url=url)
+    return await tools.to_backend(response=response, request=request, url=url, body=body)
 
 
 @app.post(MAIN_URL+"/edit/mod/authors")
-async def edit_authors_mod(response: Response, request: Request, mod_id:int, mode:bool, author:int, owner:bool = False):
+async def edit_authors_mod(response: Response, request: Request, mod_id:int, mode:bool, author:int,
+                           owner:bool = False):
     """
     Тестовая функция
     """
@@ -1297,19 +1330,22 @@ async def edit_authors_mod(response: Response, request: Request, mod_id:int, mod
         return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
 @app.post(MAIN_URL+"/edit/mod")
-async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: str = None,
-                   mod_short_description: str = None, mod_description: str = None, mod_source: str = None,
-                   mod_game: int = None, mod_public: int = None, mod_file: UploadFile = None):
+async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: str = Form(None),
+                   mod_short_description: str = Form(None), mod_description: str = Form(None),
+                   mod_source: str = Form(None), mod_game: int = Form(None), mod_public: int = Form(None),
+                   mod_file: UploadFile = File(None)):
     """
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/edit/mod?token={config.token_edit_mod}&mod_id={mod_id}'
-    if mod_name is not None: url+=f'&mod_name={mod_name}'
-    if mod_short_description is not None: url += f'&mod_short_description={mod_short_description}'
-    if mod_description is not None: url += f'&mod_description={mod_description}'
-    if mod_source is not None: url += f'&mod_source={mod_source}'
-    if mod_game is not None: url += f'&mod_game={mod_game}'
-    if mod_public is not None: url += f'&mod_public={mod_public}'
+
+    body = {}
+    if mod_name is not None: body["mod_name"] = mod_name
+    if mod_short_description is not None: body["mod_short_description"] = mod_short_description
+    if mod_description is not None: body["mod_description"] = mod_description
+    if mod_source is not None: body["mod_source"] = mod_source
+    if mod_game is not None: body["mod_game"] = mod_game
+    if mod_public is not None: body["mod_public"] = mod_public
 
     print(url)
 
@@ -1318,8 +1354,9 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
         real_mod_file.name = mod_file.filename
     else:
         real_mod_file = ''
+    body["mod_file"] = real_mod_file
 
-    result_code, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url, mod_id=mod_id, body={"mod_file": real_mod_file})
+    result_code, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url, mod_id=mod_id, body=body)
 
     return result
 
@@ -1438,7 +1475,8 @@ async def association_mod_with_tag(response: Response, request: Request, mod_id:
     return result
 
 @app.post(MAIN_URL+"/association/mod/dependencie")
-async def association_mod_with_dependencie(response: Response, request: Request, mod_id: int, mode: bool, dependencie: int):
+async def association_mod_with_dependencie(response: Response, request: Request, mod_id: int, mode: bool,
+                                           dependencie: int):
     """
     Тестовая функция
     """
