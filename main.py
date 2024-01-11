@@ -333,7 +333,7 @@ async def yandex_complite(response: Response, request: Request, code:int):
 
     return "Если это окно не закрылось автоматически, можете закрыть его сами :)"
 
-@app.get(MAIN_URL+"/authorization/disconnect")
+@app.post(MAIN_URL+"/authorization/disconnect")
 async def disconnect_service(response: Response, request: Request, service_name: str):
     """
     Отвязываем один из сервисов от аккаунта, при этом OW не допустит чтобы от аккаунта были отвязаны все сервисы.
@@ -372,7 +372,7 @@ async def disconnect_service(response: Response, request: Request, service_name:
     else:
         return JSONResponse(status_code=403, content="Недействительный ключ сессии!")
 
-@app.get(MAIN_URL+"/authorization/delete")
+@app.post(MAIN_URL+"/authorization/delete")
 async def delete_account(response: Response, request: Request):
     """
     Удаление аккаунта. Сделать это может только сам пользователь, при этом удаляются только персональные данные пользователя.
