@@ -67,6 +67,13 @@ class Account(base): # Аккаунты юзеров
 
     vote_for_reputation = Column(Boolean, default=True)
 
+blocked_account_creation = Table('blocked_account_creation', base.metadata,
+    Column('yandex_id', Integer),
+    Column('google_id', String),
+    Column('forget', DateTime)
+)
+
+
 class Session(base): # Теги для модов
     __tablename__ = 'sessions'
     id = Column(Integer, primary_key=True)
@@ -257,7 +264,21 @@ async def check_session(user_access_token:str):
         session.close()
         return False
 
+async def forget_accounts():
+    # Создание сессии
+    USession = sessionmaker(bind=engine)
+    session = USession()
+
+    # Выполнение запроса
+    delete_member = blocked_account_creation.delete().where(blocked_account_creation.c.forget < datetime.datetime.now())
+
+    # Выполнение операции DELETE
+    session.execute(delete_member)
+    session.commit()
+    session.close()
+
 async def check_access(response: Response, request: Request):
+    await forget_accounts()
     if "accessToken" in request.cookies:
         access = await check_session(request.cookies.get("accessToken", ""))
         if access: return access

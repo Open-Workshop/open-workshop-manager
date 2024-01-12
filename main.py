@@ -165,6 +165,9 @@ async def google_complite(response: Response, request: Request, code:str, _state
     rows = session.query(account.Account.id).filter(account.Account.google_id == user_data["id"]).first()
 
     if not rows:
+        if session.query(account.blocked_account_creation).filter_by(google_id=user_data["id"]).first():
+            return "Этот аккаунт Google использовался в недавно удаленном аккаунте Open Workshop!"
+
         access_result = await account.check_access(request=request, response=response)
 
         if access_result and access_result.get("owner_id", -1) >= 0:
@@ -263,6 +266,9 @@ async def yandex_complite(response: Response, request: Request, code:int):
     rows = session.query(account.Account.id).filter(account.Account.yandex_id == user_data.id).first()
 
     if not rows:
+        if session.query(account.blocked_account_creation).filter_by(yandex_id=user_data.id).first():
+            return "Этот аккаунт Yandex использовался в недавно удаленном аккаунте Open Workshop!"
+
         access_result = await account.check_access(request=request, response=response)
 
         if access_result and access_result.get("owner_id", -1) >= 0:
@@ -387,8 +393,20 @@ async def delete_account(response: Response, request: Request):
 
         # Выполнение запроса
         session = Session()
-
         user_id = access_result.get("owner_id", -1)
+
+
+        # Заносим в базу (блокируем на 5 дней создание аккаунта с такими же вводными)
+        row = session.query(account.Account).filter_by(id=user_id).first()
+        insert_statement = insert(account.blocked_account_creation).values(
+            yandex_id=row.yandex_id,
+            google_id=row.google_id,
+
+            forget=datetime.datetime.now()+datetime.timedelta(days=5)
+        )
+        # Выполнение операции INSERT
+        session.execute(insert_statement)
+        session.commit()
 
         session.query(account.Account).filter_by(id=user_id).update({
             "yandex_id": None,
