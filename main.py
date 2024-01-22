@@ -1454,8 +1454,8 @@ async def delete_mod(response: Response, request: Request, mod_id: int):
             return False
 
         if await mini():
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url=SERVER_ADDRESS+f'/account/delete/mod?token={config.token_delete_mod}&mod_id={mod_id}') as response:
+            async with aiohttp.ClientSession() as NETsession:
+                async with NETsession.post(url=SERVER_ADDRESS+f'/account/delete/mod?token={config.token_delete_mod}&mod_id={mod_id}') as response:
                     result = await response.text()
                     if response.status >= 200 and response.status < 300:
                         result = json.loads(result)
