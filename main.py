@@ -1192,24 +1192,14 @@ async def add_mod(response: Response, request: Request, mod_name: str = Form(...
 
                 url = SERVER_ADDRESS+f'/account/add/mod?token={config.token_add_mod}'
 
-                print({
+                async with NETsession.post(url=url, data={
                     "mod_file": real_mod_file,
                     "mod_name": mod_name,
                     "mod_short_description": mod_short_description,
                     "mod_description": mod_description,
                     "mod_source": mod_source,
-                    "mod_game": mod_game,
-                    "mod_public": mod_public
-                }, flush=True)
-
-                async with NETsession.post(url=url, body={
-                    "mod_file": real_mod_file,
-                    "mod_name": mod_name,
-                    "mod_short_description": mod_short_description,
-                    "mod_description": mod_description,
-                    "mod_source": mod_source,
-                    "mod_game": mod_game,
-                    "mod_public": mod_public
+                    "mod_game": str(mod_game),
+                    "mod_public": str(mod_public)
                 }) as response:
                     result = await response.text()
                     if response.status >= 200 and response.status < 300:
