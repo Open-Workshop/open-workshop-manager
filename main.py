@@ -1192,6 +1192,16 @@ async def add_mod(response: Response, request: Request, mod_name: str = Form(...
 
                 url = SERVER_ADDRESS+f'/account/add/mod?token={config.token_add_mod}'
 
+                print({
+                    "mod_file": real_mod_file,
+                    "mod_name": mod_name,
+                    "mod_short_description": mod_short_description,
+                    "mod_description": mod_description,
+                    "mod_source": mod_source,
+                    "mod_game": mod_game,
+                    "mod_public": mod_public
+                }, flush=True)
+
                 async with NETsession.post(url=url, body={
                     "mod_file": real_mod_file,
                     "mod_name": mod_name,
