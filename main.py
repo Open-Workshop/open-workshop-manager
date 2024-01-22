@@ -144,15 +144,15 @@ async def google_complite(response: Response, request: Request, code:str, _state
     ru = await account.no_from_russia(request=request)
     if ru: return ru
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession() as NETsession:
         data_complite = data.copy()
         data_complite["code"] = urllib.parse.unquote(code)
 
-        async with session.post('https://oauth2.googleapis.com/token', data=data_complite) as token_response:
+        async with NETsession.post('https://oauth2.googleapis.com/token', data=data_complite) as token_response:
             google_access = await token_response.json()
             print(google_access)
 
-            async with session.get('https://www.googleapis.com/oauth2/v1/userinfo', headers={
+            async with NETsession.get('https://www.googleapis.com/oauth2/v1/userinfo', headers={
                 'Authorization': f'Bearer {google_access["access_token"]}'}) as user_info_response:
                 user_data = await user_info_response.json()
 
@@ -209,8 +209,8 @@ async def google_complite(response: Response, request: Request, code:str, _state
             if len(user_data.get("picture", "")) > 0:
                 session.commit()
                 session.close()
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(user_data["picture"]) as resp:
+                async with aiohttp.ClientSession() as NETsession:
+                    async with NETsession.get(user_data["picture"]) as resp:
                         if resp.status == 200:
                             # Сохраняем изображение
                             # Чтение и конвертация изображения
@@ -304,8 +304,8 @@ async def yandex_complite(response: Response, request: Request, code:int):
             if not user_data.is_avatar_empty:
                 session.commit()
                 session.close()
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(f"https://avatars.yandex.net/get-yapic/{user_data.default_avatar_id}/islands-200") as resp:
+                async with aiohttp.ClientSession() as NETsession:
+                    async with NETsession.get(f"https://avatars.yandex.net/get-yapic/{user_data.default_avatar_id}/islands-200") as resp:
                         if resp.status == 200:
                             # Сохраняем изображение
                             # Чтение и конвертация изображения
@@ -890,10 +890,10 @@ async def list_mods(response: Response, request: Request, user_id:int, page:int 
         session.close()
         return {}
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession() as NETsession:
         url = SERVER_ADDRESS + f'/public/mod/{str(row_list_ids)}?catalog=true'
         print(url)
-        async with session.get(url=url) as ioresponse:
+        async with NETsession.get(url=url) as ioresponse:
             result = await ioresponse.text()
             print(result)
             result = json.loads(result)
@@ -926,8 +926,8 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
     if game: url+=f'&game={game}'
 
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url=url) as ioresponse:
+    async with aiohttp.ClientSession() as NETsession:
+        async with NETsession.get(url=url) as ioresponse:
             result = await ioresponse.text()
             if ioresponse.status >= 200 and ioresponse.status < 300:
                 result = json.loads(result)
@@ -996,8 +996,8 @@ async def list_resources_for_mods(response: Response, request: Request, mods_ids
     elif page < 0:
         return JSONResponse(status_code=413, content={"message": "incorrect page", "error_id": 4})
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url=SERVER_ADDRESS+f'/public/mod/{str(mods_ids_list)}') as ioresponse:
+    async with aiohttp.ClientSession() as NETsession:
+        async with NETsession.get(url=SERVER_ADDRESS+f'/public/mod/{str(mods_ids_list)}') as ioresponse:
             result = json.loads(await ioresponse.text())
 
             l = []
@@ -1009,6 +1009,10 @@ async def list_resources_for_mods(response: Response, request: Request, mods_ids
                 access_result = await account.check_access(request=request, response=response)
 
                 if access_result and access_result.get("owner_id", -1) >= 0:
+                    # Создание сессии
+                    Session = sessionmaker(bind=account.engine)
+                    session = Session()
+
                     row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1)).first()
 
                     rowT = session.query(account.mod_and_author).filter_by(user_id=access_result.get("owner_id", -1))
@@ -1017,17 +1021,17 @@ async def list_resources_for_mods(response: Response, request: Request, mods_ids
                     if rowT.count() != len(l) and not row.admin:
                         session.close()
                         return JSONResponse(status_code=403, content="Доступ воспрещен!")
-                else:
                     session.close()
+                else:
                     return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession() as NETsession:
                 url = SERVER_ADDRESS+f'/list/resources_mods/{str(mods_ids_list)}?token={config.token_info_mod}'
                 if page_size is not None: url+=f'&page_size={page_size}'
                 if page is not None: url+=f'&page={page}'
                 if types_resources is not None: url+=f'&types_resources={types_resources}'
 
-                async with session.get(url=url) as aioresponse:
+                async with NETsession.get(url=url) as aioresponse:
                     return json.loads(await aioresponse.text())
 
 @app.get(MAIN_URL+"/list/tags/mods/{mods_ids_list}")
@@ -1042,8 +1046,8 @@ async def list_tags_for_mods(response: Response, request: Request, mods_ids_list
     if len(tags) + len(mods_ids_list) > 80:
         return JSONResponse(status_code=413, content={"message": "the maximum complexity of filters is 80 elements in sum", "error_id": 2})
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url=SERVER_ADDRESS+f'/public/mod/{str(mods_ids_list)}') as ioresponse:
+    async with aiohttp.ClientSession() as NETsession:
+        async with NETsession.get(url=SERVER_ADDRESS+f'/public/mod/{str(mods_ids_list)}') as ioresponse:
             result = json.loads(await ioresponse.text())
 
             l = []
@@ -1055,6 +1059,10 @@ async def list_tags_for_mods(response: Response, request: Request, mods_ids_list
                 access_result = await account.check_access(request=request, response=response)
 
                 if access_result and access_result.get("owner_id", -1) >= 0:
+                    # Создание сессии
+                    Session = sessionmaker(bind=account.engine)
+                    session = Session()
+
                     row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1)).first()
 
                     rowT = session.query(account.mod_and_author).filter_by(user_id=access_result.get("owner_id", -1))
@@ -1063,17 +1071,16 @@ async def list_tags_for_mods(response: Response, request: Request, mods_ids_list
                     if rowT.count() != len(l) and not row.admin:
                         session.close()
                         return JSONResponse(status_code=403, content="Доступ воспрещен!")
-                else:
                     session.close()
+                else:
                     return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
-            async with aiohttp.ClientSession() as session:
-                url = SERVER_ADDRESS+f'/list/tags/mods/{str(mods_ids_list)}?token={config.token_info_mod}'
-                if tags is not None: url+=f'&tags={str(tags)}'
-                if only_ids is not None: url+=f'&only_ids={only_ids}'
+            url = SERVER_ADDRESS+f'/list/tags/mods/{str(mods_ids_list)}?token={config.token_info_mod}'
+            if tags is not None: url+=f'&tags={str(tags)}'
+            if only_ids is not None: url+=f'&only_ids={only_ids}'
 
-                async with session.get(url=url) as aioresponse:
-                    return json.loads(await aioresponse.text())
+            async with NETsession.get(url=url) as aioresponse:
+                return json.loads(await aioresponse.text())
 
 
 @app.get(MAIN_URL+"/list/forum/")
@@ -1179,13 +1186,13 @@ async def add_mod(response: Response, request: Request, mod_name: str = Form(...
             return False
 
         if await mini():
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession() as NETsession:
                 real_mod_file = io.BytesIO(await mod_file.read())
                 real_mod_file.name = mod_file.filename
 
                 url = SERVER_ADDRESS+f'/account/add/mod?token={config.token_add_mod}'
 
-                async with session.post(url=url, body={
+                async with NETsession.post(url=url, body={
                     "mod_file": real_mod_file,
                     "mod_name": mod_name,
                     "mod_short_description": mod_short_description,
