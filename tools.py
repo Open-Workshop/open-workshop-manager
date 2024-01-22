@@ -77,8 +77,8 @@ async def mod_to_backend(response: Response, request: Request, url:str, mod_id:i
         #АДМИН или (НЕ В МУТЕ и ((в числе участников И имеет право на редактирование своих модов И (владелец ИЛИ действие не запрещено участникам)) ИЛИ не участник И имеет право на редактирование чужих модов))
 
         if await mini():
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url=url, data=body) as response:
+            async with aiohttp.ClientSession() as NETsession:
+                async with NETsession.post(url=url, data=body) as response:
                     result = await response.text()
                     if response.status >= 200 and response.status < 300:
                         result = json.loads(result)
