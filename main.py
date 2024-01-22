@@ -1148,7 +1148,7 @@ async def add_resource(response: Response, request: Request, resource_type_name:
 
 @app.post(MAIN_URL+"/add/mod")
 async def add_mod(response: Response, request: Request, mod_name: str = Form(...),
-                  mod_short_description: str = Form(...), mod_description: str = Form(...), mod_source: str = Form(...),
+                  mod_short_description: str = Form(''), mod_description: str = Form(''), mod_source: str = Form(...),
                   mod_game: int = Form(...), mod_public: int = Form(...), mod_file: UploadFile = File(...)):
     """
     Тестовая функция
@@ -1156,6 +1156,11 @@ async def add_mod(response: Response, request: Request, mod_name: str = Form(...
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
+        if len(mod_short_description) > 256:
+            return JSONResponse(status_code=413, content="Короткое описание слишком длинное!")
+        elif len(mod_description) > 10000:
+            return JSONResponse(status_code=413, content="Описание слишком длинное!")
+
         # Создание сессии
         Session = sessionmaker(bind=account.engine)
 
@@ -1359,8 +1364,14 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
 
     body = {}
     if mod_name is not None: body["mod_name"] = mod_name
-    if mod_short_description is not None: body["mod_short_description"] = mod_short_description
-    if mod_description is not None: body["mod_description"] = mod_description
+    if mod_short_description is not None:
+        if len(mod_short_description) > 256:
+            return JSONResponse(status_code=413, content="Короткое описание слишком длинное!")
+        body["mod_short_description"] = mod_short_description
+    if mod_description is not None:
+        if len(mod_description) > 10000:
+            return JSONResponse(status_code=413, content="Описание слишком длинное!")
+        body["mod_description"] = mod_description
     if mod_source is not None: body["mod_source"] = mod_source
     if mod_game is not None: body["mod_game"] = mod_game
     if mod_public is not None: body["mod_public"] = mod_public
