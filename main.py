@@ -1167,6 +1167,10 @@ async def add_mod(response: Response, request: Request, mod_name: str = Form(...
             return JSONResponse(status_code=413, content="Короткое описание слишком длинное!")
         elif len(mod_description) > 10000:
             return JSONResponse(status_code=413, content="Описание слишком длинное!")
+        elif len(mod_name) > 60:
+            return JSONResponse(status_code=413, content="Название слишком длинное!")
+        elif len(mod_name) < 1:
+            return JSONResponse(status_code=411, content="Название слишком короткое!")
 
         # Создание сессии
         Session = sessionmaker(bind=account.engine)
@@ -1370,7 +1374,12 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
     url = SERVER_ADDRESS + f'/account/edit/mod?token={config.token_edit_mod}&mod_id={mod_id}'
 
     body = {}
-    if mod_name is not None: body["mod_name"] = mod_name
+    if mod_name is not None:
+        if len(mod_name) > 60:
+            return JSONResponse(status_code=413, content="Название слишком длинное!")
+        elif len(mod_name) < 1:
+            return JSONResponse(status_code=411, content="Название слишком короткое!")
+        body["mod_name"] = mod_name
     if mod_short_description is not None:
         if len(mod_short_description) > 256:
             return JSONResponse(status_code=413, content="Короткое описание слишком длинное!")
