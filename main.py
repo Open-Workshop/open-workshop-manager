@@ -1171,6 +1171,8 @@ async def add_mod(response: Response, request: Request, mod_name: str = Form(...
             return JSONResponse(status_code=413, content="Название слишком длинное!")
         elif len(mod_name) < 1:
             return JSONResponse(status_code=411, content="Название слишком короткое!")
+        elif not await tools.check_game_exists(mod_game):
+            return JSONResponse(status_code=412, content="Такой игры не существует!")
 
         # Создание сессии
         Session = sessionmaker(bind=account.engine)
@@ -1389,7 +1391,10 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
             return JSONResponse(status_code=413, content="Описание слишком длинное!")
         body["mod_description"] = mod_description
     if mod_source is not None: body["mod_source"] = mod_source
-    if mod_game is not None: body["mod_game"] = mod_game
+    if mod_game is not None:
+        if not await tools.check_game_exists(mod_game):
+            return JSONResponse(status_code=412, content="Такой игры не существует!")
+        body["mod_game"] = mod_game
     if mod_public is not None: body["mod_public"] = mod_public
 
     print(url)

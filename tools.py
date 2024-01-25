@@ -90,3 +90,10 @@ async def mod_to_backend(response: Response, request: Request, url:str, mod_id:i
             return -2, '', JSONResponse(status_code=403, content="Заблокировано!")
     else:
         return -1, '', JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+
+async def check_game_exists(game_id:int) -> bool:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f'https://api.openworkshop.su/info/game/{game_id}') as response:
+            result = json.loads(await response.text())
+
+            return bool(type(result['result']) is dict and len(result['result']) > 0)
