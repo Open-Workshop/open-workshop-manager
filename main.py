@@ -979,7 +979,7 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
 
                 return JSONResponse(status_code=200, content=result)
 
-@app.get(MAIN_URL+"/list/resources_mods/{mods_list_id}")
+@app.get(MAIN_URL+"/list/resources_mods/{mods_ids_list}")
 async def list_resources_for_mods(response: Response, request: Request, mods_ids_list, page_size: int = 10,
                                   page: int = 0, types_resources=[]):
     """
