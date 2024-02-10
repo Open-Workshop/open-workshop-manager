@@ -1147,7 +1147,7 @@ async def add_resource(response: Response, request: Request, resource_type_name:
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/add/resource?token={config.token_add_resource}'
-    return await tools.to_backend(response=response, request=request, url=url, body={
+    return await tools.mod_to_backend(response=response, request=request, mod_id=resource_owner_id, url=url, body={
         "resource_type_name": resource_type_name,
         "resource_url": resource_url,
         "resource_owner_id": resource_owner_id
