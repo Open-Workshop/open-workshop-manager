@@ -517,7 +517,7 @@ async def info_profile(response: Response, request: Request, user_id:int, genera
                 result["rights"]["change_authorship_mods"] = row.change_authorship_mods
                 result["rights"]["change_self_mods"] = row.change_self_mods
                 result["rights"]["change_mods"] = row.change_mods
-                result["rights"]["delete_self_mods"] = row.admin
+                result["rights"]["delete_self_mods"] = row.delete_self_mods
                 result["rights"]["delete_mods"] = row.delete_mods
                 result["rights"]["mute_users"] = row.mute_users
                 result["rights"]["create_forums"] = row.create_forums
