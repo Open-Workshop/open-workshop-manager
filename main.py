@@ -1282,13 +1282,20 @@ async def edit_resource(response: Response, request: Request, resource_id: int, 
     """
     Тестовая функция
     """
-    url = SERVER_ADDRESS + f'/account/edit/resource?token={config.token_edit_resource}&resource_id={resource_id}'
-    body = {}
-    if resource_type is not None: body["resource_type"] = resource_type
-    if resource_url is not None: body["resource_url"] = resource_url
-    if resource_owner_id is not None: body["resource_owner_id"] = resource_owner_id
+    async with aiohttp.ClientSession() as NETsession:
+        async with NETsession.get(url=SERVER_ADDRESS+f'/list/resources/%5B{resource_id}%5D?token={ow_config.token_info_mod}') as aioresponse:
+            data_res = json.loads(await aioresponse.text())
 
-    return await tools.to_backend(response=response, request=request, url=url, body=body)
+            if data_res["database_size"] <= 0:
+                return JSONResponse(status_code=404, content="Ресурс не найден!")
+            else:
+                url = SERVER_ADDRESS + f'/account/edit/resource?token={config.token_edit_resource}&resource_id={resource_id}'
+                body = {}
+                if resource_type is not None: body["resource_type"] = resource_type
+                if resource_url is not None: body["resource_url"] = resource_url
+                if resource_owner_id is not None: body["resource_owner_id"] = resource_owner_id
+
+                return await tools.mod_to_backend(response=response, request=request, url=url, body=body, mod_id=data_res["results"][0]["owner_id"])
 
 
 @app.post(MAIN_URL+"/edit/mod/authors")
@@ -1440,8 +1447,15 @@ async def delete_resource(response: Response, request: Request, resource_id: int
     """
     Тестовая функция
     """
-    url = SERVER_ADDRESS + f'/account/delete/resource?token={config.token_delete_resource}&resource_id={resource_id}'
-    return await tools.to_backend(response=response, request=request, url=url)
+    async with aiohttp.ClientSession() as NETsession:
+        async with NETsession.get(url=SERVER_ADDRESS+f'/list/resources/%5B{resource_id}%5D?token={ow_config.token_info_mod}') as aioresponse:
+            data_res = json.loads(await aioresponse.text())
+
+            if data_res["database_size"] <= 0:
+                return JSONResponse(status_code=404, content="Ресурс не найден!")
+            else:
+                url = SERVER_ADDRESS + f'/account/delete/resource?token={config.token_delete_resource}&resource_id={resource_id}'
+                return await tools.mod_to_backend(response=response, request=request, url=url, mod_id=data_res["results"][0]["owner_id"])
 
 @app.post(MAIN_URL+"/delete/mod")
 async def delete_mod(response: Response, request: Request, mod_id: int):
