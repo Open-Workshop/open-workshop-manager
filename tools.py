@@ -84,7 +84,7 @@ async def mod_to_backend(response: Response, request: Request, url:str, mod_id:i
                         result = json.loads(result)
 
                     session.close()
-                    return response.status, result, JSONResponse(status_code=200, content=result)
+                    return response.status, result, JSONResponse(status_code=response.status, content=result)
         else:
             session.close()
             return -2, '', JSONResponse(status_code=403, content="Заблокировано!")
