@@ -1148,11 +1148,12 @@ async def add_resource(response: Response, request: Request, resource_type_name:
     Тестовая функция
     """
     url = SERVER_ADDRESS + f'/account/add/resource?token={config.token_add_resource}'
-    return await tools.mod_to_backend(response=response, request=request, mod_id=resource_owner_id, url=url, body={
+    result_req = await tools.mod_to_backend(response=response, request=request, mod_id=resource_owner_id, url=url, body={
         "resource_type_name": resource_type_name,
         "resource_url": resource_url,
         "resource_owner_id": resource_owner_id
     })
+    return result_req[2]
 
 @app.post(MAIN_URL+"/add/mod")
 async def add_mod(response: Response, request: Request, mod_name: str = Form(...),
@@ -1296,7 +1297,8 @@ async def edit_resource(response: Response, request: Request, resource_id: int, 
                 if resource_url is not None: body["resource_url"] = resource_url
                 if resource_owner_id is not None: body["resource_owner_id"] = resource_owner_id
 
-                return await tools.mod_to_backend(response=response, request=request, url=url, body=body, mod_id=data_res["results"][0]["owner_id"])
+                result_req = await tools.mod_to_backend(response=response, request=request, url=url, body=body, mod_id=data_res["results"][0]["owner_id"])
+                return result_req[2]
 
 
 @app.post(MAIN_URL+"/edit/mod/authors")
@@ -1456,7 +1458,9 @@ async def delete_resource(response: Response, request: Request, resource_id: int
                 return JSONResponse(status_code=404, content="Ресурс не найден!")
             else:
                 url = SERVER_ADDRESS + f'/account/delete/resource?token={config.token_delete_resource}&resource_id={resource_id}'
-                return await tools.mod_to_backend(response=response, request=request, url=url, mod_id=data_res["results"][0]["owner_id"])
+
+                result_req = await tools.mod_to_backend(response=response, request=request, url=url, mod_id=data_res["results"][0]["owner_id"])
+                return result_req[2]
 
 @app.post(MAIN_URL+"/delete/mod")
 async def delete_mod(response: Response, request: Request, mod_id: int):
