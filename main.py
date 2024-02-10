@@ -1283,7 +1283,7 @@ async def edit_resource(response: Response, request: Request, resource_id: int, 
     Тестовая функция
     """
     async with aiohttp.ClientSession() as NETsession:
-        async with NETsession.get(url=SERVER_ADDRESS+f'/list/resources/%5B{resource_id}%5D?token={ow_config.token_info_mod}') as aioresponse:
+        async with NETsession.get(url=SERVER_ADDRESS+f'/list/resources/%5B{resource_id}%5D?token={config.token_info_mod}') as aioresponse:
             data_res = json.loads(await aioresponse.text())
 
             if data_res["database_size"] <= 0:
@@ -1448,7 +1448,7 @@ async def delete_resource(response: Response, request: Request, resource_id: int
     Тестовая функция
     """
     async with aiohttp.ClientSession() as NETsession:
-        async with NETsession.get(url=SERVER_ADDRESS+f'/list/resources/%5B{resource_id}%5D?token={ow_config.token_info_mod}') as aioresponse:
+        async with NETsession.get(url=SERVER_ADDRESS+f'/list/resources/%5B{resource_id}%5D?token={config.token_info_mod}') as aioresponse:
             data_res = json.loads(await aioresponse.text())
 
             if data_res["database_size"] <= 0:
