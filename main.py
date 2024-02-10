@@ -19,6 +19,7 @@ import urllib
 import random
 import string
 import io
+import re
 
 
 SERVER_ADDRESS = "http://127.0.0.1:8000"
@@ -1163,9 +1164,9 @@ async def add_mod(response: Response, request: Request, mod_name: str = Form(...
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
-        if len(mod_short_description) > 256:
+        if len(re.sub(r'\s+', ' ', mod_short_description)) > 256:
             return JSONResponse(status_code=413, content="Короткое описание слишком длинное!")
-        elif len(mod_description) > 10000:
+        elif len(re.sub(r'\s+', ' ', mod_description)) > 10000:
             return JSONResponse(status_code=413, content="Описание слишком длинное!")
         elif len(mod_name) > 60:
             return JSONResponse(status_code=413, content="Название слишком длинное!")
@@ -1390,11 +1391,11 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
             return JSONResponse(status_code=411, content="Название слишком короткое!")
         body["mod_name"] = mod_name
     if mod_short_description is not None:
-        if len(mod_short_description) > 256:
+        if len(re.sub(r'\s+', ' ', mod_short_description)) > 256:
             return JSONResponse(status_code=413, content="Короткое описание слишком длинное!")
         body["mod_short_description"] = mod_short_description
     if mod_description is not None:
-        if len(mod_description) > 10000:
+        if len(re.sub(r'\s+', ' ', mod_description)) > 10000:
             return JSONResponse(status_code=413, content="Описание слишком длинное!")
         body["mod_description"] = mod_description
     if mod_source is not None: body["mod_source"] = mod_source
