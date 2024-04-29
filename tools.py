@@ -35,9 +35,9 @@ async def to_backend(response: Response, request: Request, url:str, body:dict = 
                     try:
                         result = json.loads(result)
                     except:
-                        print('tools.to_backend: JSON.loads error')
+                        print('tools.to_backend: JSON.loads error: '+str(result))
 
-                    return JSONResponse(status_code=response.status, content=json.loads(result))
+                    return JSONResponse(status_code=response.status, content=result)
         else:
             return JSONResponse(status_code=403, content="Вы не админ!")
     else:
