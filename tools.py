@@ -32,6 +32,11 @@ async def to_backend(response: Response, request: Request, url:str, body:dict = 
                 async with session.post(url, data=body) as response:
                     result = await response.text()
 
+                    try:
+                        result = json.loads(result)
+                    except:
+                        print('tools.to_backend: JSON.loads error')
+
                     return JSONResponse(status_code=response.status, content=json.loads(result))
         else:
             return JSONResponse(status_code=403, content="Вы не админ!")
