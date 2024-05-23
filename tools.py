@@ -33,15 +33,14 @@ def str_to_list(string: str):
         string = []
     return string
 
-async def mod_to_backend(response: Response, request: Request, url:str, mod_id:int, body:dict = {}):
+async def access_edit_mod(response: Response, request: Request, mod_id:int):
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
         # Создание сессии
-        Session = sessionmaker(bind=account.engine)
+        session = sessionmaker(bind=account.engine)()
 
         # Выполнение запроса
-        session = Session()
         user_req = session.query(account.Account).filter_by(id=access_result.get("owner_id", -1)).first()
 
         async def mini():
@@ -72,19 +71,13 @@ async def mod_to_backend(response: Response, request: Request, url:str, mod_id:i
         #АДМИН или (НЕ В МУТЕ и ((в числе участников И имеет право на редактирование своих модов И (владелец ИЛИ действие не запрещено участникам)) ИЛИ не участник И имеет право на редактирование чужих модов))
 
         if await mini():
-            async with aiohttp.ClientSession() as NETsession:
-                async with NETsession.post(url=url, data=body) as response:
-                    result = await response.text()
-                    if response.status >= 200 and response.status < 300:
-                        result = json.loads(result)
-
-                    session.close()
-                    return response.status, result, JSONResponse(status_code=response.status, content=result)
+            session.close()
+            return True
         else:
             session.close()
-            return -2, '', JSONResponse(status_code=403, content="Заблокировано!")
+            return JSONResponse(status_code=403, content="Заблокировано!")
     else:
-        return -1, '', JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
 async def check_game_exists(game_id:int) -> bool:
     async with aiohttp.ClientSession() as session:

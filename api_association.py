@@ -111,8 +111,7 @@ async def association_mod_with_tag(
     mode (bool) - Режим работы функции. True - добавление ассоциации. False - удаление ассоциации.
     tag_id (int) - ID тега
     """
-    access_result = await tools.access_admin(response=response, request=request) # TODO Не только админ может назначать теги модов
-    # Если админ ИЛИ (не в муте и (пользователь есть в списке владельцев мода И имеет права на редактирование своих модов) ИЛИ (имеет права редактировать чужие моды))
+    access_result = await tools.access_edit_mod(response=response, request=request, mod_id=mod_id)
 
     if access_result == True:
         session = sessionmaker(bind=catalog.engine)()
@@ -155,8 +154,7 @@ async def association_mod_with_dependencie(
     mode (bool) - Режим работы функции. True - добавление ассоциации. False - удаление ассоциации.
     dependencie (int) - ID зависимости (мода)
     """
-    access_result = await tools.access_admin(response=response, request=request) # TODO Не только админ может назначать зависимости
-    # Если админ ИЛИ (не в муте и (пользователь есть в списке владельцев мода И имеет права на редактирование своих модов) ИЛИ (имеет права редактировать чужие моды))
+    access_result = await tools.access_edit_mod(response=response, request=request, mod_id=mod_id)
 
     if access_result == True:
         session = sessionmaker(bind=catalog.engine)()
