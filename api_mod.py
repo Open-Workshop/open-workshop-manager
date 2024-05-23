@@ -144,10 +144,10 @@ async def public_mods(ids_array, catalog:bool = False):
     return output
 
 @router.get("/list/mods/")
-async def mod_list(page_size: int = 10, page: int = 0, sort: str = "DOWNLOADS", tags=[],
-                   game: int = -1, allowed_ids=[], dependencies: bool = False, primary_sources=[], name: str = "",
-                   short_description: bool = False, description: bool = False, dates: bool = False,
-                   general: bool = True):
+async def mod_list(response: Response, request: Request, page_size: int = 10, page: int = 0, sort: str = "DOWNLOADS",
+                   tags=[], game: int = -1, allowed_ids=[], dependencies: bool = False, primary_sources=[],
+                   name: str = "", short_description: bool = False, description: bool = False, dates: bool = False,
+                   general: bool = True, user: int = 0, user_owner: int = -1, user_catalog: bool = True):
     """
     Возвращает список модов к конкретной игре, которые есть на сервере. Не до конца провалидированные моды и не полностью публичные моды в список не попадают.
 
@@ -173,10 +173,15 @@ async def mod_list(page_size: int = 10, page: int = 0, sort: str = "DOWNLOADS", 
     1. `tags` - передать список тегов которые должен содержать мод *(по умолчанию пуст)* *(нужно передать ID тегов)*.
     2. `game` - ID игры за которой закреплен мод *(фильтр работает если `значение > 0`)*.
     3. `allowed_ids` - если передан хотя бы один элемент, идет выдача конкретно этих модов.
-    4. `dependencies` - отфильтровывает моды у которых есть зависимости на другие моды. *(булевка)*
+    4. `dependencies` *(bool)* - отфильтровывает моды у которых есть зависимости на другие моды.
     5. `primary_sources` - список допустимых первоисточников.
     6. `name` - поиск по имени. Например `name=Harmony` *(в отличии от передаваемых списков, тут скобки не нужны)*.
     Работает как проверка есть ли у мода в названии определенная последовательности символов.
+    7. `user` *(int)* - если > 0, то фильтрует по конкретному переданному пользователю.
+    8. `user_owner` *(int)* - учитывается, если фильтрация по user активна. Если 0 возвращает моды, где юзер "создатель".
+    Если 1, то возвращает моды где юзре "соавтор". При других значениях (рекомендую -1) фильтрация по этому признаку не производится.
+    9. `user_catalog` *(bool)* - если False, то возврашает все моды (требует запрос от имени запрашиваемого пользователя, либо права админа).
+    Если True, возвращает моды с публичностью "в каталоге" (public == 0).
     """
     tags = tools.str_to_list(tags)
     primary_sources = tools.str_to_list(primary_sources)
@@ -188,6 +193,24 @@ async def mod_list(page_size: int = 10, page: int = 0, sort: str = "DOWNLOADS", 
         return JSONResponse(status_code=413,
                             content={"message": "the maximum complexity of filters is 30 elements in sum",
                                      "error_id": 2})
+
+    if user > 0 and not user_catalog:
+        access_result = await account.check_access(request=request, response=response)
+
+        if not access_result or access_result.get("owner_id", -1) < 0:
+            return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+
+        # Создание сессии
+        user_session = sessionmaker(bind=account.engine)()
+
+        if not user_catalog and user != access_result.get("owner_id", -1):
+            # Выполнение запроса
+            row = user_session.query(account.Account).filter_by(id=access_result.get("owner_id", -1))
+            row_result = row.first()
+            if not row_result or not row_result.admin:
+                user_session.close()
+                return JSONResponse(status_code=403, content="Вы не имеете доступа к этой информации!")
+            user_session.close()
 
     # Создание сессии
     Session = sessionmaker(bind=catalog.engine)
@@ -232,6 +255,18 @@ async def mod_list(page_size: int = 10, page: int = 0, sort: str = "DOWNLOADS", 
     if len(tags) > 0:
         for tag in tags:
             query = query.filter(catalog.Mod.tags.any(catalog.ModTag.id == tag))
+
+    # Сортировка по пользователю
+    if user > 0:
+        query = query.join(account.mod_and_author, account.mod_and_author.c.mod_id == catalog.Mod.id)
+        query = query.filter(account.mod_and_author.c.user_id == user)
+
+        if user_owner in [0, 1]:
+            query = query.filter(account.mod_and_author.c.owner == (user_owner == 0))
+
+        if user_catalog:
+            query = query.filter(catalog.Mod.public == 0)
+
 
     mods_count = query.count()
 
@@ -308,70 +343,6 @@ async def list_tags_for_mods(request: Request, mods_ids_list, token: str = None,
             result[mod_id] = query.all()
 
     return result
-
-@router.get(MAIN_URL+"/list/user/mods/{user_id}", tags=["Mod"])
-async def list_user_mods(response: Response, request: Request, user_id:int, page:int = 0, page_size:int = 30,
-                    public:bool = True):
-    """
-    Тестовая функция
-    """
-    if page_size > 50 or page_size < 1:
-        return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 1})
-    elif page < 0:
-        return JSONResponse(status_code=413, content={"message": "incorrect page", "error_id": 2})
-
-    if not public:
-        access_result = await account.check_access(request=request, response=response)
-
-        if not access_result or access_result.get("owner_id", -1) < 0:
-            return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
-
-
-    # Создание сессии
-    Session = sessionmaker(bind=account.engine)
-    session = Session()
-
-    if not public and user_id != access_result.get("owner_id", -1):
-        # Выполнение запроса
-        row = session.query(account.Account).filter_by(id=access_result.get("owner_id", -1))
-        row_result = row.first()
-        if not row_result or not row_result.admin:
-            session.close()
-            return JSONResponse(status_code=403, content="Вы не имеете доступа к этой информации!")
-
-    offset = page_size * page
-    row = session.query(account.mod_and_author).filter_by(user_id=user_id).offset(offset).limit(page_size).all()
-
-    row_list_ids = []
-    row_result = {}
-    for i in row:
-        row_list_ids.append(i.mod_id)
-        row_result[i.mod_id] = i.owner
-
-    if len(row_result) <= 0:
-        session.close()
-        return {}
-
-    async with aiohttp.ClientSession() as NETsession:
-        # TODO доступ напрямую к базе
-        url = SERVER_ADDRESS + f'/public/mod/{str(row_list_ids)}?catalog=true'
-        print(url)
-        async with NETsession.get(url=url) as ioresponse:
-            result = await ioresponse.text()
-            print(result)
-            result = json.loads(result)
-
-            rw = {}
-            for i in result:
-                if public:
-                    rw[i] = row_result[i]
-                elif not public:
-                    del row_result[i]
-
-            if public: row_result = rw
-
-            session.close()
-            return row_result
 
 
 @router.get(MAIN_URL+"/info/mod/{mod_id}", tags=["Mod"])

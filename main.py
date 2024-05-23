@@ -17,17 +17,18 @@ from api_forum_comment import router as forum_comment_router
 
 
 app = FastAPI(
-    title="Open Workshop Accounts",
+    title="OpenWorkshop.Manager",
     openapi_url=MAIN_URL+"/openapi.json",
     contact={
-        "name": "GitHub",
-        "url": "https://github.com/Open-Workshop/open-workshop-accounts"
+        "name": "Contacts",
+        "url": "https://github.com/Open-Workshop/open-workshop-accounts",
+        "email": "miskler@yandex.ru"
     },
     license_info={
         "name": "MPL-2.0 license",
         "identifier": "MPL-2.0",
     },
-    redoc_url="/"#MAIN_URL
+    redoc_url=MAIN_URL+"/"
 )
 
 app.include_router(game_router)

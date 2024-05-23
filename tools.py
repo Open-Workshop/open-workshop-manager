@@ -1,7 +1,9 @@
 from sql_logic import sql_account as account
+from sql_logic import sql_catalog as catalog
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy import desc
 import aiohttp
 import datetime
 import json
@@ -85,3 +87,62 @@ async def check_game_exists(game_id:int) -> bool:
             result = json.loads(await response.text())
 
             return bool(type(result['result']) is dict and len(result['result']) > 0)
+
+def sort_mods(sort_by: str):
+    match sort_by:
+        case 'NAME':
+            return catalog.Mod.name
+        case 'iNAME':
+            return desc(catalog.Mod.name)
+        case 'SIZE':
+            return catalog.Mod.size
+        case 'iSIZE':
+            return desc(catalog.Mod.size)
+        case 'CREATION_DATE':
+            return catalog.Mod.date_creation
+        case 'iCREATION_DATE':
+            return desc(catalog.Mod.date_creation)
+        case 'UPDATE_DATE':
+            return catalog.Mod.date_update
+        case 'iUPDATE_DATE':
+            return desc(catalog.Mod.date_update)
+        case 'REQUEST_DATE':
+            return catalog.Mod.date_request
+        case 'iREQUEST_DATE':
+            return desc(catalog.Mod.date_request)
+        case 'SOURCE':
+            return catalog.Mod.source
+        case 'iSOURCE':
+            return desc(catalog.Mod.source)
+        case 'iMOD_DOWNLOADS':
+            return desc(catalog.Mod.downloads)
+        case _:
+            return catalog.Mod.downloads  # По умолчанию сортируем по загрузкам
+
+
+def sort_games(sort_by: str):
+    match sort_by:
+        case 'NAME':
+            return catalog.Game.name
+        case 'iNAME':
+            return desc(catalog.Game.name)
+        case 'TYPE':
+            return catalog.Game.type
+        case 'iTYPE':
+            return desc(catalog.Game.type)
+        case 'CREATION_DATE':
+            return catalog.Game.creation_date
+        case 'iCREATION_DATE':
+            return desc(catalog.Game.creation_date)
+        case 'SOURCE':
+            return catalog.Game.source
+        case 'iSOURCE':
+            return desc(catalog.Game.source)
+        case 'MODS_COUNT':
+            return catalog.Game.mods_count
+        case 'iMODS_COUNT':
+            return desc(catalog.Game.mods_count)
+        case 'MOD_DOWNLOADS':
+            return catalog.Game.mods_downloads
+        case _:
+            return desc(catalog.Game.mods_downloads)

@@ -88,15 +88,6 @@ class ResourceMod(base): # Ресурсы (скриншоты и лого)
 
     owner_id = Column(Integer, ForeignKey('mods.id'))
 
-class DeveloperMod(base):
-    __tablename__ = 'owners_mods'
-    id = Column(Integer, primary_key=True)
-
-    user_id = Column(Integer)
-    owner = Column(Boolean, default=False)
-
-    mod_id = Column(Integer, ForeignKey('mods.id'))
-
 
 # Теги
 class Genre(base): # Жанры для игр
