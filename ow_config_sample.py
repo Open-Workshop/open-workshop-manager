@@ -1,4 +1,18 @@
-# Реальные токены
+
+yandex_client_id='...'
+yandex_client_secret='...'
+
+SERVER_ADDRESS = "http://127.0.0.1:8000"
+MAIN_URL = "/api/accounts"
+
+
+# MySQL параметры
+
+password_sql = 'password'
+user_sql = 'user'
+
+
+# Хеши токенов
 
 
 ## Доступ к не публичным модам

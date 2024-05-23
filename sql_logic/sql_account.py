@@ -2,11 +2,13 @@ from sqlalchemy import create_engine, Column, Integer, String, DateTime, Table, 
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from fastapi import Request, Response
+from ow_config import user_sql, password_sql
 import bcrypt
 import datetime
 
 
-engine = create_engine('sqlite:///accounts/account.db')
+# engine = create_engine(f'mysql+mysqldb://{user_sql}:{password_sql}@localhost/account')
+engine = create_engine('sqlite:///./account.db', echo=True) # echo=True для видео
 base = declarative_base()
 
 STANDART_STR_TIME = "%d.%m.%Y/%H:%M:%S"
@@ -25,15 +27,15 @@ class Account(base): # Аккаунты юзеров
     avatar_url = Column(String, default="") # если содержит "local" - обращаться к этому же серверу по id юзера, в ином случае содержит прямую ссылку, если пуст, то аватара нет
     grade = Column(String, default="")
 
-    comments = Column(Integer)
-    author_mods = Column(Integer)
+    comments = Column(Integer, default=0)
+    author_mods = Column(Integer, default=0)
 
     registration_date = Column(DateTime)
 
     password_hash = Column(String)
     last_password_reset = Column(DateTime)
 
-    reputation = Column(Integer)
+    reputation = Column(Integer, default=0)
 
     ## Права пользователей
     admin = Column(Boolean, default=False) # только админ может менять грейды у всех юзеров, а так же назначать новых админов и назначать права юзерам, дает доступ ко всем правам

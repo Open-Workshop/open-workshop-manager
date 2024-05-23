@@ -1,10 +1,28 @@
-import account_sql as account
+from sql_logic import sql_account as account
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import sessionmaker
 import aiohttp
 import datetime
 import json
+
+
+async def access_admin(response: Response, request: Request) -> JSONResponse:
+    access_result = await account.check_access(request=request, response=response)
+
+    if access_result and access_result.get("owner_id", -1) >= 0:
+        # Выполнение запроса
+        session = sessionmaker(bind=account.engine)()
+        row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1))
+        row_result = row.first()
+
+        if row_result.admin:
+            return True
+        else:
+            return JSONResponse(status_code=403, content="Вы не админ!")
+    else:
+        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+
 
 def str_to_list(string: str):
     try:
@@ -14,34 +32,6 @@ def str_to_list(string: str):
     except:
         string = []
     return string
-
-async def to_backend(response: Response, request: Request, url:str, body:dict = {}) -> JSONResponse:
-    access_result = await account.check_access(request=request, response=response)
-
-    if access_result and access_result.get("owner_id", -1) >= 0:
-        # Создание сессии
-        Session = sessionmaker(bind=account.engine)
-
-        # Выполнение запроса
-        session = Session()
-        row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1))
-        row_result = row.first()
-
-        if row_result.admin:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=body) as response:
-                    result = await response.text()
-
-                    try:
-                        result = json.loads(result)
-                    except:
-                        print('tools.to_backend: JSON.loads error: '+str(result))
-
-                    return JSONResponse(status_code=response.status, content=result)
-        else:
-            return JSONResponse(status_code=403, content="Вы не админ!")
-    else:
-        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
 async def mod_to_backend(response: Response, request: Request, url:str, mod_id:int, body:dict = {}):
     access_result = await account.check_access(request=request, response=response)
