@@ -330,7 +330,7 @@ async def list_tags_for_mods(request: Request, mods_ids_list, token: str = None,
 
     # Выполнение запроса
     result = {}
-    query_global = session.query(catalog.ModTag).join(catalog.mods_tags)
+    query_global = session.query(catalog.Tag).join(catalog.mods_tags)
     for mod_id in mods_ids_list:
         query = query_global.filter(catalog.mods_tags.c.mod_id == mod_id)
         if len(tags) > 0:
@@ -352,68 +352,102 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
     """
     Тестовая функция
     """
-    # TODO доступ напрямую к базе
+    output = {}
 
-    url = SERVER_ADDRESS + f'/info/mod/{mod_id}?token={config.token_info_mod}&general=true'
-    if dependencies: url+=f'&dependencies={dependencies}'
-    if short_description: url+=f'&short_description={short_description}'
-    if description: url+=f'&description={description}'
-    if dates: url+=f'&dates={dates}'
-    if game: url+=f'&game={game}'
+    # Создание сессии
+    session = sessionmaker(bind=catalog.engine)()
 
+    # Выполнение запроса
+    query = session.query(catalog.Mod.condition)
+    if description:
+        query = query.add_columns(catalog.Mod.description)
+    if short_description:
+        query = query.add_column(catalog.Mod.short_description)
+    if dates:
+        query = query.add_columns(catalog.Mod.date_update, catalog.Mod.date_creation)
+    if general:
+        query = query.add_columns(catalog.Mod.name, catalog.Mod.size, catalog.Mod.source, catalog.Mod.downloads)
+    if game:
+        query = query.add_columns(catalog.Mod.game)
 
-    async with aiohttp.ClientSession() as NETsession:
-        async with NETsession.get(url=url) as ioresponse:
-            result = await ioresponse.text()
-            if ioresponse.status >= 200 and ioresponse.status < 300:
-                result = json.loads(result)
-            else:
-                return JSONResponse(status_code=404, content="Не найдено!")
+    query = query.add_columns(catalog.Mod.public)
+    query = query.filter(catalog.Mod.id == mod_id)
+    output["pre_result"] = query.first()
 
-            # Создание сессии
-            Session = sessionmaker(bind=account.engine)
-            session = Session()
+    if not output["pre_result"]:
+        return JSONResponse(status_code=404, content="Mod not found.")
 
-            if authors:
-                row = session.query(account.mod_and_author).filter_by(mod_id=mod_id)
-                row_results = row.all()
-                result["authors"] = []
+    if output["pre_result"].public >= 2:
+        access_result = await account.check_access(request=request, response=response)
 
-                for i in row_results:
-                    result["authors"].append({"user": i.user_id, "owner": i.owner})
+        if access_result and access_result.get("owner_id", -1) >= 0:
+            row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1)).first()
 
-            if result["result"]["public"] >= 2:
-                access_result = await account.check_access(request=request, response=response)
+            if not row.admin:
+                row = session.query(account.mod_and_author).filter_by(mod_id=mod_id,
+                                                                      user_id=access_result.get("owner_id", -1))
 
-                if access_result and access_result.get("owner_id", -1) >= 0:
-                    row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1)).first()
-
-                    if row.admin:
-                        session.close()
-                        return JSONResponse(status_code=200, content=result)
-
-                    row = session.query(account.mod_and_author).filter_by(mod_id=mod_id, user_id=access_result.get("owner_id", -1))
-
-                    if row.first():
-                        session.close()
-                        return JSONResponse(status_code=200, content=result)
-
+                if not row.first():
                     session.close()
                     return JSONResponse(status_code=403, content="Доступ воспрещен!")
-                else:
-                    session.close()
-                    return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
-            else:
-                session.close()
+        else:
+            session.close()
+            return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
-                if not general:
-                    del result["result"]["name"]
-                    del result["result"]["size"]
-                    del result["result"]["source"]
-                    del result["result"]["downloads"]
-                    del result["result"]["public"]
+    if dependencies:
+        query = session.query(catalog.mods_dependencies.c.dependence)
+        query = query.filter(catalog.mods_dependencies.c.mod_id == mod_id)
 
-                return JSONResponse(status_code=200, content=result)
+        count = query.count()
+        result = query.limit(20).all()
+        output["dependencies"] = [row[0] for row in result]
+        output["dependencies_count"] = count
+
+    if game:
+        result = session.query(catalog.Game.name).filter(catalog.Game.id == output["pre_result"].game).first()
+
+        output["game"] = {"id": output["pre_result"].game, "name": result.name}
+
+    # Закрытие сессии
+    session.close()
+
+    output["result"] = {"condition": output["pre_result"].condition}
+    if description:
+        output["result"]["description"] = output["pre_result"].description
+    if short_description:
+        output["result"]["short_description"] = output["pre_result"].short_description
+    if dates:
+        output["result"]["date_update"] = output["pre_result"].date_update
+        output["result"]["date_creation"] = output["pre_result"].date_creation
+    if general:
+        output["result"]["name"] = output["pre_result"].name
+        output["result"]["size"] = output["pre_result"].size
+        output["result"]["source"] = output["pre_result"].source
+        output["result"]["downloads"] = output["pre_result"].downloads
+        output["result"]["public"] = output["pre_result"].public
+    if game:
+        output["result"]["game"] = output["game"]
+        del output["game"]
+    del output["pre_result"]
+
+
+    if authors:
+        # Создание сессии
+        session_account = sessionmaker(bind=account.engine)()
+
+        # Исполнение
+        row = session_account.query(account.mod_and_author).filter_by(mod_id=mod_id)
+        row = row.limit(100)
+
+        row_results = row.all()
+
+        output["authors"] = []
+        for i in row_results:
+            output["authors"].append({"user": i.user_id, "owner": i.owner})
+
+        session_account.close()
+
+    return JSONResponse(status_code=200, content=result)
 
 
 @router.post(MAIN_URL+"/add/mod", tags=["Mod"])
