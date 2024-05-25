@@ -35,7 +35,9 @@ def str_to_list(string: str):
         string = []
     return string
 
-async def access_mod(response: Response, request: Request, mod_id: int, edit: bool = False):
+async def access_mods(response: Response, request: Request, mods_ids: list[int] = [], edit: bool = False):
+    if mods_ids is int: mods_ids = [mods_ids]
+
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
@@ -52,15 +54,26 @@ async def access_mod(response: Response, request: Request, mod_id: int, edit: bo
                 if edit and (user_req.mute_until and user_req.mute_until > datetime.datetime.now()):
                     return False
 
-                in_mod = session.query(account.mod_and_author).filter_by(mod_id=mod_id, user_id=access_result.get("owner_id", -1)).first()
+                mods_to_user = session.query(account.mod_and_author).filter_by(user_id=access_result.get("owner_id", -1))
+                mods_to_user = mods_to_user.filter(account.mod_and_author.c.mod_id.in_(mods_ids))
 
-                if in_mod:
-                    if not edit: return True
+                mods_to_user = {mod.mod_id: mod.owner for mod in mods_to_user.all()}
 
-                    if user_req.change_self_mods:
-                        if in_mod.owner:
-                            return True
-                elif edit and user_req.change_mods:
+                session_catalog = sessionmaker(bind=account.engine)()
+                mods = session_catalog.query(catalog.Mod.id, catalog.Mod.public)
+                mods = mods.filter(catalog.Mod.id.in_(mods_ids)).all()
+
+                for mod in mods:
+                    if mod.id in mods_to_user:
+                        if edit:
+                            if not user_req.change_self_mods or not mods_to_user.get(mod.id, False):
+                                return False
+                    elif mod.public <= 1:
+                        if edit and not user_req.change_mods:
+                            return False
+                    else:
+                        return False
+                else:
                     return True
             return False
         # АДМИН
