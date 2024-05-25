@@ -35,7 +35,7 @@ def str_to_list(string: str):
         string = []
     return string
 
-async def access_edit_mod(response: Response, request: Request, mod_id:int):
+async def access_mod(response: Response, request: Request, mod_id: int, edit: bool = False):
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
@@ -49,16 +49,18 @@ async def access_edit_mod(response: Response, request: Request, mod_id:int):
             if user_req.admin:
                 return True
             else:
-                if user_req.mute_until and user_req.mute_until > datetime.datetime.now():
+                if edit and (user_req.mute_until and user_req.mute_until > datetime.datetime.now()):
                     return False
 
                 in_mod = session.query(account.mod_and_author).filter_by(mod_id=mod_id, user_id=access_result.get("owner_id", -1)).first()
 
                 if in_mod:
+                    if not edit: return True
+
                     if user_req.change_self_mods:
                         if in_mod.owner:
                             return True
-                elif user_req.change_mods:
+                elif edit and user_req.change_mods:
                     return True
             return False
         # АДМИН

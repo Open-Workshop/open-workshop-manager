@@ -12,57 +12,9 @@ router = APIRouter()
 
 
 
-@router.get("/info/game/{game_id}")
-async def game_info(game_id: int, short_description: bool = False, description: bool = False, dates: bool = False,
-                    statistics: bool = False):
-    """
-    Возвращает информацию об конкретной игре, а так же его состояние на сервере.
-
-    1. `short_description` *(bool)* - отправлять ли короткое описание. По умолчанию `False`.
-    2. `description` *(bool)* - отправлять ли описание. По умолчанию `False`.
-    3. `dates` *(bool)* - отправлять ли даты. По умолчанию `False`.
-    4. `statistics` *(bool)* - отправлять ли статистику. По умолчанию `False`.
-    """
-    # Создание сессии
-    Session = sessionmaker(bind=catalog.engine)
-    session = Session()
-
-    # Выполнение запроса
-    query = session.query(catalog.Game.name, catalog.Game.type, catalog.Game.logo, catalog.Game.source)
-    if description:
-        query = query.add_column(catalog.Game.description)
-    if short_description:
-        query = query.add_column(catalog.Game.short_description)
-    if dates:
-        query = query.add_column(catalog.Game.creation_date)
-    if statistics:
-        query = query.add_columns(catalog.Game.mods_count, catalog.Game.mods_downloads)
-
-    query = query.filter(catalog.Game.id == game_id)
-    output = {"pre_result": query.first()}
-    session.close()
-
-    if output["pre_result"]:
-        output["result"] = {"name": output["pre_result"].name, "type": output["pre_result"].type,
-                            "logo": output["pre_result"].logo, "source": output["pre_result"].source}
-        if description:
-            output["result"]["description"] = output["pre_result"].description
-        if short_description:
-            output["result"]["short_description"] = output["pre_result"].short_description
-        if dates:
-            output["result"]["creation_date"] = output["pre_result"].creation_date
-        if statistics:
-            output["result"]["mods_count"] = output["pre_result"].mods_count
-            output["result"]["mods_downloads"] = output["pre_result"].mods_downloads
-    else:
-        output["result"] = None
-    del output["pre_result"]
-
-    return output
-
 @router.get("/list/games/", tags=["Game"])
 async def games_list(page_size: int = 10, page: int = 0, sort: str = "MODS_DOWNLOADS", name: str = "",
-                     type_app=[], genres=[], primary_sources=[],
+                     type_app=[], genres=[], primary_sources=[], allowed_ids=[],
                      short_description: bool = False, description: bool = False, dates: bool = False,
                      statistics: bool = False):
     """
@@ -94,17 +46,18 @@ async def games_list(page_size: int = 10, page: int = 0, sort: str = "MODS_DOWNL
     genres = tools.str_to_list(genres)
     type_app = tools.str_to_list(type_app)
     primary_sources = tools.str_to_list(primary_sources)
+    allowed_ids = tools.str_to_list(allowed_ids)
 
     if page_size > 50 or page_size < 1:
         return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 1})
-    elif (len(type_app) + len(genres) + len(primary_sources)) > 30:
+    elif (len(type_app) + len(genres) + len(primary_sources) + len(allowed_ids)) > 50:
         return JSONResponse(status_code=413,
                             content={"message": "the maximum complexity of filters is 30 elements in sum",
                                      "error_id": 2})
 
     # Создание сессии
-    Session = sessionmaker(bind=catalog.engine)
-    session = Session()
+    session = sessionmaker(bind=catalog.engine)()
+
     # Выполнение запроса
     query = session.query(catalog.Game.id, catalog.Game.name, catalog.Game.type, catalog.Game.logo, catalog.Game.source)
     if description:
@@ -117,6 +70,10 @@ async def games_list(page_size: int = 10, page: int = 0, sort: str = "MODS_DOWNL
         query = query.add_columns(catalog.Game.mods_count, catalog.Game.mods_downloads)
 
     query = query.order_by(tools.sort_games(sort))
+
+    # Фильтрация по разрешенным ID
+    if len(allowed_ids) > 0:
+        query = query.filter(catalog.Game.id.in_(allowed_ids))
 
     # Фильтрация по жанрам
     if len(genres) > 0:

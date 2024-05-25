@@ -17,99 +17,17 @@ import ow_config as config
 router = APIRouter()
 
 
-@router.get("/info/mod/{mod_id}")
-async def mod_info(request: Request, mod_id: int, token: str = None, dependencies: bool = False, short_description: bool = False, description: bool = False,
-                   dates: bool = False, general: bool = True, game: bool = False):
+@router.get("/list/mods/access/{ids_array}")
+async def access_to_mods(ids_array, edit: bool = False):
     """
-    Возвращает информацию о конкретном моде.
-    Если у сервера уже есть этот мод, но он отмечен непубличным (`public == 2`), то сервер не предоставит его напрямую - запрашивать через микросервис account's!
+    Принимает массив ID модов, возвращает этот же массив в котором ID модов к которым есть read (или выше) доступ.
 
-    1. `mod_id` *(int)* - id мода.
-    2. `dependencies` *(bool)* - передать ли список ID модов от которых зависит этот мод. (ограничено 20 элементами)
-    3. `short_description` *(bool)* - отправлять ли короткое описание мода в ответе. В длину оно максимум 256 символов. По умолчанию `False`.
-    4. `description` *(bool)* - отправлять ли полное описание мода в ответе. По умолчанию `False`.
-    5. `dates` *(bool)* - отправлять ли дату последнего обновления и дату создания в ответе. По умолчанию `False`.
-    6. `general` *(bool)* - отправлять ли базовые поля *(название, размер, источник, количество загрузок)*. По умолчанию `True`.
-    7. `game` *(bool)* - отправлять ли краткую информацию *(id+название)* об игре-владельце. По умолчанию `False`.
-
-
-    Я не верю что в зависимостях мода будет более 20 элементов, поэтому такое ограничение.
-    Но если все-таки такой мод будет, то без ограничения мой сервер может лечь от нагрузки.
+    Если edit = True, то фильтром выступает минимум edit доступ.
     """
-    output = {}
-
     # Создание сессии
-    session = sessionmaker(bind=catalog.engine)()
+    pass #TODO access_to_mods
 
-    # Выполнение запроса
-    query = session.query(catalog.Mod.condition)
-    if description:
-        query = query.add_columns(catalog.Mod.description)
-    if short_description:
-        query = query.add_column(catalog.Mod.short_description)
-    if dates:
-        query = query.add_columns(catalog.Mod.date_update, catalog.Mod.date_creation)
-    if general:
-        query = query.add_columns(catalog.Mod.name, catalog.Mod.size, catalog.Mod.source, catalog.Mod.downloads)
-    if game:
-        query = query.add_columns(catalog.Mod.game)
-
-    query = query.add_columns(catalog.Mod.public)
-    query = query.filter(catalog.Mod.id == mod_id)
-    output["pre_result"] = query.first()
-
-    if not output["pre_result"]:
-        return JSONResponse(status_code=404, content="Mod not found.")
-
-    if output["pre_result"].public >= 2:
-        pass
-        #TODO если мод не публичен проверять правомерность доступа
-        #if not await access(request=request, user_token=token, real_token=config.token_info_mod, func_name="info mod"):
-        #    session.close()
-        #    return JSONResponse(status_code=403, content="Access denied. This case will be reported.")
-
-    if dependencies:
-        query = session.query(catalog.mods_dependencies.c.dependence)
-        query = query.filter(catalog.mods_dependencies.c.mod_id == mod_id)
-
-        count = query.count()
-        result = query.limit(40).all()
-        output["dependencies"] = [row[0] for row in result]
-        output["dependencies_count"] = count
-
-    if game:
-        result = session.query(catalog.Game.name).filter(catalog.Game.id == output["pre_result"].game).first()
-
-        output["game"] = {"id": output["pre_result"].game, "name": result.name}
-
-    # Закрытие сессии
-    session.close()
-
-    if output["pre_result"]:
-        output["result"] = {"condition": output["pre_result"].condition}
-        if description:
-            output["result"]["description"] = output["pre_result"].description
-        if short_description:
-            output["result"]["short_description"] = output["pre_result"].short_description
-        if dates:
-            output["result"]["date_update"] = output["pre_result"].date_update
-            output["result"]["date_creation"] = output["pre_result"].date_creation
-        if general:
-            output["result"]["name"] = output["pre_result"].name
-            output["result"]["size"] = output["pre_result"].size
-            output["result"]["source"] = output["pre_result"].source
-            output["result"]["downloads"] = output["pre_result"].downloads
-            output["result"]["public"] = output["pre_result"].public
-        if game:
-            output["result"]["game"] = output["game"]
-            del output["game"]
-    else:
-        output["result"] = None
-    del output["pre_result"]
-
-    return output
-
-@router.get("/public/mod/{ids_array}")
+@router.get("/list/mods/public/{ids_array}")
 async def public_mods(ids_array, catalog:bool = False):
     """
     Возвращает список публичных модов на сервере.
@@ -145,7 +63,7 @@ async def public_mods(ids_array, catalog:bool = False):
 
 @router.get("/list/mods/")
 async def mod_list(response: Response, request: Request, page_size: int = 10, page: int = 0, sort: str = "DOWNLOADS",
-                   tags=[], game: int = -1, allowed_ids=[], dependencies: bool = False, primary_sources=[],
+                   tags=[], game: int = -1, allowed_ids=[], independents: bool = False, primary_sources=[],
                    name: str = "", short_description: bool = False, description: bool = False, dates: bool = False,
                    general: bool = True, user: int = 0, user_owner: int = -1, user_catalog: bool = True):
     """
@@ -213,8 +131,8 @@ async def mod_list(response: Response, request: Request, page_size: int = 10, pa
             user_session.close()
 
     # Создание сессии
-    Session = sessionmaker(bind=catalog.engine)
-    session = Session()
+    session = sessionmaker(bind=catalog.engine)()
+
     # Выполнение запроса
     query = session.query(catalog.Mod.id)
     if description:
@@ -222,7 +140,7 @@ async def mod_list(response: Response, request: Request, page_size: int = 10, pa
     if short_description:
         query = query.add_column(catalog.Mod.short_description)
     if dates:
-        query = query.add_columns(catalog.Mod.date_update, catalog.Mod.date_creation)
+        query = query.add_columns(catalog.Mod.date_update_file, catalog.Mod.date_creation)
     if general:
         query = query.add_columns(catalog.Mod.name, catalog.Mod.size, catalog.Mod.source, catalog.Mod.downloads)
 
@@ -242,7 +160,7 @@ async def mod_list(response: Response, request: Request, page_size: int = 10, pa
     if len(primary_sources) > 0:
         query = query.filter(catalog.Mod.source.in_(primary_sources))
 
-    if dependencies:
+    if independents:
         query = query.outerjoin(catalog.mods_dependencies, catalog.Mod.id == catalog.mods_dependencies.c.mod_id).filter(
             catalog.mods_dependencies.c.mod_id == None)
 
@@ -283,7 +201,7 @@ async def mod_list(response: Response, request: Request, page_size: int = 10, pa
         if short_description:
             out["short_description"] = mod.short_description
         if dates:
-            out["date_update"] = mod.date_update
+            out["date_update_file"] = mod.date_update_file
             out["date_creation"] = mod.date_creation
         if general:
             out["name"] = mod.name
@@ -297,7 +215,7 @@ async def mod_list(response: Response, request: Request, page_size: int = 10, pa
     return {"database_size": mods_count, "offset": offset, "results": output_mods}
 
 @router.get("/list/tags/mods/{mods_ids_list}")
-async def list_tags_for_mods(request: Request, mods_ids_list, token: str = None, tags=[], only_ids: bool = False):
+async def list_tags_for_mods(response: Response, request: Request, mods_ids_list, tags=[], only_ids: bool = False):
     """
     Возвращает ассоциации модов с тегами.
     Если в переданном списке модов есть ID непубличного мода, то будет отказано в доступе, делать такие запросы через микросервис account!
@@ -364,7 +282,7 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
     if short_description:
         query = query.add_column(catalog.Mod.short_description)
     if dates:
-        query = query.add_columns(catalog.Mod.date_update, catalog.Mod.date_creation)
+        query = query.add_columns(catalog.Mod.date_update_file, catalog.Mod.date_creation, catalog.Mod.date_edit)
     if general:
         query = query.add_columns(catalog.Mod.name, catalog.Mod.size, catalog.Mod.source, catalog.Mod.downloads)
     if game:
@@ -378,28 +296,16 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
         return JSONResponse(status_code=404, content="Mod not found.")
 
     if output["pre_result"].public >= 2:
-        access_result = await account.check_access(request=request, response=response)
-
-        if access_result and access_result.get("owner_id", -1) >= 0:
-            row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1)).first()
-
-            if not row.admin:
-                row = session.query(account.mod_and_author).filter_by(mod_id=mod_id,
-                                                                      user_id=access_result.get("owner_id", -1))
-
-                if not row.first():
-                    session.close()
-                    return JSONResponse(status_code=403, content="Доступ воспрещен!")
-        else:
-            session.close()
-            return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+        result_access = tools.access_mod(response=response, request=request, mod_id=mod_id, edit=False)
+        if result_access != True:
+            return result_access
 
     if dependencies:
         query = session.query(catalog.mods_dependencies.c.dependence)
         query = query.filter(catalog.mods_dependencies.c.mod_id == mod_id)
 
         count = query.count()
-        result = query.limit(20).all()
+        result = query.limit(100).all()
         output["dependencies"] = [row[0] for row in result]
         output["dependencies_count"] = count
 
@@ -417,7 +323,8 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
     if short_description:
         output["result"]["short_description"] = output["pre_result"].short_description
     if dates:
-        output["result"]["date_update"] = output["pre_result"].date_update
+        output["result"]["date_update_file"] = output["pre_result"].date_update_file
+        output["result"]["date_edit"] = output["pre_result"].date_edit
         output["result"]["date_creation"] = output["pre_result"].date_creation
     if general:
         output["result"]["name"] = output["pre_result"].name
