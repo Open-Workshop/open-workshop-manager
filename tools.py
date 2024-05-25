@@ -35,8 +35,28 @@ def str_to_list(string: str):
         string = []
     return string
 
-async def access_mods(response: Response, request: Request, mods_ids: list[int] = [], edit: bool = False):
-    if mods_ids is int: mods_ids = [mods_ids]
+async def access_mods(response: Response, request: Request, mods_ids: list[int], edit: bool = False, check_mode: bool = False):
+    """
+    Asynchronously checks the access permissions for a set of mods.
+
+    Args:
+        response (Response): The response object.
+        request (Request): The request object.
+        mods_ids (list[int]): The list of mod IDs to check access for.
+        edit (bool, optional): Whether to check for edit access. Defaults to False (read access).
+        check_mode (bool, optional): Whether to check in check mode. Defaults to False.
+
+    Returns:
+        If check_mode is True:
+            - If access is granted: Returns a list of mod IDs that the user has access to.
+            - If access is denied: Returns a JSONResponse object with status code 403 and content "Заблокировано!".
+            - If the session key is invalid: Returns a JSONResponse object with status code 401 and content "Недействительный ключ сессии!".
+        If check_mode is False:
+            - If access is granted: Returns True.
+            - If access is denied: Returns a JSONResponse object with status code 403 and content "Заблокировано!".
+            - If the session key is invalid: Returns a JSONResponse object with status code 401 and content "Недействительный ключ сессии!".
+    """
+    if isinstance(mods_ids, int): mods_ids = [mods_ids]
 
     access_result = await account.check_access(request=request, response=response)
 
@@ -63,19 +83,34 @@ async def access_mods(response: Response, request: Request, mods_ids: list[int] 
                 mods = session_catalog.query(catalog.Mod.id, catalog.Mod.public)
                 mods = mods.filter(catalog.Mod.id.in_(mods_ids)).all()
 
+                output_check = []
+
                 for mod in mods:
+                    output_check.append(mod.id)
+
                     if mod.id in mods_to_user:
                         if edit:
                             if not user_req.change_self_mods or not mods_to_user.get(mod.id, False):
-                                return False
+                                if check_mode:
+                                    output_check.remove(mod.id)
+                                else:
+                                    return False
                     elif mod.public <= 1:
                         if edit and not user_req.change_mods:
-                            return False
+                            if check_mode:
+                                output_check.remove(mod.id)
+                            else:
+                                return False
                     else:
-                        return False
+                        if check_mode:
+                            output_check.remove(mod.id)
+                        else:
+                            return False
                 else:
-                    return True
-            return False
+                    if check_mode:
+                        return output_check
+                    else:
+                        return True
         # АДМИН
         # или
         # ВЛАДЕЛЕЦ МОДА и НЕ В МУТЕ и ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ СВОИХ МОДОВ
@@ -87,9 +122,10 @@ async def access_mods(response: Response, request: Request, mods_ids: list[int] 
         #т.е.:
         #АДМИН или (НЕ В МУТЕ и ((в числе участников И имеет право на редактирование своих модов И (владелец ИЛИ действие не запрещено участникам)) ИЛИ не участник И имеет право на редактирование чужих модов))
 
-        if await mini():
+        mini_result = await mini()
+        if mini_result != False:
             session.close()
-            return True
+            return mini_result
         else:
             session.close()
             return JSONResponse(status_code=403, content="Заблокировано!")

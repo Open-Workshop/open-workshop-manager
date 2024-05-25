@@ -18,7 +18,7 @@ router = APIRouter()
 
 
 @router.get("/list/mods/access/{ids_array}")
-async def access_to_mods(ids_array, edit: bool = False):
+async def access_to_mods(response: Response, request: Request, ids_array, edit: bool = False):
     """
     Принимает массив ID модов, возвращает этот же массив в котором ID модов к которым есть read (или выше) доступ.
 
@@ -26,8 +26,8 @@ async def access_to_mods(ids_array, edit: bool = False):
 
     Используется в Storage для проверки правомерности доступа к архиву мода.
     """
-    # Создание сессии
-    pass #TODO access_to_mods
+    ids_array = tools.str_to_list(ids_array)
+    return tools.access_mods(response=response, request=request, mods_ids=ids_array, edit=edit, check_mode=True)
 
 @router.get("/list/mods/public/{ids_array}")
 async def public_mods(ids_array, catalog:bool = False):
@@ -41,13 +41,10 @@ async def public_mods(ids_array, catalog:bool = False):
     if len(ids_array) < 1 or len(ids_array) > 50:
         return JSONResponse(status_code=413, content={"message": "the size of the array is not correct", "error_id": 1})
 
-    print(ids_array)
-
     output = []
 
     # Создание сессии
-    Session = sessionmaker(bind=catalog.engine)
-    session = Session()
+    session = sessionmaker(bind=catalog.engine)()
 
     # Выполнение запроса
     query = session.query(catalog.Mod)
@@ -235,18 +232,15 @@ async def list_tags_for_mods(response: Response, request: Request, mods_ids_list
                                      "error_id": 1})
 
     # Создание сессии
-    Session = sessionmaker(bind=catalog.engine)
-    session = Session()
+    session = sessionmaker(bind=catalog.engine)()
 
     query = session.query(catalog.Mod.id)
     query = query.filter(catalog.Mod.id.in_(mods_ids_list))
 
     if len(query.all()) > 0:
-        pass
-        #TODO проверять правомерность доступа
-        #if not await access(request=request, user_token=token, real_token=config.token_info_mod, func_name="tags for mods"):
-        #    session.close()
-        #    return JSONResponse(status_code=403, content="Access denied. This case will be reported.")
+        result_access = tools.access_mods(response=response, request=request, mods_ids=mods_ids_list)
+        if result_access != True:
+            return result_access
 
     # Выполнение запроса
     result = {}
@@ -298,7 +292,7 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
         return JSONResponse(status_code=404, content="Mod not found.")
 
     if output["pre_result"].public >= 2:
-        result_access = tools.access_mod(response=response, request=request, mod_id=mod_id, edit=False)
+        result_access = tools.access_mods(response=response, request=request, mod_id=mod_id, edit=False)
         if result_access != True:
             return result_access
 
