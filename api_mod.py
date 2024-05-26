@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, Response, Form, File, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from sql_logic import sql_account as account
 import json
 import aiohttp
@@ -17,8 +17,13 @@ import ow_config as config
 router = APIRouter()
 
 
+@router.get("/download/{mod_id}")
+async def download_mod(mod_id: int):
+    return RedirectResponse(url=F'{config.STORAGE_URL}/archive/mod/{mod_id}/main.zip')
+
 @router.get("/list/mods/access/{ids_array}")
-async def access_to_mods(response: Response, request: Request, ids_array, edit: bool = False):
+async def access_to_mods(response: Response, request: Request, ids_array, edit: bool = False,
+                         user: int = -1, token: str = "none"):
     """
     Принимает массив ID модов, возвращает этот же массив в котором ID модов к которым есть read (или выше) доступ.
 
@@ -27,7 +32,15 @@ async def access_to_mods(response: Response, request: Request, ids_array, edit: 
     Используется в Storage для проверки правомерности доступа к архиву мода.
     """
     ids_array = tools.str_to_list(ids_array)
-    return tools.access_mods(response=response, request=request, mods_ids=ids_array, edit=edit, check_mode=True)
+    if user >= 0:
+        if user == 0:  # Проверка неавторизованного доступа
+            pass # TODO
+        elif tools.check_token(token_name="access_mods_check_anonymous", token=token) or tools.access_admin(response=response, request=request):
+            return tools.anonymous_access_mods(user_id=user, mods_ids=ids_array, edit=edit, check_mode=True)
+        else:
+            return PlainTextResponse(status_code=403, content="Access denied")
+    else:
+        return tools.access_mods(response=response, request=request, mods_ids=ids_array, edit=edit, check_mode=True)
 
 @router.get("/list/mods/public/{ids_array}")
 async def public_mods(ids_array, catalog:bool = False):

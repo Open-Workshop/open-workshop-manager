@@ -9,6 +9,9 @@ import datetime
 import json
 
 
+async def check_token(token_name: str, token: str) -> bool:
+    pass # Сверяем токены
+
 async def access_admin(response: Response, request: Request) -> JSONResponse:
     access_result = await account.check_access(request=request, response=response)
 
@@ -34,6 +37,87 @@ def str_to_list(string: str):
     except:
         string = []
     return string
+
+async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = False, check_mode: bool = False):
+    """
+    Asynchronously checks if the given user has access to modify the specified mods.
+
+    Parameters:
+        user_id (int): The ID of the user.
+        mods_ids (list[int]): A list of mod IDs.
+        edit (bool, optional): Whether the user is allowed to edit the mods. Defaults to False.
+        check_mode (bool, optional): Whether to return a list of mod IDs that the user has access to. Defaults to False.
+
+    Returns:
+        bool or list[int]: If check_mode is True, returns a list of mod IDs that the user has access to. Otherwise, returns True if the user has access, False otherwise.
+    """
+    if isinstance(mods_ids, int): mods_ids = [mods_ids]
+
+    # Создание сессии
+    session = sessionmaker(bind=account.engine)()
+
+    # Выполнение запроса
+    user_req = session.query(account.Account).filter_by(id=user_id).first()
+
+    async def mini():
+        if user_req.admin:
+            return True
+        else:
+            if edit and (user_req.mute_until and user_req.mute_until > datetime.datetime.now()):
+                return False
+
+            mods_to_user = session.query(account.mod_and_author).filter_by(user_id=user_id)
+            mods_to_user = mods_to_user.filter(account.mod_and_author.c.mod_id.in_(mods_ids))
+
+            mods_to_user = {mod.mod_id: mod.owner for mod in mods_to_user.all()}
+
+            session_catalog = sessionmaker(bind=account.engine)()
+            mods = session_catalog.query(catalog.Mod.id, catalog.Mod.public)
+            mods = mods.filter(catalog.Mod.id.in_(mods_ids)).all()
+
+            output_check = []
+
+            for mod in mods:
+                output_check.append(mod.id)
+
+                if mod.id in mods_to_user:
+                    if edit:
+                        if not user_req.change_self_mods or not mods_to_user.get(mod.id, False):
+                            if check_mode:
+                                output_check.remove(mod.id)
+                            else:
+                                return False
+                elif mod.public <= 1:
+                    if edit and not user_req.change_mods:
+                        if check_mode:
+                            output_check.remove(mod.id)
+                        else:
+                            return False
+                else:
+                    if check_mode:
+                        output_check.remove(mod.id)
+                    else:
+                        return False
+            else:
+                if check_mode:
+                    return output_check
+                else:
+                    return True
+    # АДМИН
+    # или
+    # ВЛАДЕЛЕЦ МОДА и НЕ В МУТЕ и ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ СВОИХ МОДОВ
+    # или
+    # УЧАСТНИК и НЕ В МУТЕ и ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ СВОИХ МОДОВ и ДЕЙСТВИЕ НЕ ЗАПРЕЩЕНО УЧАСТНИКАМ
+    # или
+    # НЕ В МУТЕ И ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ ЧУЖИХ МОДОВ
+
+    #т.е.:
+    #АДМИН или (НЕ В МУТЕ и ((в числе участников И имеет право на редактирование своих модов И (владелец ИЛИ действие не запрещено участникам)) ИЛИ не участник И имеет право на редактирование чужих модов))
+
+    mini_result = await mini()
+    
+    session.close()
+    return mini_result
 
 async def access_mods(response: Response, request: Request, mods_ids: list[int], edit: bool = False, check_mode: bool = False):
     """
@@ -61,78 +145,17 @@ async def access_mods(response: Response, request: Request, mods_ids: list[int],
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
-        # Создание сессии
-        session = sessionmaker(bind=account.engine)()
+        mini_result = await anonymous_access_mods(user_id=access_result.get("owner_id", -1), mods_ids=mods_ids, edit=edit, check_mode=check_mode)
 
-        # Выполнение запроса
-        user_req = session.query(account.Account).filter_by(id=access_result.get("owner_id", -1)).first()
-
-        async def mini():
-            if user_req.admin:
-                return True
-            else:
-                if edit and (user_req.mute_until and user_req.mute_until > datetime.datetime.now()):
-                    return False
-
-                mods_to_user = session.query(account.mod_and_author).filter_by(user_id=access_result.get("owner_id", -1))
-                mods_to_user = mods_to_user.filter(account.mod_and_author.c.mod_id.in_(mods_ids))
-
-                mods_to_user = {mod.mod_id: mod.owner for mod in mods_to_user.all()}
-
-                session_catalog = sessionmaker(bind=account.engine)()
-                mods = session_catalog.query(catalog.Mod.id, catalog.Mod.public)
-                mods = mods.filter(catalog.Mod.id.in_(mods_ids)).all()
-
-                output_check = []
-
-                for mod in mods:
-                    output_check.append(mod.id)
-
-                    if mod.id in mods_to_user:
-                        if edit:
-                            if not user_req.change_self_mods or not mods_to_user.get(mod.id, False):
-                                if check_mode:
-                                    output_check.remove(mod.id)
-                                else:
-                                    return False
-                    elif mod.public <= 1:
-                        if edit and not user_req.change_mods:
-                            if check_mode:
-                                output_check.remove(mod.id)
-                            else:
-                                return False
-                    else:
-                        if check_mode:
-                            output_check.remove(mod.id)
-                        else:
-                            return False
-                else:
-                    if check_mode:
-                        return output_check
-                    else:
-                        return True
-        # АДМИН
-        # или
-        # ВЛАДЕЛЕЦ МОДА и НЕ В МУТЕ и ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ СВОИХ МОДОВ
-        # или
-        # УЧАСТНИК и НЕ В МУТЕ и ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ СВОИХ МОДОВ и ДЕЙСТВИЕ НЕ ЗАПРЕЩЕНО УЧАСТНИКАМ
-        # или
-        # НЕ В МУТЕ И ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ ЧУЖИХ МОДОВ
-
-        #т.е.:
-        #АДМИН или (НЕ В МУТЕ и ((в числе участников И имеет право на редактирование своих модов И (владелец ИЛИ действие не запрещено участникам)) ИЛИ не участник И имеет право на редактирование чужих модов))
-
-        mini_result = await mini()
         if mini_result != False:
-            session.close()
             return mini_result
         else:
-            session.close()
             return JSONResponse(status_code=403, content="Заблокировано!")
     else:
         return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
 async def check_game_exists(game_id:int) -> bool:
+    # TODO доступ напрямую к базе
     async with aiohttp.ClientSession() as session:
         async with session.get(f'https://api.openworkshop.su/info/game/{game_id}') as response:
             result = json.loads(await response.text())
