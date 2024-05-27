@@ -1,5 +1,6 @@
 from sql_logic import sql_account as account
 from sql_logic import sql_catalog as catalog
+import ow_config as config
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import sessionmaker
@@ -7,10 +8,22 @@ from sqlalchemy import desc
 import aiohttp
 import datetime
 import json
+import bcrypt
 
 
 async def check_token(token_name: str, token: str) -> bool:
-    pass # Сверяем токены
+    # Получаем значение хеша токена из config по имени token_name
+    stored_token_hash = getattr(config, token_name, None)
+    
+    if stored_token_hash is None:
+        print(f"Токен `{token_name}` не найден в config!")
+        return False
+    
+    # Хеш из config должен быть строкой, конвертируем в байты
+    stored_token_hash = stored_token_hash.encode()
+    
+    # Хешируем переданный токен с использованием bcrypt и проверяем соответствие
+    return bcrypt.checkpw(token.encode(), stored_token_hash)
 
 async def access_admin(response: Response, request: Request) -> JSONResponse:
     access_result = await account.check_access(request=request, response=response)
@@ -155,12 +168,12 @@ async def access_mods(response: Response, request: Request, mods_ids: list[int],
         return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
 async def check_game_exists(game_id:int) -> bool:
-    # TODO доступ напрямую к базе
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f'https://api.openworkshop.su/info/game/{game_id}') as response:
-            result = json.loads(await response.text())
+    session = sessionmaker(bind=catalog.engine)()
 
-            return bool(type(result['result']) is dict and len(result['result']) > 0)
+    result = session.query(catalog.Game).filter_by(id=game_id).first()
+
+    session.close()
+    return bool(result)
 
 def sort_mods(sort_by: str):
     match sort_by:

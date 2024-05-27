@@ -34,7 +34,18 @@ async def access_to_mods(response: Response, request: Request, ids_array, edit: 
     ids_array = tools.str_to_list(ids_array)
     if user >= 0:
         if user == 0:  # Проверка неавторизованного доступа
-            pass # TODO
+            if edit: return [] # Неавторизованные пользователи не имеют edit прав, нет нужды обращаться к базе
+            
+            session = sessionmaker(bind=catalog.engine)()
+
+            # Выполнение запроса
+            mods = session.query(catalog.Mod.id, catalog.Mod.public).filter(catalog.Mod.id.in_(ids_array))
+            mods = mods.filter(catalog.Mod.public <= 1).all()
+
+            mods_ids = [ i.id for i in mods ]
+
+            session.close()
+            return mods_ids
         elif tools.check_token(token_name="access_mods_check_anonymous", token=token) or tools.access_admin(response=response, request=request):
             return tools.anonymous_access_mods(user_id=user, mods_ids=ids_array, edit=edit, check_mode=True)
         else:
