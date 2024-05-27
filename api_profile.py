@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Request, Response, Form, UploadFile, File
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse, PlainTextResponse
 from PIL import Image
 from io import BytesIO
 import bcrypt
 import os
 from ow_config import MAIN_URL
 import datetime
+import ow_config as config
 from sqlalchemy import insert
 from sqlalchemy.orm import sessionmaker
 from sql_logic import sql_account as account
@@ -104,13 +105,23 @@ async def info_profile(response: Response, request: Request, user_id: int, gener
 @router.get(MAIN_URL + "/profile/avatar/{user_id}", tags=["Profile"])
 async def avatar_profile(user_id: int):
     """
-    Возвращает аватары пользователей при условии, что они есть.
+    Возвращает url, по которому можно получить аватар пользователя при условии, что он есть.
     """
-    # TODO аватары храним на другом сервере
-    image_path = f"accounts_avatars/{user_id}.jpeg"
-    if os.path.exists(image_path):
-        return FileResponse(path=image_path)
-    return JSONResponse(status_code=404, content="File not found! :(")
+    session = sessionmaker(bind=account.engine)()
+
+    avatar_url = session.query(account.Account.avatar_url).filter_by(id=user_id).first()
+
+    session.close()
+
+    if avatar_url:
+        if avatar_url[0].startswith('local'):
+            return RedirectResponse(url=f'{config.STORAGE_URL}/img/avatar/{user_id}.{avatar_url[0].split(".")[1]}')
+        elif len(avatar_url[0]) > 0:
+            return RedirectResponse(url=avatar_url[0])
+        else:
+            return PlainTextResponse(status_code=204, content="Avatar not set.")
+    else:
+        return PlainTextResponse(status_code=404, content="User not found!")
 
 
 @router.post(MAIN_URL + "/profile/edit/{user_id}", tags=["Profile"])

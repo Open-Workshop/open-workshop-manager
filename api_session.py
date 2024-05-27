@@ -169,6 +169,7 @@ async def google_complite(response: Response, request: Request, code:str, _state
             if len(user_data.get("picture", "")) > 0:
                 session.commit()
                 session.close()
+                # TODO при создании аккаунта, сохранять аватар на другом микросервисе
                 async with aiohttp.ClientSession() as NETsession:
                     async with NETsession.get(user_data["picture"]) as resp:
                         if resp.status == 200:
@@ -261,6 +262,7 @@ async def yandex_complite(response: Response, request: Request, code:int):
             if not user_data.is_avatar_empty:
                 session.commit()
                 session.close()
+                # TODO при создании аккаунта, сохранять аватар на другом микросервисе
                 async with aiohttp.ClientSession() as NETsession:
                     async with NETsession.get(f"https://avatars.yandex.net/get-yapic/{user_data.default_avatar_id}/islands-200") as resp:
                         if resp.status == 200:
