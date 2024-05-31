@@ -1,6 +1,7 @@
 from sql_logic import sql_account as account
 from sql_logic import sql_catalog as catalog
 import ow_config as config
+from io import BytesIO
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import sessionmaker
@@ -12,6 +13,16 @@ import bcrypt
 
 
 async def check_token(token_name: str, token: str) -> bool:
+    """
+    Check if the provided token matches the stored token hash for the given token name.
+
+    Args:
+        token_name (str): The name of the token to check.
+        token (str): The token to compare with the stored token hash.
+
+    Returns:
+        bool: True if the provided token matches the stored token hash, False otherwise.
+    """
     # Получаем значение хеша токена из config по имени token_name
     stored_token_hash = getattr(config, token_name, None)
     
@@ -26,6 +37,18 @@ async def check_token(token_name: str, token: str) -> bool:
     return bcrypt.checkpw(token.encode(), stored_token_hash)
 
 async def access_admin(response: Response, request: Request) -> JSONResponse:
+    """
+    Asynchronously checks if the user has admin access.
+
+    Args:
+        response (Response): The response object.
+        request (Request): The request object.
+
+    Returns:
+        JSONResponse: If the user has admin access, returns True.
+                      If the user does not have admin access, returns a JSONResponse object with status code 403 and content "Вы не админ!".
+                      If the session key is invalid, returns a JSONResponse object with status code 401 and content "Недействительный ключ сессии!".
+    """
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
@@ -42,7 +65,16 @@ async def access_admin(response: Response, request: Request) -> JSONResponse:
         return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
 
-def str_to_list(string: str):
+def str_to_list(string: str) -> list:
+    """
+    Convert a string representation of a list to an actual list.
+
+    Parameters:
+        string (str): The string representation of the list.
+
+    Returns:
+        list: The converted list. If the conversion fails, an empty list is returned.
+    """
     try:
         string = json.loads(string)
         if type(string) is not list:
@@ -51,7 +83,7 @@ def str_to_list(string: str):
         string = []
     return string
 
-async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = False, check_mode: bool = False):
+async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = False, check_mode: bool = False) -> bool | list[int]:
     """
     Asynchronously checks if the given user has access to modify the specified mods.
 
@@ -132,7 +164,7 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
     session.close()
     return mini_result
 
-async def access_mods(response: Response, request: Request, mods_ids: list[int], edit: bool = False, check_mode: bool = False):
+async def access_mods(response: Response, request: Request, mods_ids: list[int], edit: bool = False, check_mode: bool = False) -> JSONResponse | list[int]:
     """
     Asynchronously checks the access permissions for a set of mods.
 
@@ -168,6 +200,15 @@ async def access_mods(response: Response, request: Request, mods_ids: list[int],
         return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
 async def check_game_exists(game_id:int) -> bool:
+    """
+    Asynchronously checks if a game with the given ID exists in the catalog.
+
+    Parameters:
+        game_id (int): The ID of the game to check.
+
+    Returns:
+        bool: True if a game with the given ID exists, False otherwise.
+    """
     session = sessionmaker(bind=catalog.engine)()
 
     result = session.query(catalog.Game).filter_by(id=game_id).first()
@@ -175,7 +216,53 @@ async def check_game_exists(game_id:int) -> bool:
     session.close()
     return bool(result)
 
-def sort_mods(sort_by: str):
+async def storage_file_upload(type: str, path: str, file: BytesIO) -> bool | str:
+    """
+    Uploads a file to the storage service.
+
+    Args:
+        type (str): The type of the file.
+        path (str): Path of the file to be uploaded.
+        file (BytesIO): The file content to be uploaded.
+
+    Returns:
+        bool | str: False if the file upload failed.
+                    If the file was uploaded successfully, the response body is returned as a path to the uploaded file.
+    """
+    
+    real_url = f'{config.STORAGE_URL}/upload?token={config.storage_upload_token}'
+
+    async with aiohttp.ClientSession() as session:
+        async with session.put(real_url, data={
+                                            'file': file,
+                                            'type': type,
+                                            'path': path}
+                                ) as resp:
+            if resp.status != 201:
+                return False
+            else:
+                return await resp.read() # Возвращаем итоговый url
+            
+async def storage_file_delete(type: str, path: str) -> bool:
+    """
+    Deletes a file from the storage.
+
+    Args:
+        type (str): The type of the file.
+        path (str): Path to the file to be deleted.
+
+    Returns:
+        bool: True if the file was successfully deleted, False otherwise.
+    """
+
+    real_url = f'{config.STORAGE_URL}/delete?token={config.storage_delete_token}'
+
+    async with aiohttp.ClientSession() as session:
+        async with session.delete(real_url, data={'type': type, 'path': path}) as resp:
+            return resp.status != 200
+
+
+def sort_mods(sort_by: str): 
     match sort_by:
         case 'NAME':
             return catalog.Mod.name
