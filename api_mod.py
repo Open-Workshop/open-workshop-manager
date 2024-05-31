@@ -19,7 +19,7 @@ router = APIRouter()
 
 @router.get("/download/{mod_id}")
 async def download_mod(mod_id: int):
-    return RedirectResponse(url=F'{config.STORAGE_URL}/archive/mod/{mod_id}/main.zip')
+    return RedirectResponse(url=F'{config.STORAGE_URL}/download/archive/mods/{mod_id}/main.zip')
 
 @router.get("/list/mods/access/{ids_array}")
 async def access_to_mods(response: Response, request: Request, ids_array, edit: bool = False,
