@@ -459,7 +459,14 @@ async def delete_account(response: Response, request: Request):
             forget=datetime.datetime.now()+datetime.timedelta(days=5)
         )
 
-        # TODO удаляем связанный аватар на другом микросервисе
+        avatar_url = str(row.avatar_url)
+
+        if avatar_url.startswith("local"):
+            format_name = avatar_url.split(".")[1]
+            if not tools.storage_file_delete(type="avatar", path=f"{row.id}.{format_name}"):
+                session.close()
+                return JSONResponse(status_code=523,
+                                    content="Что-то пошло не так при удалении аватара из системы.")
 
         # Выполнение операции INSERT
         session.execute(insert_statement)
