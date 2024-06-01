@@ -46,5 +46,4 @@ app.include_router(forum_comment_router)
 
 
 # TODO переименнованые объекты в catalog_sql.py учитывать во всех остальных файлах
-# TODO логика скачивания модов с сервера
 # TODO использовать MAIN_URL

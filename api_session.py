@@ -162,31 +162,30 @@ async def google_complite(response: Response, request: Request, code:str, _state
                 registration_date=dtime,
 
                 reputation=0
-            ).returning(account.Account.id)
+            )
             # Выполнение операции INSERT
             result = session.execute(insert_statement)
-            id = result.fetchone()[0]  # Получаем значение `id` созданного элемента
+            id = result.lastrowid
 
             if len(user_data.get("picture", "")) > 0:
                 session.commit()
                 session.close()
-                # TODO при создании аккаунта, сохранять аватар на другом микросервисе
+                
                 async with aiohttp.ClientSession() as NETsession:
                     async with NETsession.get(user_data["picture"]) as resp:
                         if resp.status == 200:
-                            # Сохраняем изображение
-                            # Чтение и конвертация изображения
-                            img = Image.open(BytesIO(await resp.read()))
+                            # Чтобы узнать расширение файла из ответа сервера: resp.headers['Content-Type']
+                            # может содержать: image/jpeg, image/png, image/gif, image/bmp, image/webp
+                            format_name = resp.headers['Content-Type'].split("/")[1]
 
-                            if img.mode in ("RGBA", "P"):
-                                img = img.convert("RGB")
-
-                            img.save(f"accounts_avatars/{str(id)}.jpeg", "JPEG", quality=50)
-
-                            # Помечаем в БД пользователя, что у него есть аватар
-                            session.query(account.Account).filter(account.Account.id == id).update({"avatar_url": "local"})
+                            if await tools.storage_file_upload(type="avatar", path=f"{id}.{format_name}", file=BytesIO(await resp.read())):
+                                # Помечаем в БД пользователя, что у него есть аватар
+                                session.query(account.Account).filter(account.Account.id == id).update({"avatar_url": f"local.{format_name}"})
+                                session.commit()
+                            else:
+                                print("Google регистрация: во время загрузки аватара произошла ошибка!")
                         else:
-                            print("Google регистрация: во время сохранения изображения произошла ошибка!")
+                            print("Google регистрация: во время получения изображения произошла ошибка!")
     else:
         id = rows.id
 

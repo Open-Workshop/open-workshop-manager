@@ -4,6 +4,7 @@ from PIL import Image
 from io import BytesIO
 import bcrypt
 import os
+import tools
 from ow_config import MAIN_URL
 import datetime
 import ow_config as config
@@ -115,7 +116,7 @@ async def avatar_profile(user_id: int):
 
     if avatar_url:
         if avatar_url[0].startswith('local'):
-            return RedirectResponse(url=f'{config.STORAGE_URL}/img/avatar/{user_id}.{avatar_url[0].split(".")[1]}')
+            return RedirectResponse(url=f'{config.STORAGE_URL}/download/avatar/{user_id}.{avatar_url[0].split(".")[1]}')
         elif len(avatar_url[0]) > 0:
             return RedirectResponse(url=avatar_url[0])
         else:
@@ -306,30 +307,29 @@ async def edit_profile(response: Response, request: Request, user_id: int, usern
 
                 try:
                     if empty_avatar:
-                        # TODO удаляем аватар на другом микросервисе
-
                         query_update["avatar_url"] = ""
 
-                        image_avatar = f"accounts_avatars/{user_id}.jpeg"
-                        if os.path.isfile(image_avatar):
-                            os.remove(image_avatar)
-                    elif avatar is not None:  # Проверка на аватар в самом конце, т.к. он приводит к изменениям в файловой системе
-                        # TODO заменяем аватар на другом микросервисе
+                        avatar_url = str(user.avatar_url)
 
-                        query_update["avatar_url"] = "local"
+                        if avatar_url.startswith("local"):
+                            format_name = avatar_url.split(".")[1]
+                            if not tools.storage_file_delete(type="avatar", path=f"{user.id}.{format_name}"):
+                                session.close()
+                                return JSONResponse(status_code=523,
+                                                    content="Что-то пошло не так при удалении аватара из системы.")
+                    elif avatar is not None:  # Проверка на аватар в самом конце, т.к. он приводит к изменениям в файловой системе
+                        format_name = avatar.filename.split(".")[-1]
+                        if len(format_name) <= 0: format_name = "jpg"
+                        
+                        query_update["avatar_url"] = f"local.{format_name}"
 
                         if avatar.size >= 2097152:
                             session.close()
                             return JSONResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
 
-                        try:
-                            im = Image.open(BytesIO(await avatar.read()))
-                            if im.mode in ("RGBA", "P"):
-                                im = im.convert("RGB")
-                            im.save(f'accounts_avatars/{user_id}.jpeg', 'JPEG', quality=50)
-                        except:
-                            await avatar.close()
-                            session.close()
+
+                        if not await tools.storage_file_upload(type="avatar", path=f"{user.id}.{format_name}", file=BytesIO(await avatar.read())):
+                            print("Google регистрация: во время загрузки аватара произошла ошибка!")
                             return JSONResponse(status_code=500,
                                                 content="Что-то пошло не так при обработке аватара ._.")
                 except:
