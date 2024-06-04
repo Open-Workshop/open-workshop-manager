@@ -59,7 +59,7 @@ async def list_resources(response: Response, request: Request, resources_list_id
     session.close()
     return {"database_size": resources_count, "results": resources}
 
-@router.get(MAIN_URL+"/list/resources_mods/{mods_ids_list}", tags=["Resource"])
+@router.get(MAIN_URL+"/list/resources/mods/{mods_ids_list}", tags=["Resource"])
 async def list_resources_for_mods(response: Response, request: Request, mods_ids_list, page_size: int = 10,
                                   page: int = 0, types_resources=[]):
     """
@@ -115,6 +115,8 @@ async def list_resources_for_mods(response: Response, request: Request, mods_ids
 
                 async with NETsession.get(url=url) as aioresponse:
                     return json.loads(await aioresponse.text())
+
+# TODO /list/resources/games/{mods_ids_list}
 
 
 @router.post(MAIN_URL+"/add/resource", tags=["Resource"])
