@@ -79,14 +79,15 @@ class Mod(base): # Таблица "моды"
     )
     game = Column(Integer)
 
-class ResourceMod(base): # Ресурсы (скриншоты и лого)
+class Resource(base): # Ресурсы (скриншоты и лого)
     __tablename__ = 'resources_mods'
     id = Column(Integer, primary_key=True)
     type = Column(String)
     url = Column(String)
     date_event = Column(DateTime)
 
-    owner_id = Column(Integer, ForeignKey('mods.id'))
+    owner_type = Column(String) #game, mod, etc...
+    owner_id = Column(Integer)
 
 
 # Теги

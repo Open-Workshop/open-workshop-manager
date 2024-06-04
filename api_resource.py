@@ -14,7 +14,7 @@ router = APIRouter()
 
 
 @router.get("/list/resources/{resources_list_id}")
-async def list_resources_mods(request: Request, resources_list_id, token: str = None):
+async def list_resources(response: Response, request: Request, resources_list_id):
     """
     Возвращает список ресурсов по их id. Список в размере не должен быть > 80!
     Если в переданном списке ресурсов есть ID привязанное к непубличному моду, то будет отказано в доступе!
@@ -30,26 +30,30 @@ async def list_resources_mods(request: Request, resources_list_id, token: str = 
     session = sessionmaker(bind=catalog.engine)()
 
     # Выполнение запроса
-    query = session.query(catalog.ResourceMod)
-    query = query.filter(catalog.ResourceMod.id.in_(resources_list_id))
+    query = session.query(catalog.Resource)
+    query = query.filter(catalog.Resource.id.in_(resources_list_id))
 
     resources_count = query.count()
     resources = query.all()
 
     # Проверка правомерности
     if resources_count > 0:
+        query = query.filter_by(owner_type='mod')
+
         mods_ids_check = []
-        for i in resources:
+        for i in query.all():
             mods_ids_check.append(i.owner_id)
 
-        query = session.query(catalog.Mod.id)
-        query = query.filter(catalog.Mod.id.in_(mods_ids_check))
+        if len(mods_ids_check) > 0:
+            query = session.query(catalog.Mod.id)
+            query = query.filter(catalog.Mod.id.in_(mods_ids_check))
+            ids_mods = [mod.id for mod in query.all()]
 
-        if len(query.all()) > 0:
-            pass #TODO проверяем правомерность доступа
-            #if not await account.check_access(к) access(request=request, user_token=token, real_token=config.token_info_mod, func_name="resources list"):
-            #    session.close()
-            #    return JSONResponse(status_code=403, content="Access denied. This case will be reported.")
+            if len(ids_mods) > 0:
+                ids_access = await tools.access_mods(response=response, request=request, mods_ids=ids_mods, check_mode=True)
+                if len(ids_access) != len(ids_mods):
+                    session.close()
+                    return JSONResponse(status_code=403, content="Access denied.")
 
     # Возврат успешного результата
     session.close()

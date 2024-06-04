@@ -378,9 +378,10 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
 
 
 @router.post(MAIN_URL+"/add/mod", tags=["Mod"])
-async def add_mod(response: Response, request: Request, mod_name: str = Form(...),
-                  mod_short_description: str = Form(''), mod_description: str = Form(''), mod_source: str = Form(...),
-                  mod_game: int = Form(...), mod_public: int = Form(...), mod_file: UploadFile = File(...)):
+async def add_mod(response: Response, request: Request, mod_id: int = -1, without_author: bool = False,
+                  mod_name: str = Form(...), mod_short_description: str = Form(''), mod_description: str = Form(''),
+                  mod_source: str = Form(...), mod_game: int = Form(...), mod_public: int = Form(...),
+                  mod_file: UploadFile = File(...)):
     """
     Тестовая функция
     """
@@ -410,7 +411,9 @@ async def add_mod(response: Response, request: Request, mod_name: str = Form(...
             if user_req.admin:
                 return True
             else:
-                if user_req.mute_until and user_req.mute_until > datetime.datetime.now():
+                if mod_id > 0 or without_author:
+                    return False
+                elif user_req.mute_until and user_req.mute_until > datetime.datetime.now():
                     return False
                 elif user_req.publish_mods:
                     return True
