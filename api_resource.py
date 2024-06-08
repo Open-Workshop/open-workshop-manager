@@ -152,31 +152,51 @@ async def add_resource(response: Response, request: Request, owner_type: str, re
     else:
         return access_result
 
-@router.post(MAIN_URL+"/edit/resource/{owner_type}", tags=["Resource"])
-async def edit_resource(response: Response, request: Request, owner_type: str, resource_id: int,
-                        resource_type: str = Form(None), resource_url: str = Form(None),
-                        resource_owner_id: int = Form(None)):
+@router.post(MAIN_URL+"/edit/resource", tags=["Resource"])
+async def edit_resource(response: Response, request: Request, resource_id: int, resource_type: str = Form(None),
+                        resource_url: str = Form(None), resource_file: UploadFile = File(...)):
     """
     Тестовая функция
     """
-    # TODO работа напрямую с базой
-    # TODO возможность менять файл ресурса
+    session = sessionmaker(bind=catalog.engine)()
 
-    async with aiohttp.ClientSession() as NETsession:
-        async with NETsession.get(url=SERVER_ADDRESS+f'/list/resources/%5B{resource_id}%5D?token={config.token_info_mod}') as aioresponse:
-            data_res = json.loads(await aioresponse.text())
+    resource = session.query(catalog.Resource).filter_by(id=resource_id)
+    if not resource.first():
+        return JSONResponse(status_code=404, content="The element does not exist.")
 
-            if data_res["database_size"] <= 0:
-                return JSONResponse(status_code=404, content="Ресурс не найден!")
-            else:
-                url = SERVER_ADDRESS + f'/account/edit/resource?token={config.token_edit_resource}&resource_id={resource_id}'
-                body = {}
-                if resource_type is not None: body["resource_type"] = resource_type
-                if resource_url is not None: body["resource_url"] = resource_url
-                if resource_owner_id is not None: body["resource_owner_id"] = resource_owner_id
+    if resource.owner_type == "mods":
+        access_result = await tools.access_mods(response=response, request=request, mods_ids=[resource.owner_id], edit=True)
+    else:
+        access_result = await tools.access_admin(response=response, request=request)
 
-                result_req = await tools.mod_to_backend(response=response, request=request, url=url, body=body, mod_id=data_res["results"][0]["owner_id"])
-                return result_req[2]
+
+    if access_result == True:
+        # Подготавливаем данные
+        data_edit = {}
+        if resource_type:
+            data_edit["type"] = resource_type
+
+        # TODO если мы меняем url, произовдим доп проверки, чтобы на сервере не оставалось мусора на статик сервере
+        if resource_file:
+            pass
+        elif resource_url:
+            data_edit["url"] = resource_url
+
+
+        if len(data_edit) <= 0:
+            return JSONResponse(status_code=418, content="The request is empty")
+
+        data_edit["date_event"] = datetime.now()
+
+        # Меняем данные в БД
+        resource.update(data_edit)
+        session.commit()
+
+        session.close()
+        return JSONResponse(status_code=202, content="Complite")
+    else:
+        session.close()
+        return access_result
 
 @router.delete(MAIN_URL+"/delete/resource/{owner_type}", tags=["Resource"])
 async def delete_resource(response: Response, request: Request, owner_type: str, resource_id: int):

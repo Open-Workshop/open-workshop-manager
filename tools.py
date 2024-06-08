@@ -36,7 +36,7 @@ async def check_token(token_name: str, token: str) -> bool:
     # Хешируем переданный токен с использованием bcrypt и проверяем соответствие
     return bcrypt.checkpw(token.encode(), stored_token_hash)
 
-async def access_admin(response: Response, request: Request) -> JSONResponse:
+async def access_admin(response: Response, request: Request) -> JSONResponse | bool:
     """
     Asynchronously checks if the user has admin access.
 
