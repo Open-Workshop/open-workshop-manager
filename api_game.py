@@ -59,7 +59,7 @@ async def games_list(page_size: int = 10, page: int = 0, sort: str = "MODS_DOWNL
     session = sessionmaker(bind=catalog.engine)()
 
     # Выполнение запроса
-    query = session.query(catalog.Game.id, catalog.Game.name, catalog.Game.type, catalog.Game.logo, catalog.Game.source)
+    query = session.query(catalog.Game.id, catalog.Game.name, catalog.Game.type, catalog.Game.source)
     if description:
         query = query.add_column(catalog.Game.description)
     if short_description:
@@ -101,7 +101,7 @@ async def games_list(page_size: int = 10, page: int = 0, sort: str = "MODS_DOWNL
 
     output_games = []
     for game in games:
-        out = {"id": game.id, "name": game.name, "type": game.type, "logo": game.logo, "source": game.source}
+        out = {"id": game.id, "name": game.name, "type": game.type, "source": game.source}
         if description:
             out["description"] = game.description
         if short_description:
@@ -184,7 +184,6 @@ async def add_game(
         insert_statement = insert(catalog.Game).values(
             name=game_name,
             type=game_type,
-            logo=game_logo,
             short_description=game_short_desc,
             description=game_desc,
             mods_downloads=0,
@@ -303,6 +302,8 @@ async def delete_game(
         session = sessionmaker(bind=catalog.engine)()
 
         delete_game = delete(catalog.Game).where(catalog.Game.id == game_id)
+
+        # TODO удалять связанные ресурсы
 
         delete_genres_association = catalog.game_genres.delete().where(catalog.game_genres.c.game_id == game_id)
         delete_tags_association = catalog.allowed_mods_tags.delete().where(catalog.allowed_mods_tags.c.game_id == game_id)

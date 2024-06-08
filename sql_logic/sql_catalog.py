@@ -37,7 +37,6 @@ class Game(base): # Таблица "игры"
     id = Column(Integer, primary_key=True)
     name = Column(String)
     type = Column(String)
-    logo = Column(String)
 
     short_description = Column(String)
     description = Column(String)

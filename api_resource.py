@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Response, Form
+from fastapi import APIRouter, Request, Response, Form, UploadFile, File
 from fastapi.responses import JSONResponse
 import tools
 import json
@@ -13,13 +13,16 @@ import ow_config as config
 router = APIRouter()
 
 
-@router.get("/list/resources/{resources_list_id}")
-async def list_resources(response: Response, request: Request, resources_list_id):
+@router.get("/list/resources/{owner_type}/{resources_list_id}")
+async def list_resources(response: Response, request: Request, owner_type: str, resources_list_id):
     """
     Возвращает список ресурсов по их id. Список в размере не должен быть > 80!
     Если в переданном списке ресурсов есть ID привязанное к непубличному моду, то будет отказано в доступе!
     """
     resources_list_id = tools.str_to_list(resources_list_id)
+
+    if owner_type not in ['mods', 'games']:
+        return JSONResponse(status_code=400, content={"message": "unknown owner_type", "error_id": 5})
 
     if len(resources_list_id) > 80:
         return JSONResponse(status_code=413,
@@ -31,6 +34,7 @@ async def list_resources(response: Response, request: Request, resources_list_id
 
     # Выполнение запроса
     query = session.query(catalog.Resource)
+    query = query.filter_by(owner_type=owner_type)
     query = query.filter(catalog.Resource.id.in_(resources_list_id))
 
     resources_count = query.count()
@@ -38,34 +42,30 @@ async def list_resources(response: Response, request: Request, resources_list_id
 
     # Проверка правомерности
     if resources_count > 0:
-        query = query.filter_by(owner_type='mod')
+        mods_ids_check = [ i.owner_id for i in resources ]
 
-        mods_ids_check = []
-        for i in query.all():
-            mods_ids_check.append(i.owner_id)
+        query = session.query(catalog.Mod.id)
+        query = query.filter(catalog.Mod.id.in_(mods_ids_check))
+        ids_mods = [mod.id for mod in query.all()]
 
-        if len(mods_ids_check) > 0:
-            query = session.query(catalog.Mod.id)
-            query = query.filter(catalog.Mod.id.in_(mods_ids_check))
-            ids_mods = [mod.id for mod in query.all()]
-
-            if len(ids_mods) > 0:
-                ids_access = await tools.access_mods(response=response, request=request, mods_ids=ids_mods, check_mode=True)
-                if len(ids_access) != len(ids_mods):
-                    session.close()
-                    return JSONResponse(status_code=403, content="Access denied.")
+        if len(ids_mods) > 0:
+            ids_access = await tools.access_mods(response=response, request=request, mods_ids=ids_mods, check_mode=True)
+            if len(ids_access) != len(ids_mods):
+                session.close()
+                return JSONResponse(status_code=403, content="Access denied.")
 
     # Возврат успешного результата
     session.close()
     return {"database_size": resources_count, "results": resources}
 
-@router.get(MAIN_URL+"/list/resources/mods/{mods_ids_list}", tags=["Resource"])
-async def list_resources_for_mods(response: Response, request: Request, mods_ids_list, page_size: int = 10,
-                                  page: int = 0, types_resources=[]):
+@router.get(MAIN_URL+"/list/resources/{owner_type}/{mods_ids_list}", tags=["Resource"])
+async def list_resources_for_elements(response: Response, request: Request, owner_type: str, mods_ids_list,
+                                      page_size: int = 10, page: int = 0, types_resources=[]):
     """
     Тестовая функция
     """
-    # TODO работа с микросервисом напрямую
+    if owner_type not in ['mods', 'games']:
+        return JSONResponse(status_code=400, content={"message": "unknown owner_type", "error_id": 5})
 
     mods_ids_list = tools.str_to_list(mods_ids_list)
     types_resources = tools.str_to_list(types_resources)
@@ -78,50 +78,33 @@ async def list_resources_for_mods(response: Response, request: Request, mods_ids
     elif page < 0:
         return JSONResponse(status_code=413, content={"message": "incorrect page", "error_id": 4})
 
-    async with aiohttp.ClientSession() as NETsession:
-        async with NETsession.get(url=SERVER_ADDRESS+f'/public/mod/{str(mods_ids_list)}') as ioresponse:
-            result = json.loads(await ioresponse.text())
+    access_result = owner_type != "mods"
+    if not access_result:
+        access_result = await tools.access_mods(response=response, request=request, mods_ids=mods_ids_list)
 
-            l = []
-            for i in mods_ids_list:
-                if i not in result:
-                    l.append(i)
+    if access_result == True:
+        # Создание сессии
+        session = sessionmaker(bind=catalog.engine)()
 
-            if len(l) > 0:
-                access_result = await account.check_access(request=request, response=response)
+        # Выполнение запроса
+        query = session.query(catalog.Resource)
+        query = query.filter_by(owner_type=owner_type)
+        query = query.filter(catalog.Resource.id.in_(mods_ids_list))
 
-                if access_result and access_result.get("owner_id", -1) >= 0:
-                    # Создание сессии
-                    Session = sessionmaker(bind=account.engine)
-                    session = Session()
+        resources_count = query.count()
+        resources = query.all()
 
-                    row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1)).first()
-
-                    rowT = session.query(account.mod_and_author).filter_by(user_id=access_result.get("owner_id", -1))
-                    rowT = rowT.filter(account.mod_and_author.c.mod_id.in_(l))
-
-                    if rowT.count() != len(l) and not row.admin:
-                        session.close()
-                        return JSONResponse(status_code=403, content="Доступ воспрещен!")
-                    session.close()
-                else:
-                    return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
-
-            async with aiohttp.ClientSession() as NETsession:
-                url = SERVER_ADDRESS+f'/list/resources_mods/{str(mods_ids_list)}?token={config.token_info_mod}'
-                if page_size is not None: url+=f'&page_size={page_size}'
-                if page is not None: url+=f'&page={page}'
-                if types_resources is not None: url+=f'&types_resources={types_resources}'
-
-                async with NETsession.get(url=url) as aioresponse:
-                    return json.loads(await aioresponse.text())
-
-# TODO /list/resources/games/{mods_ids_list}
+        # Возврат успешного результата
+        session.close()
+        return {"database_size": resources_count, "results": resources}
+    else:
+        return access_result
 
 
-@router.post(MAIN_URL+"/add/resource", tags=["Resource"])
-async def add_resource(response: Response, request: Request, resource_type_name: str = Form(...),
-                       resource_url: str = Form(...), resource_owner_id: int = Form(...)):
+@router.post(MAIN_URL+"/add/resource/{owner_type}", tags=["Resource"])
+async def add_resource(response: Response, request: Request, owner_type: str, resource_type_name: str = Form(...),
+                       resource_url: str = Form(...), resource_owner_id: int = Form(...),
+                       resource_file: UploadFile = File(...)):
     """
     Тестовая функция
     """
@@ -136,9 +119,10 @@ async def add_resource(response: Response, request: Request, resource_type_name:
     })
     return result_req[2]
 
-@router.post(MAIN_URL+"/edit/resource", tags=["Resource"])
-async def edit_resource(response: Response, request: Request, resource_id: int, resource_type: str = Form(None),
-                        resource_url: str = Form(None), resource_owner_id: int = Form(None)):
+@router.post(MAIN_URL+"/edit/resource/{owner_type}", tags=["Resource"])
+async def edit_resource(response: Response, request: Request, owner_type: str, resource_id: int,
+                        resource_type: str = Form(None), resource_url: str = Form(None),
+                        resource_owner_id: int = Form(None)):
     """
     Тестовая функция
     """
@@ -161,8 +145,8 @@ async def edit_resource(response: Response, request: Request, resource_id: int, 
                 result_req = await tools.mod_to_backend(response=response, request=request, url=url, body=body, mod_id=data_res["results"][0]["owner_id"])
                 return result_req[2]
 
-@router.delete(MAIN_URL+"/delete/resource", tags=["Resource"])
-async def delete_resource(response: Response, request: Request, resource_id: int):
+@router.delete(MAIN_URL+"/delete/resource/{owner_type}", tags=["Resource"])
+async def delete_resource(response: Response, request: Request, owner_type: str, resource_id: int):
     """
     Тестовая функция
     """

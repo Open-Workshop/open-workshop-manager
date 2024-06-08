@@ -262,7 +262,7 @@ async def list_tags_for_mods(response: Response, request: Request, mods_ids_list
     query = query.filter(catalog.Mod.id.in_(mods_ids_list))
 
     if len(query.all()) > 0:
-        result_access = tools.access_mods(response=response, request=request, mods_ids=mods_ids_list)
+        result_access = await tools.access_mods(response=response, request=request, mods_ids=mods_ids_list)
         if result_access != True:
             return result_access
 
@@ -316,7 +316,7 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
         return JSONResponse(status_code=404, content="Mod not found.")
 
     if output["pre_result"].public >= 2:
-        result_access = tools.access_mods(response=response, request=request, mod_id=mod_id, edit=False)
+        result_access = await tools.access_mods(response=response, request=request, mods_ids=mod_id, edit=False)
         if result_access != True:
             return result_access
 
@@ -385,6 +385,7 @@ async def add_mod(response: Response, request: Request, mod_id: int = -1, withou
     """
     Тестовая функция
     """
+    # TODO работа с микросервисом на прямую
     access_result = await account.check_access(request=request, response=response)
 
     if True or access_result and access_result.get("owner_id", -1) >= 0:
@@ -592,6 +593,7 @@ async def delete_mod(response: Response, request: Request, mod_id: int):
     """
     Тестовая функция
     """
+    # TODO работа с микросервисом на прямую
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
