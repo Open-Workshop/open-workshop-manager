@@ -17,7 +17,7 @@ router = APIRouter()
 
 
 @router.get("/list/resources/{owner_type}/{resources_list_id}", tags=["Resource"])
-async def list_resources(response: Response, request: Request, owner_type: str, resources_list_id):
+async def list_resources(response: Response, request: Request, owner_type: str, resources_list_id, only_urls: bool = False):
     """
     Возвращает список ресурсов по их id. Список в размере не должен быть > 80!
     Если в переданном списке ресурсов есть ID привязанное к непубличному моду, то будет отказано в доступе!
@@ -57,13 +57,16 @@ async def list_resources(response: Response, request: Request, owner_type: str, 
                 session.close()
                 return JSONResponse(status_code=403, content="Access denied.")
 
+    real_resources = await tools.resources_serialize(resources=resources, only_urls=only_urls)
+
     # Возврат успешного результата
     session.close()
-    return {"database_size": resources_count, "results": resources}
+    return {"database_size": resources_count, "results": real_resources}
 
 @router.get(MAIN_URL+"/list/resources/{owner_type}/{mods_ids_list}", tags=["Resource"])
 async def list_resources_for_elements(response: Response, request: Request, owner_type: str, mods_ids_list,
-                                      page_size: int = 10, page: int = 0, types_resources=[]):
+                                      page_size: int = 10, page: int = 0, types_resources=[], 
+                                      only_urls: bool = False):
     """
     Тестовая функция
     """
@@ -97,9 +100,11 @@ async def list_resources_for_elements(response: Response, request: Request, owne
         resources_count = query.count()
         resources = query.all()
 
+        real_resources = await tools.resources_serialize(resources=resources, only_urls=only_urls)
+
         # Возврат успешного результата
         session.close()
-        return {"database_size": resources_count, "results": resources}
+        return {"database_size": resources_count, "results": real_resources}
     else:
         return access_result
 

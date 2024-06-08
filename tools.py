@@ -83,6 +83,34 @@ def str_to_list(string: str) -> list:
         string = []
     return string
 
+
+async def resources_serialize(resources:list[catalog.Resource], only_urls:bool = False) -> list[dict] | list[str]:
+    """
+    Serializes a list of `catalog.Resource` objects into a list of dictionaries or a list of strings.
+    
+    Args:
+        resources (list[catalog.Resource]): A list of `catalog.Resource` objects to be serialized.
+        only_urls (bool, optional): If set to `True`, only the `real_url` attribute of each resource will be included in the serialized list. Defaults to `False`.
+    
+    Returns:
+        list[dict] | list[str]: A list of dictionaries containing the serialized resource information, or a list of strings if `only_urls` is `True`.
+    """
+    real_resources = []
+    for resource in resources:
+        if only_urls:
+            real_resources.append(resource.real_url)
+        else:
+            real_resources.append({
+                "id": resource.id,
+                "type": resource.type,
+                "url": resource.real_url,
+                "owner_id": resource.owner_id,
+                "owner_type": resource.owner_type,
+                "date_event": resource.date_event
+            })
+    return real_resources
+
+
 async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = False, check_mode: bool = False) -> bool | list[int]:
     """
     Asynchronously checks if the given user has access to modify the specified mods.

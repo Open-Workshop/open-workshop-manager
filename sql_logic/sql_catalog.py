@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Table, ForeignKey, Boolean
 from sqlalchemy.orm import relationship, declarative_base
 from ow_config import user_sql, password_sql
+import ow_config as config
 
 
 # engine = create_engine(f'mysql+mysqldb://{user_sql}:{password_sql}@localhost/catalog')
@@ -87,6 +88,13 @@ class Resource(base): # Ресурсы (скриншоты и лого)
     # При возвращении юзеру обязательно перерабатывать url в фактический (с точки зрения юзера)
     # TODO сделать функцию которая перерабатывает URL
     url = Column(String)
+    @property
+    def real_url(self, action='download'):
+        if self.url.startswith('local/'):
+            return f'{config.STORAGE_URL}/{action}/resource/{self.url.replace('local/', '')}'
+        else:
+            return self.url
+
     date_event = Column(DateTime)
 
     owner_type = Column(String) #games, mods, etc...
