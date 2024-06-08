@@ -82,6 +82,10 @@ class Resource(base): # Ресурсы (скриншоты и лого)
     __tablename__ = 'resources_mods'
     id = Column(Integer, primary_key=True)
     type = Column(String)
+
+    # Если начинается с local/, то по факту можно заменить на {config.STORAGE_URL}/(действие)/resource/...
+    # При возвращении юзеру обязательно перерабатывать url в фактический (с точки зрения юзера)
+    # TODO сделать функцию которая перерабатывает URL
     url = Column(String)
     date_event = Column(DateTime)
 

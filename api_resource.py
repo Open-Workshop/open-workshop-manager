@@ -1,13 +1,16 @@
 from fastapi import APIRouter, Request, Response, Form, UploadFile, File
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 import tools
 import json
+import io
 import aiohttp
 from sql_logic import sql_account as account
 from sql_logic import sql_catalog as catalog
+from sqlalchemy import insert
 from sqlalchemy.orm import sessionmaker
 from ow_config import MAIN_URL, SERVER_ADDRESS
 import ow_config as config
+from datetime import datetime
 
 
 router = APIRouter()
@@ -106,18 +109,48 @@ async def add_resource(response: Response, request: Request, owner_type: str, re
                        resource_url: str = Form(...), resource_owner_id: int = Form(...),
                        resource_file: UploadFile = File(...)):
     """
-    Тестовая функция
+    resource_url не учитывается если передан resource_file
     """
-    # TODO Работа с микросервисом напрямую
-    # TODO Возможность добавлять ресурс на статик сервер (файл передаём сюда)
+    if owner_type not in ['mods', 'games']:
+        return PlainTextResponse(status_code=404, content="unknown owner_type")
+    elif owner_type == 'mods':
+        access_result = await tools.access_mods(response=response, request=request, mods_ids=[resource_owner_id], edit=True)
+    else:
+        access_result = await tools.access_admin(response=response, request=request)
 
-    url = SERVER_ADDRESS + f'/account/add/resource?token={config.token_add_resource}'
-    result_req = await tools.mod_to_backend(response=response, request=request, mod_id=resource_owner_id, url=url, body={
-        "resource_type_name": resource_type_name,
-        "resource_url": resource_url,
-        "resource_owner_id": resource_owner_id
-    })
-    return result_req[2]
+
+    if access_result == True:
+        real_url = resource_url
+
+        if resource_file:
+            real_file = io.BytesIO(await resource_file.read())
+            real_path = f'{owner_type}/{resource_owner_id}/{resource_file.filename}'
+
+            result_upload = await tools.storage_file_upload(type="resource", path=real_path, file=real_file)
+            if not result_upload:
+                return JSONResponse(status_code=500, content='Upload error')
+            else:
+                real_url = f'local/{result_upload}'
+
+        session = sessionmaker(bind=catalog.engine)()
+
+        insert_statement = insert(catalog.Resource).values(
+            type=resource_type_name,
+            url=real_url,
+            date_event=datetime.now(),
+            owner_type=owner_type,
+            owner_id=resource_owner_id
+        )
+
+        result = session.execute(insert_statement)
+        id = result.lastrowid  # Получаем ID последней вставленной строки
+
+        session.commit()
+        session.close()
+
+        return JSONResponse(status_code=202, content=id)  # Возвращаем значение `id`
+    else:
+        return access_result
 
 @router.post(MAIN_URL+"/edit/resource/{owner_type}", tags=["Resource"])
 async def edit_resource(response: Response, request: Request, owner_type: str, resource_id: int,
