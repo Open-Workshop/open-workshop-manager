@@ -166,11 +166,12 @@ async def edit_resource(response: Response, request: Request, resource_id: int, 
     session = sessionmaker(bind=catalog.engine)()
 
     resource = session.query(catalog.Resource).filter_by(id=resource_id)
-    if not resource.first():
+    got_resource = resource.first()
+    if not got_resource:
         return JSONResponse(status_code=404, content="The element does not exist.")
 
-    if resource.owner_type == "mods":
-        access_result = await tools.access_mods(response=response, request=request, mods_ids=[resource.owner_id], edit=True)
+    if got_resource.owner_type == "mods":
+        access_result = await tools.access_mods(response=response, request=request, mods_ids=[got_resource.owner_id], edit=True)
     else:
         access_result = await tools.access_admin(response=response, request=request)
 
@@ -181,11 +182,22 @@ async def edit_resource(response: Response, request: Request, resource_id: int, 
         if resource_type:
             data_edit["type"] = resource_type
 
-        # TODO если мы меняем url, произовдим доп проверки, чтобы на сервере не оставалось мусора на статик сервере
-        if resource_file:
-            pass
-        elif resource_url:
-            data_edit["url"] = resource_url
+        if resource_file or resource_url:
+            if resource.url.startswith("local/") and \
+                    not await tools.storage_file_delete(type="resource", path=resource.url.replace("local/", "")):
+                return JSONResponse(status_code=500, content="delete old file error")
+
+            if resource_file:
+                real_file = io.BytesIO(await resource_file.read())
+                real_path = f'{got_resource.owner_type}/{got_resource.owner_id}/{resource_file.filename}'
+
+                result_upload = await tools.storage_file_upload(type="resource", path=real_path, file=real_file)
+                if not result_upload:
+                    return JSONResponse(status_code=500, content='Upload error')
+                else:
+                    data_edit["url"] = f'local/{result_upload}'
+            else:
+                data_edit["url"] = resource_url
 
 
         if len(data_edit) <= 0:

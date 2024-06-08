@@ -65,7 +65,7 @@ async def access_admin(response: Response, request: Request) -> JSONResponse | b
         return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
 
-def str_to_list(string: str) -> list:
+def str_to_list(string: str | list) -> list:
     """
     Convert a string representation of a list to an actual list.
 
@@ -192,7 +192,7 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
     session.close()
     return mini_result
 
-async def access_mods(response: Response, request: Request, mods_ids: list[int], edit: bool = False, check_mode: bool = False) -> JSONResponse | list[int]:
+async def access_mods(response: Response, request: Request, mods_ids: list[int] | int, edit: bool = False, check_mode: bool = False) -> JSONResponse | list[int]:
     """
     Asynchronously checks the access permissions for a set of mods.
 

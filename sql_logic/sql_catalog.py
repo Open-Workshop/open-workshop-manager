@@ -86,7 +86,6 @@ class Resource(base): # Ресурсы (скриншоты и лого)
 
     # Если начинается с local/, то по факту можно заменить на {config.STORAGE_URL}/(действие)/resource/...
     # При возвращении юзеру обязательно перерабатывать url в фактический (с точки зрения юзера)
-    # TODO сделать функцию которая перерабатывает URL
     url = Column(String)
     @property
     def real_url(self, action='download'):
