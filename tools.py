@@ -274,6 +274,8 @@ async def delete_resources(owner_type:str, resources_ids:list[int] = [], owner_i
 
     # TODO написать удаление ресурсов
 
+    return True
+
 
 def sort_mods(sort_by: str): 
     match sort_by:

@@ -16,7 +16,7 @@ from datetime import datetime
 router = APIRouter()
 
 
-@router.get("/list/resources/{owner_type}/{resources_list_id}")
+@router.get("/list/resources/{owner_type}/{resources_list_id}", tags=["Resource"])
 async def list_resources(response: Response, request: Request, owner_type: str, resources_list_id):
     """
     Возвращает список ресурсов по их id. Список в размере не должен быть > 80!
@@ -183,8 +183,6 @@ async def delete_resource(response: Response, request: Request, owner_type: str,
     """
     Тестовая функция
     """
-    # TODO работа напрямую с базой
-    # TODO удаляем файл если он сохранен локально
     if owner_type not in ['mods', 'games']:
         return PlainTextResponse(status_code=400, content="unknown owner_type")
     elif owner_type == 'mods':
