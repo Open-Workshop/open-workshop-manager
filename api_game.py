@@ -303,12 +303,12 @@ async def delete_game(
 
         delete_game = delete(catalog.Game).where(catalog.Game.id == game_id)
 
-        # TODO удалять связанные ресурсы
-
+        delete_resources = delete(catalog.Resource).where(catalog.Resource.owner_id == game_id and catalog.Resource.owner_type == 'games')
         delete_genres_association = catalog.game_genres.delete().where(catalog.game_genres.c.game_id == game_id)
         delete_tags_association = catalog.allowed_mods_tags.delete().where(catalog.allowed_mods_tags.c.game_id == game_id)
 
         # Выполнение операции DELETE
+        session.execute(delete_resources)
         session.execute(delete_game)
         session.execute(delete_genres_association)
         session.execute(delete_tags_association)

@@ -85,7 +85,7 @@ class Resource(base): # Ресурсы (скриншоты и лого)
     url = Column(String)
     date_event = Column(DateTime)
 
-    owner_type = Column(String) #game, mod, etc...
+    owner_type = Column(String) #games, mods, etc...
     owner_id = Column(Integer)
 
 
