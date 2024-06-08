@@ -112,7 +112,7 @@ async def add_resource(response: Response, request: Request, owner_type: str, re
     resource_url не учитывается если передан resource_file
     """
     if owner_type not in ['mods', 'games']:
-        return PlainTextResponse(status_code=404, content="unknown owner_type")
+        return PlainTextResponse(status_code=400, content="unknown owner_type")
     elif owner_type == 'mods':
         access_result = await tools.access_mods(response=response, request=request, mods_ids=[resource_owner_id], edit=True)
     else:
@@ -185,15 +185,26 @@ async def delete_resource(response: Response, request: Request, owner_type: str,
     """
     # TODO работа напрямую с базой
     # TODO удаляем файл если он сохранен локально
+    if owner_type not in ['mods', 'games']:
+        return PlainTextResponse(status_code=400, content="unknown owner_type")
+    elif owner_type == 'mods':
+        session = sessionmaker(bind=catalog.engine)()
+        query = session.query(catalog.Resource)
+        query = query.filter_by(owner_type=owner_type, owner_id=resource_id).first()
+        session.close()
 
-    async with aiohttp.ClientSession() as NETsession:
-        async with NETsession.get(url=SERVER_ADDRESS+f'/list/resources/%5B{resource_id}%5D?token={config.token_info_mod}') as aioresponse:
-            data_res = json.loads(await aioresponse.text())
+        if query:
+            access_result = await tools.access_mods(response=response, request=request, mods_ids=[query.owner_id], edit=True)
+        else:
+            return PlainTextResponse(status_code=404, content="not found")
+    else:
+        access_result = await tools.access_admin(response=response, request=request)
 
-            if data_res["database_size"] <= 0:
-                return JSONResponse(status_code=404, content="Ресурс не найден!")
-            else:
-                url = SERVER_ADDRESS + f'/account/delete/resource?token={config.token_delete_resource}&resource_id={resource_id}'
 
-                result_req = await tools.mod_to_backend(response=response, request=request, url=url, mod_id=data_res["results"][0]["owner_id"])
-                return result_req[2]
+    if access_result == True:
+        if await tools.delete_resources(owner_type=owner_type, resources_ids=[resource_id]):
+            return PlainTextResponse(status_code=200, content="Complite!")
+        else:
+            return PlainTextResponse(status_code=500, content="Unknown error")
+    else:
+        return access_result
