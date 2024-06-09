@@ -90,7 +90,7 @@ class Resource(base): # Ресурсы (скриншоты и лого)
     @property
     def real_url(self, action='download'):
         if self.url.startswith('local/'):
-            return f'{config.STORAGE_URL}/{action}/resource/{self.url.replace('local/', '')}'
+            return f"{config.STORAGE_URL}/{action}/resource/{self.url.replace('local/', '')}"
         else:
             return self.url
 

@@ -292,15 +292,53 @@ async def storage_file_delete(type: str, path: str) -> bool:
 
 async def delete_resources(owner_type:str, resources_ids:list[int] = [], owner_id: int = -1) -> bool:
     """
-    Нужно обязательно передать либо resources_ids либо owner_id (сами фильтры не противоречат друг другу, но не рекомендую использовать одновременно).
+    Deletes resources based on the owner type and resource IDs or owner ID.
+    If resources_ids is not empty, the resources with the specified IDs will be deleted. If owner_id is not -1, the resources of the specified owner will be deleted.
+    If both resources_ids and owner_id are empty, return False (call error).
 
-    Если resources_ids будут удаляться конкретные ресурсы, а если owner_id, то ресурсы овнера (если без переданного списка, то все).
+    Args:
+        owner_type (str): The type of the owner.
+        resources_ids (list[int], optional): A list of resource IDs to delete. Defaults to an empty list.
+        owner_id (int, optional): The ID of the owner. Defaults to -1.
+
+    Returns:
+        bool: True if the resources are successfully deleted, False otherwise.
     """
-
+    #Нужно обязательно передать либо resources_ids либо owner_id (сами фильтры не противоречат друг другу, но не рекомендую использовать одновременно).
+    #Если resources_ids будут удаляться конкретные ресурсы, а если owner_id, то ресурсы овнера (если без переданного списка, то все).
+    
     if len(resources_ids) <= 0 and owner_id <= 0:
         return False
 
-    # TODO написать удаление ресурсов
+    Session = sessionmaker(bind=catalog.engine)
+
+    session = Session()
+    query = session.query(catalog.Resource).filter_by(owner_type=owner_type)
+
+    if owner_id > 0: query = query.filter_by(owner_id=owner_id)
+    if len(resources_ids) > 0: query = query.filter(catalog.Resource.id.in_(resources_ids))
+
+    resources = { i.id: i.url for i in query.all() }
+    session.close()
+
+    deleted = []
+    for resource in resources.keys():
+        url = resources[resource]
+        if url.startswith("local/"):
+            delete_result = await storage_file_delete(type="resource", path=url.replace("local/", ""))
+
+            if delete_result: deleted.append(resource)
+            else: print(f"Delete Resources: Error: resource not deleted ({resource})")
+        else:
+            deleted.append(resource)
+
+    if len(deleted) > 0:
+        session = Session()
+        session.query(catalog.Resource).filter(catalog.Resource.id.in_(deleted)).delete(synchronize_session=False)
+        session.commit()
+        session.close()
+    else:
+        print("Delete Resources: No resources deleted")
 
     return True
 
