@@ -8,7 +8,7 @@ import re
 import io
 import datetime
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import insert
+from sqlalchemy import insert, func
 from sql_logic import sql_catalog as catalog
 from ow_config import MAIN_URL, SERVER_ADDRESS
 import ow_config as config
@@ -385,10 +385,10 @@ async def add_mod(response: Response, request: Request, mod_id: int = -1, withou
     """
     Тестовая функция
     """
-    # TODO работа с микросервисом на прямую
     access_result = await account.check_access(request=request, response=response)
+    user_id = access_result.get("owner_id", -1)
 
-    if True or access_result and access_result.get("owner_id", -1) >= 0:
+    if access_result and user_id >= 0:
         print(mod_short_description)
         if len(re.sub(r'\s+', ' ', mod_short_description)) > 256:
             return JSONResponse(status_code=413, content="Короткое описание слишком длинное!")
@@ -401,12 +401,9 @@ async def add_mod(response: Response, request: Request, mod_id: int = -1, withou
         elif not await tools.check_game_exists(mod_game):
             return JSONResponse(status_code=412, content="Такой игры не существует!")
 
-        # Создание сессии
-        Session = sessionmaker(bind=account.engine)
-
         # Выполнение запроса
-        session = Session()
-        user_req = session.query(account.Account).filter_by(id=access_result.get("owner_id", -1)).first()
+        session = sessionmaker(bind=account.engine)()
+        user_req = session.query(account.Account).filter_by(id=user_id).first()
 
         async def mini():
             if user_req.admin:
@@ -421,46 +418,80 @@ async def add_mod(response: Response, request: Request, mod_id: int = -1, withou
             return False
 
         if await mini():
-            # TODO доступ напрямую к базе
-            # TODO сохраняем файл в другом микросервисе
+            session.close()
 
-            async with aiohttp.ClientSession() as NETsession:
-                real_mod_file = io.BytesIO(await mod_file.read())
-                real_mod_file.name = mod_file.filename
+            if mod_file.size >= 838860800:
+                return JSONResponse(status_code=413, content="The file is too large.")
 
-                url = SERVER_ADDRESS+f'/account/add/mod?token={config.token_add_mod}'
+            Session = sessionmaker(bind=catalog.engine)
 
-                async with NETsession.post(url=url, data={
-                    "mod_file": real_mod_file,
-                    "mod_name": mod_name,
-                    "mod_short_description": mod_short_description,
-                    "mod_description": mod_description,
-                    "mod_source": mod_source,
-                    "mod_game": str(mod_game),
-                    "mod_public": str(mod_public)
-                }) as response:
-                    result = await response.text()
-                    if response.status >= 200 and response.status < 300:
-                        result = json.loads(result)
+            session = Session()
+            if mod_id > 0:
+                if session.query(catalog.Mod).filter_by(id=mod_id).first():
+                    return JSONResponse(status_code=412, content="Мод с таким ID уже существует!")
+            session.close()
 
-                    if response.status in [201]:
-                        # Создание сессии
-                        Session = sessionmaker(bind=account.engine)
-                        session = Session()
+            real_mod_file = io.BytesIO(await mod_file.read())
+            real_mod_file.name = mod_file.filename
 
-                        # Выполнение запроса
-                        insert_statement = insert(account.mod_and_author).values(
-                            user_id=int(access_result.get("owner_id", -1)),
-                            owner=True,
-                            mod_id=int(result)
-                        )
-                        session.execute(insert_statement)
+            if mod_public not in [0, 1, 2]:
+                mod_public = 0
 
-                        # Подтверждение
-                        session.commit()
+            session = Session()
+            # Create the insert statement
+            insert_statement = insert(catalog.Mod)
+            insert_statement = insert_statement.values(
+                name=mod_name,
+                short_description=mod_short_description,
+                description=mod_description,
+                size=mod_file.size,
+                condition=1,
+                public=mod_public,
+                date_creation=datetime.now(),
+                date_update_file=datetime.now(),
+                date_edit=datetime.now(),
+                source=mod_source,
+                downloads=0,
+                game=mod_game
+            )
 
-                    session.close()
-                    return JSONResponse(status_code=200, content=result)
+            # If mod_id is given, update the insert statement
+            if mod_id > 0:
+                insert_statement = insert_statement.values(id=mod_id)
+
+            result = session.execute(insert_statement)
+            id = result.lastrowid  # Получаем ID последней вставленной строки
+
+            session.commit()
+
+            # Указываем авторство, если пользователь не запросил обратного
+            if not without_author:
+                session = Session()
+                session.add(catalog.mod_and_author(mod_id=id, user_id=user_id, owner=True))
+                session.commit()
+
+            session.close()
+
+            file_ext = mod_file.filename.split(".")[-1]
+            result_upload = await tools.storage_file_upload(type="mod", path=f"mods/{id}/main.{file_ext}", file=real_mod_file)
+
+            session = Session()
+            if result_upload:
+                session.query(catalog.Mod).filter_by(id=id).update({"condition": 0})
+                session.query(catalog.Game).filter_by(id=mod_game).update({
+                    catalog.Game.mod_count: func.coalesce(catalog.Game.mod_count, 0) + 1
+                })
+                session.commit()
+
+                session.close()
+                return JSONResponse(status_code=201, content=id)  # Возвращаем значение `id`
+            else:
+                session.query(catalog.Mod).filter_by(id=id).delete()
+                session.query(catalog.mod_and_author).filter_by(mod_id=id).delete()
+                session.commit()
+                
+                session.close()
+                return JSONResponse(status_code=500, content="Не удалось загрузить файл!")
         else:
             session.close()
             return JSONResponse(status_code=403, content="Заблокировано!")
