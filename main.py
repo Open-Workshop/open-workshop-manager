@@ -45,5 +45,4 @@ app.include_router(forum_router)
 app.include_router(forum_comment_router)
 
 
-# TODO переименнованые объекты в catalog_sql.py учитывать во всех остальных файлах
 # TODO использовать MAIN_URL

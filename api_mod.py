@@ -474,7 +474,7 @@ async def add_mod(response: Response, request: Request, mod_id: int = -1, withou
             session.close()
 
             file_ext = mod_file.filename.split(".")[-1]
-            result_upload = await tools.storage_file_upload(type="mod", path=f"mods/{id}/main.{file_ext}", file=real_mod_file)
+            result_upload = await tools.storage_file_upload(type="archive", path=f"mods/{id}/main.{file_ext}", file=real_mod_file)
 
             session = Session()
             if result_upload:
@@ -511,40 +511,57 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
     """
     Тестовая функция
     """
-    # TODO доступ напрямую к базе
+    access_result = await tools.access_mods(response=response, request=request, mods_ids=mod_id, edit=True)
+    if access_result == True:
+        body = {}
+        if mod_name is not None:
+            if len(mod_name) > 60:
+                return JSONResponse(status_code=413, content="Название слишком длинное!")
+            elif len(mod_name) < 1:
+                return JSONResponse(status_code=411, content="Название слишком короткое!")
+            body["mod_name"] = mod_name
+        if mod_short_description is not None:
+            if len(re.sub(r'\s+', ' ', mod_short_description)) > 256:
+                return JSONResponse(status_code=413, content="Короткое описание слишком длинное!")
+            body["mod_short_description"] = mod_short_description
+        if mod_description is not None:
+            if len(re.sub(r'\s+', ' ', mod_description)) > 10000:
+                return JSONResponse(status_code=413, content="Описание слишком длинное!")
+            body["mod_description"] = mod_description
+        if mod_source is not None:
+            body["mod_source"] = mod_source
+        if mod_game is not None:
+            if not await tools.check_game_exists(mod_game):
+                return JSONResponse(status_code=412, content="Такой игры не существует!")
+            body["mod_game"] = mod_game
+        if mod_public is not None:
+            if mod_public in [0, 1, 2]:
+                body["mod_public"] = mod_public
 
-    body = {}
-    if mod_name is not None:
-        if len(mod_name) > 60:
-            return JSONResponse(status_code=413, content="Название слишком длинное!")
-        elif len(mod_name) < 1:
-            return JSONResponse(status_code=411, content="Название слишком короткое!")
-        body["mod_name"] = mod_name
-    if mod_short_description is not None:
-        if len(re.sub(r'\s+', ' ', mod_short_description)) > 256:
-            return JSONResponse(status_code=413, content="Короткое описание слишком длинное!")
-        body["mod_short_description"] = mod_short_description
-    if mod_description is not None:
-        if len(re.sub(r'\s+', ' ', mod_description)) > 10000:
-            return JSONResponse(status_code=413, content="Описание слишком длинное!")
-        body["mod_description"] = mod_description
-    if mod_source is not None: body["mod_source"] = mod_source
-    if mod_game is not None:
-        if not await tools.check_game_exists(mod_game):
-            return JSONResponse(status_code=412, content="Такой игры не существует!")
-        body["mod_game"] = mod_game
-    if mod_public is not None: body["mod_public"] = mod_public
+        if len(body) <= 0 and mod_file is None:
+            return JSONResponse(status_code=411, content="Ничего не было изменено!")
 
+        if len(body) > 0:
+            body["date_edit"] = datetime.now()
 
-    if mod_file:
-        real_mod_file = io.BytesIO(await mod_file.read())
-        real_mod_file.name = mod_file.filename
+        if mod_file:
+            real_mod_file = io.BytesIO(await mod_file.read())
+            real_mod_file.name = mod_file.filename
+            url = f"mods/{mod_id}/main.{mod_file.filename.split('.')[-1]}"
+
+            body["date_update_file"] = datetime.now()
+
+            result_file_update = await tools.storage_file_upload(type="archive", path=url, file=real_mod_file)
+            if not result_file_update:
+                return JSONResponse(status_code=500, content="Не удалось обновить файл!")
+                
+        session = sessionmaker(bind=catalog.engine)()
+        session.query(catalog.Mod).filter_by(id=mod_id).update(body)
+        session.commit()
+        session.close()
+        return JSONResponse(status_code=201, content="OK")
     else:
-        real_mod_file = ''
-    body["mod_file"] = real_mod_file
-
-
-    return False
+        return access_result
 
 @router.post(MAIN_URL+"/edit/mod/authors", tags=["Mod"])
 async def edit_authors_mod(response: Response, request: Request, mod_id:int, mode:bool, author:int,
