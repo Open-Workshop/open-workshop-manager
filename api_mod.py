@@ -10,6 +10,7 @@ import datetime
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import insert, func
 from sql_logic import sql_catalog as catalog
+from sql_logic import sql_statistics as statistics
 from ow_config import MAIN_URL, SERVER_ADDRESS
 import ow_config as config
 
@@ -19,6 +20,7 @@ router = APIRouter()
 
 @router.get("/download/{mod_id}")
 async def download_mod(mod_id: int):
+    statistics.update("mod_download", mod_id)
     return RedirectResponse(url=F'{config.STORAGE_URL}/download/archive/mods/{mod_id}/main.zip')
 
 @router.get("/list/mods/access/{ids_array}")
@@ -374,7 +376,8 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
 
         session_account.close()
 
-    return JSONResponse(status_code=200, content=result)
+    statistics.update("mod_page_view", mod_id)
+    return JSONResponse(status_code=200, content=output)
 
 
 @router.post(MAIN_URL+"/add/mod", tags=["Mod"])
@@ -672,7 +675,7 @@ async def delete_mod(response: Response, request: Request, mod_id: int):
                 session.commit()
                 session.close()
 
-                return JSONResponse(status_code=200, content=result)
+                return JSONResponse(status_code=200, content="Удалено")
             else:
                 session.close()
                 return JSONResponse(status_code=500, content="Не удалось удалить мод!")

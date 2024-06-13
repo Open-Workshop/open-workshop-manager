@@ -67,21 +67,21 @@ def create_processing(type, time_start):
 
 
 # Производит обновление в статистике (почасовая, ежедневная)
-def update(type:str):
+def update(type:str, type_id:int):
     session = sessionmaker(bind=engine)()
 
-    update_hour(session=session, type=type)
-    update_day(session=session, type=type)
+    update_hour(session=session, type=type, type_id=type_id)
+    update_day(session=session, type=type, type_id=type_id)
 
     session.commit()
     session.close()
 
-def update_hour(session, type:str):
+def update_hour(session, type:str, type_id:int):
     # Получение текущего часа
     current_hour = datetime.now().replace(minute=0, second=0, microsecond=0)
 
     # Запрос к базе данных для получения колонки
-    query = session.query(StatisticsHour).filter_by(date_time=current_hour, type=str(type))
+    query = session.query(StatisticsHour).filter_by(date_time=current_hour, type=str(type), type_id=int(type_id))
     column = query.first()
 
     if column:
@@ -90,14 +90,15 @@ def update_hour(session, type:str):
         session.execute(insert(StatisticsHour).values(
             date_time=current_hour,
             type=type,
+            type_id=type_id,
             count=1
         ))
-def update_day(session, type:str):
+def update_day(session, type:str, type_id:int):
     # Получение текущего часа
     current_day = date.today()
 
     # Запрос к базе данных для получения колонки
-    query = session.query(StatisticsDay).filter_by(date=current_day, type=str(type))
+    query = session.query(StatisticsDay).filter_by(date=current_day, type=str(type), type_id=int(type_id))
     column = query.first()
 
     if column:
@@ -106,6 +107,7 @@ def update_day(session, type:str):
         session.execute(insert(StatisticsDay).values(
             date=current_day,
             type=type,
+            type_id=type_id,
             count=1
         ))
 

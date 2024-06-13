@@ -159,12 +159,12 @@ class Reaction(base): # Жанры для игр
 
 async def gen_session(user_id:int, session, login_method:str = "unknown"):
     ddate = datetime.datetime.now()
-    # Проверяем есть ли более 5 активных сессий
+    # Проверяем есть ли более 10 активных сессий
     # Если есть - аннулируем все сессии
     row = session.query(Session).filter_by(owner_id=user_id, broken=None)
     row = row.filter(Session.end_date_refresh > ddate)
 
-    if row.count() > 4:
+    if row.count() > 9:
         row.update({"broken": "too many sessions"})
 
 
