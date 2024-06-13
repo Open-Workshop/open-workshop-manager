@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 
-@router.get("/list/games/", tags=["Game"])
+@router.get(MAIN_URL+"/list/games/", tags=["Game"])
 async def games_list(page_size: int = 10, page: int = 0, sort: str = "MODS_DOWNLOADS", name: str = "",
                      type_app=[], genres=[], primary_sources=[], allowed_ids=[],
                      short_description: bool = False, description: bool = False, dates: bool = False,
@@ -116,7 +116,7 @@ async def games_list(page_size: int = 10, page: int = 0, sort: str = "MODS_DOWNL
     session.close()
     return {"database_size": mods_count, "offset": offset, "results": output_games}
 
-@router.get("/list/genres/games/{games_ids_list}", tags=["Game", "Genre"])
+@router.get(MAIN_URL+"/list/genres/games/{games_ids_list}", tags=["Game", "Genre"])
 async def list_genres_for_games(games_ids_list, genres=[], only_ids: bool = False):
     """
     Возвращает ассоциации игр с жанрами

@@ -11,7 +11,7 @@ from ow_config import MAIN_URL
 router = APIRouter()
 
 
-@router.get("/list/tags/{game_id}")
+@router.get(MAIN_URL+"/list/tags/{game_id}")
 async def list_tags(game_id: int, page_size: int = 10, page: int = 0, name: str = '', tags_ids = []):
     """
     Возвращает список тегов закрепленных за игрой и её модами. Нужно передать ID интересующей игры.

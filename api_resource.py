@@ -12,7 +12,7 @@ from datetime import datetime
 router = APIRouter()
 
 
-@router.get("/list/resources/{owner_type}/{resources_list_id}", tags=["Resource"])
+@router.get(MAIN_URL+"/list/resources/{owner_type}/{resources_list_id}", tags=["Resource"])
 async def list_resources(response: Response, request: Request, owner_type: str, resources_list_id, only_urls: bool = False):
     """
     Возвращает список ресурсов по их id. Список в размере не должен быть > 80!
@@ -59,7 +59,7 @@ async def list_resources(response: Response, request: Request, owner_type: str, 
     session.close()
     return {"database_size": resources_count, "results": real_resources}
 
-@router.get(MAIN_URL+"/list/resources/{owner_type}/{mods_ids_list}", tags=["Resource"])
+@router.get(MAIN_URL+"/list/resources/for/{owner_type}/{mods_ids_list}", tags=["Resource"])
 async def list_resources_for_elements(response: Response, request: Request, owner_type: str, mods_ids_list,
                                       page_size: int = 10, page: int = 0, types_resources=[], 
                                       only_urls: bool = False):

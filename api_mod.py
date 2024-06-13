@@ -16,12 +16,12 @@ import ow_config as config
 router = APIRouter()
 
 
-@router.get("/download/{mod_id}")
+@router.get(MAIN_URL+"/download/{mod_id}")
 async def download_mod(mod_id: int):
     statistics.update("mod_download", mod_id)
     return RedirectResponse(url=F'{config.STORAGE_URL}/download/archive/mods/{mod_id}/main.zip')
 
-@router.get("/list/mods/access/{ids_array}")
+@router.get(MAIN_URL+"/list/mods/access/{ids_array}")
 async def access_to_mods(response: Response, request: Request, ids_array, edit: bool = False,
                          user: int = -1, token: str = "none"):
     """
@@ -53,7 +53,7 @@ async def access_to_mods(response: Response, request: Request, ids_array, edit: 
     else:
         return tools.access_mods(response=response, request=request, mods_ids=ids_array, edit=edit, check_mode=True)
 
-@router.get("/list/mods/public/{ids_array}")
+@router.get(MAIN_URL+"/list/mods/public/{ids_array}")
 async def public_mods(ids_array, in_catalog:bool = False):
     """
     Возвращает список публичных модов на сервере.
@@ -84,7 +84,7 @@ async def public_mods(ids_array, in_catalog:bool = False):
     session.close()
     return output
 
-@router.get("/list/mods/")
+@router.get(MAIN_URL+"/list/mods/")
 async def mod_list(response: Response, request: Request, page_size: int = 10, page: int = 0, sort: str = "DOWNLOADS",
                    tags=[], game: int = -1, allowed_ids=[], independents: bool = False, primary_sources=[],
                    name: str = "", short_description: bool = False, description: bool = False, dates: bool = False,
@@ -237,7 +237,7 @@ async def mod_list(response: Response, request: Request, page_size: int = 10, pa
     # Вывод результатов
     return {"database_size": mods_count, "offset": offset, "results": output_mods}
 
-@router.get("/list/tags/mods/{mods_ids_list}")
+@router.get(MAIN_URL+"/list/tags/mods/{mods_ids_list}")
 async def list_tags_for_mods(response: Response, request: Request, mods_ids_list, tags=[], only_ids: bool = False):
     """
     Возвращает ассоциации модов с тегами.
