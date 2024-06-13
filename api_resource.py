@@ -1,15 +1,11 @@
 from fastapi import APIRouter, Request, Response, Form, UploadFile, File
 from fastapi.responses import JSONResponse, PlainTextResponse
 import tools
-import json
 import io
-import aiohttp
-from sql_logic import sql_account as account
 from sql_logic import sql_catalog as catalog
 from sqlalchemy import insert
 from sqlalchemy.orm import sessionmaker
-from ow_config import MAIN_URL, SERVER_ADDRESS
-import ow_config as config
+from ow_config import MAIN_URL
 from datetime import datetime
 
 

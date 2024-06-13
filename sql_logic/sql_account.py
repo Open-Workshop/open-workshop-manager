@@ -2,7 +2,6 @@ from sqlalchemy import create_engine, Column, Integer, String, DateTime, Table, 
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from fastapi import Request, Response
-from ow_config import user_sql, password_sql
 import bcrypt
 import datetime
 
@@ -227,7 +226,7 @@ async def update_session(response: Response, request: Request, result_row: bool 
 
         response.set_cookie(key='loginJS', value=end_refresh.strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
         response.set_cookie(key='accessJS', value=end_access.strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
-        response.set_cookie(key='userID', value=res.owner_id, secure=True, max_age=5184000)
+        response.set_cookie(key='userID', value=str(res.owner_id), secure=True, max_age=5184000)
 
         if result_row:
             rr = session.query(Session).filter_by(id=res.id).first().__dict__
@@ -264,7 +263,6 @@ async def check_session(user_access_token:str):
         session.close()
         return False
     except:
-        session.close()
         return False
 
 async def forget_accounts():

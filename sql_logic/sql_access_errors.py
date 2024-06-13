@@ -1,10 +1,5 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, insert
+from sqlalchemy import create_engine, Column, Integer, String, DateTime
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from datetime import datetime
-from fastapi import Request
-from ow_config import user_sql, password_sql
-import bcrypt
 
 
 # engine = create_engine(f'mysql+mysqldb://{user_sql}:{password_sql}@localhost/access')

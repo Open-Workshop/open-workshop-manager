@@ -2,7 +2,6 @@ from datetime import datetime, date
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Date, insert
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
-from ow_config import user_sql, password_sql
 
 
 

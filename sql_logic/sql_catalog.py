@@ -1,6 +1,5 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Table, ForeignKey, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Table, ForeignKey
 from sqlalchemy.orm import relationship, declarative_base
-from ow_config import user_sql, password_sql
 import ow_config as config
 
 

@@ -1,17 +1,15 @@
 from fastapi import APIRouter, Request, Response, Form, File, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from sql_logic import sql_account as account
-import json
-import aiohttp
 import tools
 import re
 import io
-import datetime
+from datetime import datetime
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import insert, func
 from sql_logic import sql_catalog as catalog
 from sql_logic import sql_statistics as statistics
-from ow_config import MAIN_URL, SERVER_ADDRESS
+from ow_config import MAIN_URL
 import ow_config as config
 
 
@@ -56,7 +54,7 @@ async def access_to_mods(response: Response, request: Request, ids_array, edit: 
         return tools.access_mods(response=response, request=request, mods_ids=ids_array, edit=edit, check_mode=True)
 
 @router.get("/list/mods/public/{ids_array}")
-async def public_mods(ids_array, catalog:bool = False):
+async def public_mods(ids_array, in_catalog:bool = False):
     """
     Возвращает список публичных модов на сервере.
     Принимает массив ID модов. Возвращает масссив id's модов.
@@ -74,7 +72,7 @@ async def public_mods(ids_array, catalog:bool = False):
 
     # Выполнение запроса
     query = session.query(catalog.Mod)
-    if catalog:
+    if in_catalog:
         query = query.filter(catalog.Mod.public == 0)
     else:
         query = query.filter(catalog.Mod.public <= 1)
@@ -197,7 +195,7 @@ async def mod_list(response: Response, request: Request, page_size: int = 10, pa
     # Фильтрация по тегам
     if len(tags) > 0:
         for tag in tags:
-            query = query.filter(catalog.Mod.tags.any(catalog.ModTag.id == tag))
+            query = query.filter(catalog.Mod.tags.any(catalog.Tag.id == tag))
 
     # Сортировка по пользователю
     if user > 0:
@@ -274,7 +272,7 @@ async def list_tags_for_mods(response: Response, request: Request, mods_ids_list
     for mod_id in mods_ids_list:
         query = query_global.filter(catalog.mods_tags.c.mod_id == mod_id)
         if len(tags) > 0:
-            query = query.filter(catalog.ModTag.id.in_(tags))
+            query = query.filter(catalog.Tag.id.in_(tags))
 
         if only_ids:
             if result.get(mod_id, None) == None: result[mod_id] = []
@@ -332,7 +330,7 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
         output["dependencies_count"] = count
 
     if game:
-        result = session.query(catalog.Game.name).filter(catalog.Game.id == output["pre_result"].game).first()
+        result = session.query(catalog.Game.name).filter_by(id=output["pre_result"].game).first()
 
         output["game"] = {"id": output["pre_result"].game, "name": result.name}
 
@@ -414,7 +412,7 @@ async def add_mod(response: Response, request: Request, mod_id: int = -1, withou
             else:
                 if mod_id > 0 or without_author:
                     return False
-                elif user_req.mute_until and user_req.mute_until > datetime.datetime.now():
+                elif user_req.mute_until and user_req.mute_until > datetime.now():
                     return False
                 elif user_req.publish_mods:
                     return True
@@ -469,8 +467,8 @@ async def add_mod(response: Response, request: Request, mod_id: int = -1, withou
 
             # Указываем авторство, если пользователь не запросил обратного
             if not without_author:
-                session = Session()
-                session.add(catalog.mod_and_author(mod_id=id, user_id=user_id, owner=True))
+                session = sessionmaker(bind=account.engine)()
+                session.add(account.mod_and_author(mod_id=id, user_id=user_id, owner=True))
                 session.commit()
 
             session.close()
@@ -490,10 +488,14 @@ async def add_mod(response: Response, request: Request, mod_id: int = -1, withou
                 return JSONResponse(status_code=201, content=id)  # Возвращаем значение `id`
             else:
                 session.query(catalog.Mod).filter_by(id=id).delete()
-                session.query(catalog.mod_and_author).filter_by(mod_id=id).delete()
                 session.commit()
-                
                 session.close()
+
+                session = sessionmaker(bind=account.engine)()
+                session.query(account.mod_and_author).filter_by(mod_id=id).delete()
+                session.commit()
+                session.close()
+
                 return JSONResponse(status_code=500, content="Не удалось загрузить файл!")
         else:
             session.close()
@@ -510,8 +512,6 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
     Тестовая функция
     """
     # TODO доступ напрямую к базе
-
-    url = SERVER_ADDRESS + f'/account/edit/mod?token={config.token_edit_mod}&mod_id={mod_id}'
 
     body = {}
     if mod_name is not None:
@@ -535,7 +535,6 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
         body["mod_game"] = mod_game
     if mod_public is not None: body["mod_public"] = mod_public
 
-    print(url)
 
     if mod_file:
         real_mod_file = io.BytesIO(await mod_file.read())
@@ -544,9 +543,8 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
         real_mod_file = ''
     body["mod_file"] = real_mod_file
 
-    result_code, result_data, result = await tools.mod_to_backend(response=response, request=request, url=url, mod_id=mod_id, body=body)
 
-    return result
+    return False
 
 @router.post(MAIN_URL+"/edit/mod/authors", tags=["Mod"])
 async def edit_authors_mod(response: Response, request: Request, mod_id:int, mode:bool, author:int,
@@ -571,7 +569,7 @@ async def edit_authors_mod(response: Response, request: Request, mod_id:int, mod
             elif user_req.admin:
                 return True
             else:
-                if user_req.mute_until and user_req.mute_until > datetime.datetime.now():
+                if user_req.mute_until and user_req.mute_until > datetime.now():
                     return False
 
                 in_mod = session.query(account.mod_and_author).filter_by(mod_id=mod_id, user_id=req_user_id).first()
@@ -641,7 +639,7 @@ async def delete_mod(response: Response, request: Request, mod_id: int):
             if user_req.admin:
                 return True
             else:
-                if user_req.mute_until and user_req.mute_until > datetime.datetime.now():
+                if user_req.mute_until and user_req.mute_until > datetime.now():
                     return False
 
                 in_mod = session.query(account.mod_and_author).filter_by(mod_id=mod_id, user_id=access_result.get("owner_id", -1)).first()

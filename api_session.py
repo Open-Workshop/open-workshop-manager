@@ -5,12 +5,11 @@ import json
 from yandexid import AsyncYandexOAuth, AsyncYandexID
 from google_auth_oauthlib.flow import Flow
 import bcrypt
-import urllib
+from urllib import parse
 import datetime
 import random
 import string
 import tools
-from PIL import Image
 from io import BytesIO
 from ow_config import MAIN_URL
 import ow_config as config
@@ -108,7 +107,7 @@ async def google_complite(response: Response, request: Request, code:str, _state
 
     async with aiohttp.ClientSession() as NETsession:
         data_complite = data.copy()
-        data_complite["code"] = urllib.parse.unquote(code)
+        data_complite["code"] = parse.unquote(code)
 
         async with NETsession.post('https://oauth2.googleapis.com/token', data=data_complite) as token_response:
             google_access = await token_response.json()
@@ -214,7 +213,7 @@ async def yandex_complite(response: Response, request: Request, code:int):
 
     Если данный аккаунт не привязан ни к одному из аккаунтов OW и при этом передать access_token то произойдет коннект.
     """
-    token = await yandex_oauth.get_token_from_code(code)
+    token = await yandex_oauth.get_token_from_code(str(code))
     user_data = await AsyncYandexID(oauth_token=token.access_token).get_user_info_json()
 
     # Создание сессии

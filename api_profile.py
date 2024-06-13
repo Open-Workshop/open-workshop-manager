@@ -1,9 +1,7 @@
 from fastapi import APIRouter, Request, Response, Form, UploadFile, File
-from fastapi.responses import JSONResponse, FileResponse, RedirectResponse, PlainTextResponse
-from PIL import Image
+from fastapi.responses import JSONResponse, RedirectResponse, PlainTextResponse
 from io import BytesIO
 import bcrypt
-import os
 import tools
 from ow_config import MAIN_URL
 import datetime
@@ -350,7 +348,6 @@ async def edit_profile(response: Response, request: Request, user_id: int, usern
         else:
             return JSONResponse(status_code=403, content="Недействительный ключ сессии!")
     except:
-        session.close()
         return JSONResponse(status_code=500, content='В огромной функции произошла неизвестная ошибка...')
 
 
