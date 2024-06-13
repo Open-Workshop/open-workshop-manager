@@ -18,7 +18,7 @@ router = APIRouter()
 
 @router.get(MAIN_URL+"/download/{mod_id}")
 async def download_mod(mod_id: int):
-    statistics.update("mod_download", mod_id)
+    statistics.update("mod", mod_id, "download")
     return RedirectResponse(url=F'{config.STORAGE_URL}/download/archive/mods/{mod_id}/main.zip')
 
 @router.get(MAIN_URL+"/list/mods/access/{ids_array}")
@@ -374,7 +374,7 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
 
         session_account.close()
 
-    statistics.update("mod_page_view", mod_id)
+    statistics.update("mod", mod_id, "page_view")
     return JSONResponse(status_code=200, content=output)
 
 
