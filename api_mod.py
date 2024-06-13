@@ -624,12 +624,12 @@ async def delete_mod(response: Response, request: Request, mod_id: int):
     """
     Тестовая функция
     """
-    # TODO работа с микросервисом на прямую
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
         # Создание сессии
-        session = sessionmaker(bind=account.engine)()
+        Session = sessionmaker(bind=account.engine)
+        session = Session()
 
         # Выполнение запроса
         user_req = session.query(account.Account).filter_by(id=access_result.get("owner_id", -1)).first()
@@ -651,24 +651,31 @@ async def delete_mod(response: Response, request: Request, mod_id: int):
             return False
 
         if await mini():
-            # TODO доступ напрямую к базе
-            # TODO удаление файла с другого микросервиса
-            async with aiohttp.ClientSession() as NETsession:
-                async with NETsession.post(url=SERVER_ADDRESS+f'/account/delete/mod?token={config.token_delete_mod}&mod_id={mod_id}') as response:
-                    result = await response.text()
-                    if response.status >= 200 and response.status < 300:
-                        result = json.loads(result)
+            session.close()
+            
+            resource_delete_result = await tools.delete_resources(owner_type="mods", owner_id=mod_id)
+            if resource_delete_result and await tools.storage_file_delete(type="mod", path=f"mods/{mod_id}/main.zip"):
+                session = Session()
+                
+                delete_mod = account.mod_and_author.delete().where(account.mod_and_author.c.mod_id == mod_id)
+                session.execute(delete_mod)
 
-                    if response.status in [202, 500]:
-                        # Выполнение запроса
-                        delete_mod = account.mod_and_author.delete().where(account.mod_and_author.c.mod_id == mod_id)
+                session.commit()
+                session.close()
 
-                        # Выполнение операции DELETE
-                        session.execute(delete_mod)
-                        session.commit()
+                session = sessionmaker(bind=catalog.engine)()
 
-                    session.close()
-                    return JSONResponse(status_code=200, content=result)
+                session.query(catalog.Mod).filter_by(id=id).delete()
+                session.query(catalog.mods_dependencies).filter_by(mod_id=id).delete()
+                session.query(catalog.mods_tags).filter_by(mod_id=id).delete()
+
+                session.commit()
+                session.close()
+
+                return JSONResponse(status_code=200, content=result)
+            else:
+                session.close()
+                return JSONResponse(status_code=500, content="Не удалось удалить мод!")
         else:
             session.close()
             return JSONResponse(status_code=403, content="Заблокировано!")
