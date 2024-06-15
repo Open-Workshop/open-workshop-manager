@@ -43,6 +43,3 @@ app.include_router(reaction_router)
 app.include_router(black_list_router)
 app.include_router(forum_router)
 app.include_router(forum_comment_router)
-
-
-# TODO использовать MAIN_URL

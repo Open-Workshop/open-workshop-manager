@@ -9,8 +9,54 @@ from sql_logic import sql_catalog as catalog
 
 router = APIRouter()
 
+ASSOCIATION_RESPONSES = {
+    "game": {
+        202: {
+            "description": "Запрос успешно обработан.",
+            "content": {"application/json": {"example": "Complite"}},
+        },
+        401: {
+            "description": "Пользователь не авторизован (недействительный ключ сессии).",
+            "content": {"application/json": {"example": "Недействительный ключ сессии!"}},
+        },
+        403: {
+            "description": "Вы не админ.",
+            "content": {"application/json": {"example": "Вы не админ!"}},
+        },
+        409: {
+            "description": "Запрашиваемое состояние уже реализовано.",
+            "content": {"application/json": {"example": "The association is already present"}},
+        }
+    },
+    "mod": {
+        202: {
+            "description": "Запрос успешно обработан.",
+            "content": {"application/json": {"example": "Complite"}},
+        },
+        401: {
+            "description": "Пользователь не авторизован (недействительный ключ сессии).",
+            "content": {"application/json": {"example": "Недействительный ключ сессии!"}},
+        },
+        403: {
+            "description": "Нехватка прав.",
+            "content": {"application/json": {"example": "Заблокировано!"}},
+        },
+        409: {
+            "description": "Запрашиваемое состояние уже реализовано.",
+            "content": {"application/json": {"example": "The association is already present"}},
+        },
+    }
+}
 
-@router.post(MAIN_URL+"/association/game/genre", tags=["Association", "Game", "Genre"])
+
+
+@router.post(
+    MAIN_URL+"/association/game/genre", 
+    tags=["Association", "Game", "Genre"],
+    summary="Создание ассоциации между игрой и жанром.",
+    status_code=202,
+    responses=ASSOCIATION_RESPONSES["game"]
+)
 async def association_game_with_genre(
     response: Response, 
     request: Request, 
@@ -18,13 +64,6 @@ async def association_game_with_genre(
     mode: bool = Form(..., description="Режим работы функции. True - добавление ассоциации. False - удаление ассоциации."),
     genre_id: int = Form(..., description="ID жанра")
 ):
-    """
-    Создание ассоциации между игрой и жанром.
-
-    game_id (int) - ID игры
-    mode (bool) - Режим работы функции. True - добавление ассоциации. False - удаление ассоциации.
-    genre_id (int) - ID жанра
-    """
     access_result = await tools.access_admin(response=response, request=request)
 
     if access_result == True:
@@ -53,7 +92,13 @@ async def association_game_with_genre(
     else:
         return access_result
 
-@router.post(MAIN_URL+"/association/game/tag", tags=["Association", "Game", "Tag"])
+@router.post(
+    MAIN_URL+"/association/game/tag", 
+    tags=["Association", "Game", "Tag"],
+    summary="Создание ассоциации между игрой и тегом.",
+    status_code=202,
+    responses=ASSOCIATION_RESPONSES["game"]
+)
 async def association_game_with_tag(
     response: Response, 
     request: Request, 
@@ -61,13 +106,6 @@ async def association_game_with_tag(
     mode: bool = Form(..., description="Режим работы функции. True - добавление ассоциации. False - удаление ассоциации."),
     tag_id: int = Form(..., description="ID тега")
 ):
-    """
-    Создание ассоциации между игрой и тегом.
-
-    game_id (int) - ID игры
-    mode (bool) - Режим работы функции. True - добавление ассоциации. False - удаление ассоциации.
-    tag_id (int) - ID тега
-    """
     access_result = await tools.access_admin(response=response, request=request)
 
     if access_result == True:
@@ -96,7 +134,13 @@ async def association_game_with_tag(
     else:
         return access_result
 
-@router.post(MAIN_URL+"/association/mod/tag", tags=["Association", "Mod", "Tag"])
+@router.post(
+    MAIN_URL+"/association/mod/tag", 
+    tags=["Association", "Mod", "Tag"],
+    summary="Создание ассоциации между модом и тегом.",
+    status_code=202,
+    responses=ASSOCIATION_RESPONSES["mod"]
+)
 async def association_mod_with_tag(
     response: Response, 
     request: Request, 
@@ -104,13 +148,6 @@ async def association_mod_with_tag(
     mode: bool = Form(..., description="Режим работы функции. True - добавление ассоциации. False - удаление ассоциации."),
     tag_id: int = Form(..., description="ID тега")
 ):
-    """
-    Создание ассоциации между модом и тегом.
-
-    mod_id (int) - ID мода
-    mode (bool) - Режим работы функции. True - добавление ассоциации. False - удаление ассоциации.
-    tag_id (int) - ID тега
-    """
     access_result = await tools.access_mods(response=response, request=request, mods_ids=mod_id)
 
     if access_result == True:
@@ -139,7 +176,13 @@ async def association_mod_with_tag(
     else:
         return access_result
 
-@router.post(MAIN_URL+"/association/mod/dependencie", tags=["Association", "Mod"])
+@router.post(
+    MAIN_URL+"/association/mod/dependencie", 
+    tags=["Association", "Mod"],
+    summary="Создание ассоциации между модом и зависимостью (другим модом).",
+    status_code=202,
+    responses=ASSOCIATION_RESPONSES["mod"]
+)
 async def association_mod_with_dependencie(
     response: Response, 
     request: Request, 
@@ -147,13 +190,6 @@ async def association_mod_with_dependencie(
     mode: bool = Form(..., description="Режим работы функции. True - добавление ассоциации. False - удаление ассоциации."),
     dependencie: int = Form(..., description="ID зависимости (мода)")
 ):
-    """
-    Создание ассоциации между модом и зависимостью.
-
-    mod_id (int) - ID мода
-    mode (bool) - Режим работы функции. True - добавление ассоциации. False - удаление ассоциации.
-    dependencie (int) - ID зависимости (мода)
-    """
     access_result = await tools.access_mods(response=response, request=request, mods_ids=mod_id)
 
     if access_result == True:

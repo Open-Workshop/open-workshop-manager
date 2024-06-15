@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Response, Form
+from fastapi import APIRouter, Request, Response, Form, Query, Path
 from fastapi.responses import JSONResponse
 import tools
 from ow_config import MAIN_URL
@@ -12,35 +12,62 @@ router = APIRouter()
 
 
 
-@router.get(MAIN_URL+"/list/games/", tags=["Game"])
-async def games_list(page_size: int = 10, page: int = 0, sort: str = "MODS_DOWNLOADS", name: str = "",
-                     type_app=[], genres=[], primary_sources=[], allowed_ids=[],
-                     short_description: bool = False, description: bool = False, dates: bool = False,
-                     statistics: bool = False):
+@router.get(
+    MAIN_URL+"/list/games/",
+    tags=["Game"],
+    summary="Возвращает список игр, моды к которым есть на сервере.",
+    status_code=200,
+    responses={
+        200: {
+            "description": "OK",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "database_size": 123,
+                        "offset": 123,
+                        "results": [
+                            {"id": 1, "name": "?", "type": "app", "source": "local"},
+                            {"id": 2, "name": "!?", "type": "game", "source": "steam"},
+                        ]
+                    }
+                }
+            }
+        },
+        413: {
+            "description": "Неккоректный диапазон параметров(размеров).",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "incorrect page size",
+                        "error_id": 1
+                    }
+                }
+            }
+        },
+    }
+)
+async def games_list(
+    page_size: int = Query(10, description="Размер 1 страницы. Диапазон - 1...50 элементов."), 
+    page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."), 
+    sort: str = Query("MODS_DOWNLOADS", description="Сортировка. Префикс `i` указывает что сортировка должна быть инвертированной."),
+    name: str = Query("", description="Фильтр по заголовку/названию."),
+    type_app = Query([], description="Фильтр по типу *(`game` и/или `app`)*.", example="['game','app']"),
+    genres=Query([], description="Фильтр по жанрам. Передать id интересующих жанров.", example="[1,2]"),
+    primary_sources=Query([], description="Фильтр по источникам. Передать id источников.", example="['local','steam']"), 
+    allowed_ids=Query([], description="Фильтр по id. Передать id игр.", example="[1,2]"),
+    short_description: bool = Query(False, description="Отправлять ли короткое описание."),
+    description: bool = Query(False, description="Отправлять ли описание."),
+    dates: bool = Query(False, description="Отправлять ли даты (дата создания)."),
+    statistics: bool = Query(False, description="Отправлять ли статистику (количество модов и их общее количество скачиваний).")
+):
     """
-    Возвращает список игр, моды к которым есть на сервере.
-
-    1. "page_size" - размер 1 страницы. Диапазон - 1...50 элементов.
-    2. "page" - номер странице. Не должна быть отрицательной.
-    3. "short_description" - отправлять ли короткое описание. По умолчанию `False`.
-    4. "description" - отправлять ли описание. По умолчанию `False`.
-    5. "dates" - отправлять ли даты. По умолчанию `False`.
-    6. "statistics" - отправлять ли статистику. По умолчанию `False`.
-
     О сортировке:
-    Префикс `i` указывает что сортировка должна быть инвертированной.
     1. `NAME` - сортировка по имени.
     2. `TYPE` - сортировка по типу *(`game` или `app`)*.
     3. `CREATION_DATE` - сортировка по дате регистрации на сервере.
     4. `MOD_DOWNLOADS` - сортировка по суммарному количеству скачанных модов для игры *(по умолчанию)*.
     5. `MODS_COUNT` - сортировка по суммарному количеству модов для игры.
     6. `SOURCE` - сортировка по источнику.
-
-    О фильтрации:
-    1. `name` - фильтрация по имени.
-    2. `type_app` - фильтрация по типу *(массив str)*.
-    3. `genres` - фильтрация по жанрам (массив id)*.
-    4. `primary_sources` - фильтрация по первоисточнику *(массив str)*.
     """
 
     genres = tools.str_to_list(genres)
@@ -116,14 +143,39 @@ async def games_list(page_size: int = 10, page: int = 0, sort: str = "MODS_DOWNL
     session.close()
     return {"database_size": mods_count, "offset": offset, "results": output_games}
 
-@router.get(MAIN_URL+"/list/genres/games/{games_ids_list}", tags=["Game", "Genre"])
-async def list_genres_for_games(games_ids_list, genres=[], only_ids: bool = False):
+@router.get(
+    MAIN_URL+"/list/genres/games/{games_ids_list}", 
+    tags=["Game", "Genre"],
+    summary="Ассоциации игр с жанрами",
+    status_code=200,
+    responses={
+        200: {
+            "description": "Запрос успешно обработан.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        123: [{"id": 1, "name": "Стратегия"}]
+                    }
+                }
+            },
+        },
+        413: {
+            "description": "Превышен максимальный размер сложности фильтрации.",
+            "content": {
+                "application/json": {
+                    "example": {"message": "the maximum complexity of filters is 80 elements in sum", "error_id": 2}
+                }
+            },
+        },
+    }
+)
+async def list_genres_for_games(
+    games_ids_list = Path(..., description="Список ID запрошенных игр.", example="[1, 2, 3]"),
+    genres=Query([], description="Фильтрация по ID жанров (т.е. если жанра нет в переденном списке, он не передается). Неактивен если пуст.", example="[1, 2, 3]"),
+    only_ids: bool = Query(False, description="Возвращать только массив ID жанров. В обычной ситуации возвращает массив словарей с подробной информацией."),
+):
     """
-    Возвращает ассоциации игр с жанрами
-
-    1. `games_ids_list` - список игр к которым нужно вернуть ассоциации (принимает список ID игр).
-    2. `genres` - если не пуст возвращает ассоциации конкретно с этими жанрами (принимает список ID жанров).
-    3. `only_ids` - если True возвращает только ID ассоцируемых жанров, если False возвращает всю информацию о каждом ассоцируемом жанре.
+    Передает информацию о жанрах запрошенных игр.
     """
     games_ids_list = tools.str_to_list(games_ids_list)
     genres = tools.str_to_list(genres)
@@ -157,10 +209,11 @@ async def list_genres_for_games(games_ids_list, genres=[], only_ids: bool = Fals
 @router.post(
     MAIN_URL+"/add/game", 
     tags=["Game"],
+    summary="Добавление игры",
     status_code=202,
     responses={
-        202: {"description": "OK"},
-        401: {"description": "Недействительный ключ сессии!"},
+        202: {"description": "Возвращает ID созданной игры", "content": {"application/json": {"example": 123}}},
+        401: {"description": "Недействительный ключ сессии! (пользователь не авторизован)"},
         403: {"description": "Вы не админ!"},
     }
 )
@@ -171,11 +224,7 @@ async def add_game(
     game_short_desc: str = Form(..., description="Краткое описание игры"),  # Краткое описание игры
     game_desc: str = Form(..., description="Полное описание игры"),  # Описание игры
     game_type: str = Form("game", description="Тип игры"),  # Тип игры (по умолчанию "game")
-    game_logo: str = Form("", description="Логотип игры (url)")  # Логотип игры (по умолчанию пустая строка)
 ) -> JSONResponse:
-    """
-    Возвращает ID вставленной строки в базе данных.
-    """
     access_result = await tools.access_admin(response=response, request=request)
 
     if access_result == True:
@@ -205,13 +254,14 @@ async def add_game(
 @router.post(
     MAIN_URL+"/edit/game",
     tags=["Game"],
+    summary="Редактирование игры",
     status_code=202,
     responses={
         202: {"description": "Изменение данных в базе данных по указанному ID игры."},
         401: {"description": "Недействительный ключ сессии!"},
         403: {"description": "Вы не админ!"},
-        404: {"description": "Элемент не найден."},
-        418: {"description": "Пустой запрос."},
+        404: {"description": "Игра не найдена."},
+        418: {"description": "Пустой запрос. Возникает если не передан ни один из параметров-свойств."},
     }
 )
 async def edit_game(
@@ -222,22 +272,9 @@ async def edit_game(
     game_short_desc: str = Form(None, description="Краткое описание игры"),  # Краткое описание игры
     game_desc: str = Form(None, description="Полное описание игры"),  # Описание игры
     game_type: str = Form(None, description="Тип игры"),  # Тип игры
-    game_logo: str = Form(None, description="Логотип игры (url)"),  # Логотип игры (url)
     game_source: str = Form(None, description="Источник игры"),  # Источник игры
 ) -> JSONResponse:
     """
-    Изменяет данные в базе данных по указанному ID игры.
-    Для изменения нет данных, возвращает 418 "Некорректный запрос".
-    Если игры нет в базе данных, возвращает 404 "Элемент не найден".
-
-    game_id (int) - ID игры для редактирования
-    game_name (str) - Название игры
-    game_short_desc (str) - Краткое описание игры
-    game_desc (str) - Полное описание игры
-    game_type (str) - Тип игры
-    game_logo (https url/str) - Логотип игры (url)
-    game_source (str) - Источник игры
-
     Возвращает код состояния и сообщение о результате.
     """
     access_result = await tools.access_admin(response=response, request=request)
@@ -278,32 +315,33 @@ async def edit_game(
 @router.delete(
     MAIN_URL+"/delete/game",
     tags=["Game"],
-    description="Удаление игры из базы данных.",
+    summary="Удаление игры",
     status_code=202,
     responses={
-        202: {"description": "Удаление игры из базы данных."},
-        401: {"description": "Недействительный ключ сессии!"},
+        202: {"description": "Успешно"},
+        401: {"description": "Недействительный ключ сессии! (не авторизован)"},
         403: {"description": "Вы не админ!"},
     },
 )
 async def delete_game(
-    response: Response, request: Request, game_id: int = Form(..., description="ID игры для удаления")
+    response: Response,
+    request: Request, 
+    game_id: int = Form(..., description="ID игры для удаления")
 ) -> JSONResponse:
     """
-    Удаляет игру и все ассоциированные с ней жанры и теги из базы данных.
+    Удаляет игру, все её ассоциации и ресурсы. 
 
-    game_id (int) - ID игры для удаления
-
-    Возвращает код состояния и сообщение о результате.
+    Для относительной безопасности(возможность вручную восстановить игру), удаление никак не затрагивает моды игры, в том числе у них не изменяется game_id.
+    Т.е. чтобы удалить все моды игры, нужно пройтись парсингом по каждому моду.
     """
     access_result = await tools.access_admin(response=response, request=request)
 
     if access_result == True:
+        await tools.delete_resources(owner_type='games', owner_id=game_id)
+
         session = sessionmaker(bind=catalog.engine)()
 
         delete_game = delete(catalog.Game).where(catalog.Game.id == game_id)
-
-        await tools.delete_resources(owner_type='games', owner_id=game_id)
         delete_genres_association = catalog.game_genres.delete().where(catalog.game_genres.c.game_id == game_id)
         delete_tags_association = catalog.allowed_mods_tags.delete().where(catalog.allowed_mods_tags.c.game_id == game_id)
 
