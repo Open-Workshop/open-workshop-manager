@@ -35,18 +35,18 @@ mods_dependencies = Table('unity_mods_dependencies', base.metadata, # Завис
 class Game(base): # Таблица "игры"
     __tablename__ = 'games'
     id = Column(Integer, primary_key=True)
-    name = Column(String)
-    type = Column(String)
+    name = Column(String(128))
+    type = Column(String(32))
 
-    short_description = Column(String)
-    description = Column(String)
+    short_description = Column(String(256))
+    description = Column(String(10000))
 
     mods_downloads = Column(Integer)
     mods_count = Column(Integer)
 
     creation_date = Column(DateTime)
 
-    source = Column(String)
+    source = Column(String(64))
 
     genres = relationship('Genre', secondary=game_genres, backref='games')
     allowed_tags_for_mods = relationship('Tag', secondary=allowed_mods_tags, backref='games', viewonly=True)
@@ -56,8 +56,8 @@ class Mod(base): # Таблица "моды"
     id = Column(Integer, primary_key=True)
     name = Column(String)
 
-    short_description = Column(String)
-    description = Column(String)
+    short_description = Column(String(256))
+    description = Column(String(10000))
 
     size = Column(Integer)
 
@@ -68,7 +68,7 @@ class Mod(base): # Таблица "моды"
     date_update_file = Column(DateTime)
     date_edit = Column(DateTime)
 
-    source = Column(String)
+    source = Column(String(64))
     downloads = Column(Integer)
 
     tags = relationship('Tag', secondary=mods_tags, backref='mods')
@@ -103,12 +103,12 @@ class Resource(base): # Ресурсы (скриншоты и лого)
 class Genre(base): # Жанры для игр
     __tablename__ = 'genres'
     id = Column(Integer, primary_key=True)
-    name = Column(String)
+    name = Column(String(128))
 
 class Tag(base): # Теги для модов
     __tablename__ = 'tags'
     id = Column(Integer, primary_key=True)
-    name = Column(String)
+    name = Column(String(128))
 
     associated_games = relationship('Game', secondary=allowed_mods_tags, backref='tags', viewonly=True)
 

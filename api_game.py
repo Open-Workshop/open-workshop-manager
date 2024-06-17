@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import insert, delete
 from sql_logic import sql_catalog as catalog
 from datetime import datetime
+import standarts
 
 
 router = APIRouter()
@@ -15,7 +16,7 @@ router = APIRouter()
 @router.get(
     MAIN_URL+"/list/games/",
     tags=["Game"],
-    summary="Возвращает список игр, моды к которым есть на сервере.",
+    summary="Список игр.",
     status_code=200,
     responses={
         200: {
@@ -151,14 +152,8 @@ async def games_list(
     status_code=202,
     responses={
         202: {"description": "Возвращает ID созданной игры", "content": {"application/json": {"example": 123}}},
-        401: {
-            "description": "Недействительный ключ сессии (не авторизован).",
-            "content": {
-                "text/plain": {
-                    "example": "Недействительный ключ сессии!"
-                }
-            }},
-        403: {"description": "Вы не админ!"},
+        401: standarts.responses[401],
+        403: standarts.responses["admin"][403],
     }
 )
 async def add_game(
@@ -202,15 +197,8 @@ async def add_game(
     status_code=202,
     responses={
         202: {"description": "Изменение данных в базе данных по указанному ID игры."},
-        401: {
-            "description": "Недействительный ключ сессии (не авторизован).",
-            "content": {
-                "text/plain": {
-                    "example": "Недействительный ключ сессии!"
-                }
-            }
-        },
-        403: {"description": "Вы не админ!"},
+        401: standarts.responses[401],
+        403: standarts.responses["admin"][403],
         404: {"description": "Игра не найдена."},
         418: {"description": "Пустой запрос. Возникает если не передан ни один из параметров-свойств."},
     }
@@ -268,15 +256,8 @@ async def edit_game(
     status_code=202,
     responses={
         202: {"description": "Успешно"},
-        401: {
-            "description": "Недействительный ключ сессии (не авторизован).",
-            "content": {
-                "text/plain": {
-                    "example": "Недействительный ключ сессии!"
-                }
-            }
-        },
-        403: {"description": "Вы не админ!"},
+        401: standarts.responses[401],
+        403: standarts.responses["admin"][403],
     },
 )
 async def delete_game(

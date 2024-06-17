@@ -5,63 +5,20 @@ from ow_config import MAIN_URL
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import insert
 from sql_logic import sql_catalog as catalog
+import standarts
 
 
 router = APIRouter()
 
 ASSOCIATION_RESPONSES = {
-    "game": {
-        202: {
-            "description": "Запрос успешно обработан.",
-            "content": {"application/json": {"example": "Complite"}},
-        },
-        401: {
-            "description": "Недействительный ключ сессии (не авторизован).",
-            "content": {
-                "text/plain": {
-                    "example": "Недействительный ключ сессии!"
-                }
-            }
-        },
-        403: {
-            "description": "Нехватка прав.",
-            "content": {
-                "text/plain": {
-                    "example": "Заблокировано!"
-                }
-            },
-        },
-        409: {
-            "description": "Запрашиваемое состояние уже реализовано.",
-            "content": {"application/json": {"example": "The association is already present"}},
-        }
+    202: {
+        "description": "Запрос успешно обработан.",
+        "content": {"application/json": {"example": "Complite"}},
     },
-    "mod": {
-        202: {
-            "description": "Запрос успешно обработан.",
-            "content": {"application/json": {"example": "Complite"}},
-        },
-        401: {
-            "description": "Недействительный ключ сессии (не авторизован).",
-            "content": {
-                "text/plain": {
-                    "example": "Недействительный ключ сессии!"
-                }
-            }
-        },
-        403: {
-            "description": "Нехватка прав.",
-            "content": {
-                "text/plain": {
-                    "example": "Заблокировано!"
-                }
-            },
-        },
-        409: {
-            "description": "Запрашиваемое состояние уже реализовано.",
-            "content": {"application/json": {"example": "The association is already present"}},
-        },
-    }
+    409: {
+        "description": "Запрашиваемое состояние уже реализовано.",
+        "content": {"application/json": {"example": "The association is already present"}},
+    },
 }
 
 
@@ -69,9 +26,13 @@ ASSOCIATION_RESPONSES = {
 @router.post(
     MAIN_URL+"/association/game/genre", 
     tags=["Association", "Game", "Genre"],
-    summary="Создание ассоциации между игрой и жанром.",
+    summary="Создание ассоциации между игрой и жанром",
     status_code=202,
-    responses=ASSOCIATION_RESPONSES["game"]
+    responses={
+        **ASSOCIATION_RESPONSES,
+        401: standarts.responses[401],
+        403: standarts.responses["admin"][403],
+    }
 )
 async def association_game_with_genre(
     response: Response, 
@@ -111,9 +72,13 @@ async def association_game_with_genre(
 @router.post(
     MAIN_URL+"/association/game/tag", 
     tags=["Association", "Game", "Tag"],
-    summary="Создание ассоциации между игрой и тегом.",
+    summary="Создание ассоциации между игрой и тегом",
     status_code=202,
-    responses=ASSOCIATION_RESPONSES["game"]
+    responses={
+        **ASSOCIATION_RESPONSES,
+        401: standarts.responses[401],
+        403: standarts.responses["admin"][403],
+    }
 )
 async def association_game_with_tag(
     response: Response, 
@@ -153,9 +118,13 @@ async def association_game_with_tag(
 @router.post(
     MAIN_URL+"/association/mod/tag", 
     tags=["Association", "Mod", "Tag"],
-    summary="Создание ассоциации между модом и тегом.",
+    summary="Создание ассоциации между модом и тегом",
     status_code=202,
-    responses=ASSOCIATION_RESPONSES["mod"]
+    responses={
+        **ASSOCIATION_RESPONSES,
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+    }
 )
 async def association_mod_with_tag(
     response: Response, 
@@ -195,9 +164,13 @@ async def association_mod_with_tag(
 @router.post(
     MAIN_URL+"/association/mod/dependencie", 
     tags=["Association", "Mod"],
-    summary="Создание ассоциации между модом и зависимостью (другим модом).",
+    summary="Создание ассоциации между модом и зависимостью",
     status_code=202,
-    responses=ASSOCIATION_RESPONSES["mod"]
+    responses={
+        **ASSOCIATION_RESPONSES,
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+    }
 )
 async def association_mod_with_dependencie(
     response: Response, 
@@ -206,6 +179,9 @@ async def association_mod_with_dependencie(
     mode: bool = Form(..., description="Режим работы функции. True - добавление ассоциации. False - удаление ассоциации."),
     dependencie: int = Form(..., description="ID зависимости (мода)")
 ):
+    """
+    Создание ассоциативной зависимости между модом и другим модом в качестве зависимости.
+    """
     access_result = await tools.access_mods(response=response, request=request, mods_ids=mod_id)
 
     if access_result == True:

@@ -10,15 +10,49 @@ from sql_logic import sql_catalog as catalog
 router = APIRouter()
 
 
-@router.get(MAIN_URL+"/list/tags/games/{game_id}")
-async def list_tags(game_id: int, page_size: int = 10, page: int = 0, name: str = '', tags_ids = []):
+@router.get(
+    MAIN_URL+"/list/tags/games/{game_id}",
+    tags=["Tag", "Game", "Association"],
+    summary="Ассоциации тегов с играми",
+    status_code=200,
+    responses={
+        200: {
+            "description": "OK",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "database_size": 123,
+                        "offset": 123,
+                        "results": [
+                            {"id": 1, "name": "?"},
+                            {"id": 2, "name": "!"},
+                        ]
+                    }
+                }
+            }
+        },
+        413: {
+            "description": "Неккоректный диапазон параметров(размеров).",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "incorrect page size",
+                        "error_id": 1
+                    }
+                }
+            }
+        }
+    }
+)
+async def list_tags(
+    game_id: int = Path(description="ID игры"),
+    page_size: int = Query(10, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
+    page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
+    name: str = Query("", description="Поиск по названию.", max_length=128),
+    tags_ids = Query([], description="Фильтрация по id тегов *(массив id)*.", example="[1, 2, 3]"),
+):
     """
     Возвращает список тегов закрепленных за игрой и её модами. Нужно передать ID интересующей игры.
-
-    1. `page_size` - размер 1 страницы. Диапазон - 1...50 элементов.
-    2. `page` - номер странице. Не должна быть отрицательной.
-    3. `name` - фильтрация по имени.
-    4. `tags_ids` - фильтрация по id тегов *(массив id)*.
     """
     if page_size > 50 or page_size < 1:
         return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 1})
@@ -47,7 +81,7 @@ async def list_tags(game_id: int, page_size: int = 10, page: int = 0, name: str 
 @router.get(
     MAIN_URL+"/list/tags/mods/{mods_ids_list}",
     tags=["Mod", "Tag", "Association"],
-    summary="Возвращает ассоциации модов с тегами",
+    summary="Ассоциации модов с тегами",
     status_code=200,
     responses={
         200: {
@@ -138,7 +172,7 @@ async def list_tags_for_mods(
 )
 async def list_genres_for_games(
     games_ids_list = Path(..., description="Список ID запрошенных игр.", example="[1, 2, 3]"),
-    genres=Query([], description="Фильтрация по ID жанров (т.е. если жанра нет в переденном списке, он не передается). Неактивен если пуст.", example="[1, 2, 3]"),
+    genres = Query([], description="Фильтрация по ID жанров (т.е. если жанра нет в переденном списке, он не передается). Неактивен если пуст.", example="[1, 2, 3]"),
     only_ids: bool = Query(False, description="Возвращать только массив ID жанров. В обычной ситуации возвращает массив словарей с подробной информацией."),
 ):
     """

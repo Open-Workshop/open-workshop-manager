@@ -5,6 +5,7 @@ from ow_config import MAIN_URL
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import insert, delete
 from sql_logic import sql_catalog as catalog
+import standarts
 
 
 router = APIRouter()
@@ -13,7 +14,7 @@ router = APIRouter()
 @router.get(
     MAIN_URL+"/list/genres",
     tags=["Genre"],
-    summary="Возвращает список жанров для игр",
+    summary="Список жанров игр",
     status_code=200,
     responses={
         200: {
@@ -47,7 +48,7 @@ router = APIRouter()
 async def list_genres(
     page_size: int = Query(10, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
     page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
-    name: str = Query("", description="Фильтр по названию.", max_length=100),
+    name: str = Query("", description="Поиск по названию.", max_length=128),
 ):
     if page_size > 50 or page_size < 1:
         return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 1})
@@ -74,15 +75,8 @@ async def list_genres(
     status_code=202,
     responses={
         202: {"description": "Возвращает ID добавленного жанра.",}, 
-        401: {
-            "description": "Недействительный ключ сессии (не авторизован).",
-            "content": {
-                "text/plain": {
-                    "example": "Недействительный ключ сессии!"
-                }
-            }
-        },
-        403: {"description": "Не админ (нехватка прав)."}
+        401: standarts.responses[401],
+        403: standarts.responses["admin"][403],
     }
 )
 async def add_genre(
@@ -116,15 +110,8 @@ async def add_genre(
     status_code=202,
     responses={
         202: {"description": "Изменение данных в базе данных по указанному ID жанра."},
-        401: {
-            "description": "Недействительный ключ сессии (не авторизован).",
-            "content": {
-                "text/plain": {
-                    "example": "Недействительный ключ сессии!"
-                }
-            }
-        },
-        403: {"description": "Не админ (нехватка прав)."},
+        401: standarts.responses[401],
+        403: standarts.responses["admin"][403],
         404: {"description": "Жанр не найден."},
         418: {"description": "Пустой запрос. Возникает если не передан ни один из параметров-свойств."},
     }
@@ -168,15 +155,8 @@ async def edit_genre(
     status_code=202,
     responses={
         202: {"description": "Удалено успешно."},
-        401: {
-            "description": "Недействительный ключ сессии (не авторизован).",
-            "content": {
-                "text/plain": {
-                    "example": "Недействительный ключ сессии!"
-                }
-            }
-        },
-        403: {"description": "Не админ (нехватка прав)."},
+        401: standarts.responses[401],
+        403: standarts.responses["admin"][403],
     }
 )
 async def delete_genre(

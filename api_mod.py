@@ -11,6 +11,38 @@ from sql_logic import sql_catalog as catalog
 from sql_logic import sql_statistics as statistics
 from ow_config import MAIN_URL
 import ow_config as config
+import standarts
+
+
+routers_edit_mod_response = {
+    411: {
+        "description": "Не достингнут минимальный размер (название мода).",
+        "content": {
+            "text/plain": {
+                "example": "Название слишком короткое!"
+            }
+        }
+    },
+    413: {
+        "description": "Слишком длинное значение параметра(ов): короткое/полное описание, название, размер файла.",
+        "content": {
+            "application/json": {
+                "example": {
+                    "message": "... слишком длинное!",
+                    "error_id": 1
+                }
+            }
+        }
+    },
+    500: {
+        "description": "Во время передачи файла на Storage сервер произошла ошибка.",
+        "content": {
+            "text/plain": {
+                "example": "Не удалось загрузить файл!"
+            }
+        }
+    }
+}
 
 
 router = APIRouter()
@@ -100,7 +132,7 @@ async def access_to_mods(
 @router.get(
     MAIN_URL+"/list/mods/public/{ids_array}",
     tags=["Mod"],
-    summary="Возвращает список публичных модов",
+    summary="Список публичных модов",
     status_code=200,
     responses={
         200: {
@@ -152,7 +184,7 @@ async def public_mods(
 @router.get(
     MAIN_URL+"/list/mods/",
     tags=["Mod"],
-    summary="Возвращает список модов",
+    summary="Список модов",
     status_code=200,
     responses={
         200: {
@@ -336,7 +368,7 @@ async def mod_list(
 @router.get(
     MAIN_URL+"/info/mod/{mod_id}", 
     tags=["Mod"],
-    summary="Возвращает информацию о моде",
+    summary="Информация о моде",
     status_code=200,
     responses={
         200: {
@@ -368,22 +400,8 @@ async def mod_list(
                 }
             }
         },
-        401: {
-            "description": "Недействительный ключ сессии (не авторизован).",
-            "content": {
-                "text/plain": {
-                    "example": "Недействительный ключ сессии!"
-                }
-            }
-        },
-        403: {
-            "description": "Нехватка прав.",
-            "content": {
-                "text/plain": {
-                    "example": "Заблокировано!"
-                }
-            }
-        },
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
         404: {
             "description": "Not found",
             "content": {
@@ -501,29 +519,9 @@ async def info_mod(
     status_code=201,
     responses={
         201: {"description": "Возвращает ID созданного мода", "content": {"application/json": {"example": 123}}},
-        401: {
-            "description": "Недействительный ключ сессии (не авторизован).",
-            "content": {
-                "text/plain": {
-                    "example": "Недействительный ключ сессии!"
-                }
-            }},
-        403: {
-            "description": "Нехватка прав.",
-            "content": {
-                "text/plain": {
-                    "example": "Заблокировано!"
-                }
-            },
-        },
-        411: {
-            "description": "Не достингнут минимальный размер (название мода).",
-            "content": {
-                "text/plain": {
-                    "example": "Название слишком короткое!"
-                }
-            }
-        },
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        411: routers_edit_mod_response[411],
         412: {
             "description": "Неккоректный ID выбранной игры ИЛИ выбранный ID мода уже занят.",
             "content": {
@@ -532,25 +530,8 @@ async def info_mod(
                 }
             }
         },
-        413: {
-            "description": "Слишком длинное значение параметра(ов): короткое/полное описание, название, размер файла.",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "message": "... слишком длинное!",
-                        "error_id": 1
-                    }
-                }
-            }
-        },
-        500: {
-            "description": "Во время передачи файла на Storage сервер произошла ошибка.",
-            "content": {
-                "text/plain": {
-                    "example": "Не удалось загрузить файл!"
-                }
-            }
-        }
+        413: routers_edit_mod_response[413],
+        500: routers_edit_mod_response[500],
     }
 )
 async def add_mod(
@@ -683,14 +664,32 @@ async def add_mod(
     else:
         return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
-@router.post(MAIN_URL+"/edit/mod", tags=["Mod"])
-async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: str = Form(None),
-                   mod_short_description: str = Form(None), mod_description: str = Form(None),
-                   mod_source: str = Form(None), mod_game: int = Form(None), mod_public: int = Form(None),
-                   mod_file: UploadFile = File(None)):
-    """
-    Тестовая функция
-    """
+@router.post(
+    MAIN_URL+"/edit/mod",
+    tags=["Mod"],
+    summary="Редактирование мода",
+    status_code=201,
+    responses={
+        201: {"description": "Изменения успешно выполнены."},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        411: routers_edit_mod_response[411],
+        413: routers_edit_mod_response[413],
+        500: routers_edit_mod_response[500]
+    }
+)
+async def edit_mod(
+    response: Response,
+    request: Request,
+    mod_id: int = Form(..., description="ID мода для редактирования."),
+    mod_name: str = Form(None, description="Название мода.", max_length=128),
+    mod_short_description: str = Form(None, description="Краткое описание мода.", max_length=256),
+    mod_description: str = Form(None, description="Полное описание мода.", max_length=10000),
+    mod_source: str = Form(None, description="Источник мода.", max_length=64),
+    mod_game: int = Form(None, description="ID игры-владельца."),
+    mod_public: int = Form(None, description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."),
+    mod_file: UploadFile = File(None, description="Файл мода. Максимальный размер 838860800 байт (800 мб).")
+):
     access_result = await tools.access_mods(response=response, request=request, mods_ids=mod_id, edit=True)
     if access_result == True:
         body = {}
@@ -744,8 +743,14 @@ async def edit_mod(response: Response, request: Request, mod_id: int, mod_name: 
         return access_result
 
 @router.post(MAIN_URL+"/edit/mod/authors", tags=["Mod"])
-async def edit_authors_mod(response: Response, request: Request, mod_id:int, mode:bool, author:int,
-                           owner:bool = False):
+async def edit_authors_mod(
+    response: Response,
+    request: Request,
+    mod_id:int,
+    mode:bool,
+    author:int,
+    owner:bool = False
+):
     """
     Тестовая функция
     """
