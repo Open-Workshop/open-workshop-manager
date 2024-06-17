@@ -296,8 +296,6 @@ async def edit_game(
             data_edit["description"] = game_desc
         if game_type:
             data_edit["type"] = game_type
-        if game_logo:
-            data_edit["logo"] = game_logo
         if game_source:
             data_edit["source"] = game_source
 
