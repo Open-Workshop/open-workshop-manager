@@ -13,20 +13,23 @@ router = APIRouter()
 
 
 @router.get(MAIN_URL+"/list/resources/{owner_type}/{resources_list_id}", tags=["Resource"])
-async def list_resources(response: Response, request: Request, owner_type: str, resources_list_id, only_urls: bool = False):
+async def list_resources(response: Response, request: Request, owner_type: str, resources_list_id, page_size: int = 10, page: int = 0, types_resources=[], only_urls: bool = False):
     """
     Возвращает список ресурсов по их id. Список в размере не должен быть > 80!
     Если в переданном списке ресурсов есть ID привязанное к непубличному моду, то будет отказано в доступе!
     """
     resources_list_id = tools.str_to_list(resources_list_id)
+    types_resources = tools.str_to_list(types_resources)
 
     if owner_type not in ['mods', 'games']:
         return JSONResponse(status_code=400, content={"message": "unknown owner_type", "error_id": 5})
 
-    if len(resources_list_id) > 80:
-        return JSONResponse(status_code=413,
-                            content={"message": "the maximum complexity of filters is 80 elements in sum",
-                                     "error_id": 2})
+    if len(types_resources) + len(resources_list_idt) > 80:
+        return JSONResponse(status_code=413, content={"message": "the maximum complexity of filters is 80 elements in sum", "error_id": 2})
+    elif page_size > 50 or page_size < 1:
+        return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 3})
+    elif page < 0:
+        return JSONResponse(status_code=413, content={"message": "incorrect page", "error_id": 4})
 
     # Создание сессии
     session = sessionmaker(bind=catalog.engine)()
@@ -34,10 +37,14 @@ async def list_resources(response: Response, request: Request, owner_type: str, 
     # Выполнение запроса
     query = session.query(catalog.Resource)
     query = query.filter_by(owner_type=owner_type)
-    query = query.filter(catalog.Resource.id.in_(resources_list_id))
+    if len(resources_list_id) > 0:
+        query = query.filter(catalog.Resource.id.in_(resources_list_id))
+    if len(types_resources) > 0:
+        query = query.filter(catalog.Resource.type.in_(types_resources))
 
     resources_count = query.count()
-    resources = query.all()
+    offset = page_size * page
+    resources = query.offset(offset).limit(page_size).all()
 
     # Проверка правомерности
     if resources_count > 0:
@@ -57,52 +64,7 @@ async def list_resources(response: Response, request: Request, owner_type: str, 
 
     # Возврат успешного результата
     session.close()
-    return {"database_size": resources_count, "results": real_resources}
-
-@router.get(MAIN_URL+"/list/resources/for/{owner_type}/{mods_ids_list}", tags=["Resource"])
-async def list_resources_for_elements(response: Response, request: Request, owner_type: str, mods_ids_list,
-                                      page_size: int = 10, page: int = 0, types_resources=[], 
-                                      only_urls: bool = False):
-    """
-    Тестовая функция
-    """
-    if owner_type not in ['mods', 'games']:
-        return JSONResponse(status_code=400, content={"message": "unknown owner_type", "error_id": 5})
-
-    mods_ids_list = tools.str_to_list(mods_ids_list)
-    types_resources = tools.str_to_list(types_resources)
-    if len(mods_ids_list) < 1 or len(mods_ids_list) > 50:
-        return JSONResponse(status_code=413, content={"message": "the size of the array is not correct", "error_id": 1})
-    if len(types_resources) + len(mods_ids_list) > 80:
-        return JSONResponse(status_code=413, content={"message": "the maximum complexity of filters is 80 elements in sum", "error_id": 2})
-    elif page_size > 50 or page_size < 1:
-        return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 3})
-    elif page < 0:
-        return JSONResponse(status_code=413, content={"message": "incorrect page", "error_id": 4})
-
-    access_result = owner_type != "mods"
-    if not access_result:
-        access_result = await tools.access_mods(response=response, request=request, mods_ids=mods_ids_list)
-
-    if access_result == True:
-        # Создание сессии
-        session = sessionmaker(bind=catalog.engine)()
-
-        # Выполнение запроса
-        query = session.query(catalog.Resource)
-        query = query.filter_by(owner_type=owner_type)
-        query = query.filter(catalog.Resource.id.in_(mods_ids_list))
-
-        resources_count = query.count()
-        resources = query.all()
-
-        real_resources = await tools.resources_serialize(resources=resources, only_urls=only_urls)
-
-        # Возврат успешного результата
-        session.close()
-        return {"database_size": resources_count, "results": real_resources}
-    else:
-        return access_result
+    return {"database_size": resources_count, "offset": offset, "results": real_resources}
 
 
 @router.post(MAIN_URL+"/add/resource/{owner_type}", tags=["Resource"])

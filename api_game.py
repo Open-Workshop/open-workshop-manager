@@ -143,68 +143,6 @@ async def games_list(
     session.close()
     return {"database_size": mods_count, "offset": offset, "results": output_games}
 
-@router.get(
-    MAIN_URL+"/list/genres/games/{games_ids_list}", 
-    tags=["Game", "Genre"],
-    summary="Ассоциации игр с жанрами",
-    status_code=200,
-    responses={
-        200: {
-            "description": "Запрос успешно обработан.",
-            "content": {
-                "application/json": {
-                    "example": {
-                        123: [{"id": 1, "name": "Стратегия"}]
-                    }
-                }
-            },
-        },
-        413: {
-            "description": "Превышен максимальный размер сложности фильтрации.",
-            "content": {
-                "application/json": {
-                    "example": {"message": "the maximum complexity of filters is 80 elements in sum", "error_id": 2}
-                }
-            },
-        },
-    }
-)
-async def list_genres_for_games(
-    games_ids_list = Path(..., description="Список ID запрошенных игр.", example="[1, 2, 3]"),
-    genres=Query([], description="Фильтрация по ID жанров (т.е. если жанра нет в переденном списке, он не передается). Неактивен если пуст.", example="[1, 2, 3]"),
-    only_ids: bool = Query(False, description="Возвращать только массив ID жанров. В обычной ситуации возвращает массив словарей с подробной информацией."),
-):
-    """
-    Передает информацию о жанрах запрошенных игр.
-    """
-    games_ids_list = tools.str_to_list(games_ids_list)
-    genres = tools.str_to_list(genres)
-
-    if (len(games_ids_list) + len(genres)) > 80:
-        return JSONResponse(status_code=413,
-                            content={"message": "the maximum complexity of filters is 80 elements in sum",
-                                     "error_id": 2})
-
-    # Создание сессии
-    Session = sessionmaker(bind=catalog.engine)
-    session = Session()
-
-    # Выполнение запроса
-    result = {}
-    query_global = session.query(catalog.Genre).join(catalog.game_genres)
-    for game_id in games_ids_list:
-        query = query_global.filter(catalog.game_genres.c.game_id == game_id)
-        if len(genres) > 0:
-            query = query.filter(catalog.Genre.id.in_(genres))
-
-        if only_ids:
-            if result.get(game_id, None) == None: result[game_id] = []
-            for id in query.all(): result[game_id].append(id.id)
-        else:
-            result[game_id] = query.all()
-
-    return result
-
 
 @router.post(
     MAIN_URL+"/add/game", 

@@ -7,7 +7,8 @@ from api_mod import router as mod_router
 from api_genre import router as genre_router
 from api_tag import router as tag_router
 from api_resource import router as resource_router
-from api_association import router as association_router
+from api_association_control import router as association_control_router
+from api_association_getter import router as association_getter_router
 from api_profile import router as profile_router
 from api_session import router as session_router
 from api_reaction import router as reaction_router
@@ -36,7 +37,8 @@ app.include_router(mod_router)
 app.include_router(genre_router)
 app.include_router(tag_router)
 app.include_router(resource_router)
-app.include_router(association_router)
+app.include_router(association_control_router)
+app.include_router(association_getter_router)
 app.include_router(profile_router)
 app.include_router(session_router)
 app.include_router(reaction_router)

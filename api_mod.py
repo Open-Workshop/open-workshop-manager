@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Response, Form, File, UploadFile
+from fastapi import APIRouter, Request, Response, Form, Path, Query, File, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from sql_logic import sql_account as account
 import tools
@@ -16,18 +16,62 @@ import ow_config as config
 router = APIRouter()
 
 
-@router.get(MAIN_URL+"/download/{mod_id}")
-async def download_mod(mod_id: int):
+@router.get(
+    MAIN_URL+"/download/{mod_id}",
+    tags=["Mod"],
+    summary="Скачивание мода",
+    status_code=307,
+    responses={
+        307: {
+            "description": "Перенаправление на фактический адрес скачивания мода",
+        }
+    }
+)
+async def download_mod(
+    mod_id: int = Path(description="ID мода"),
+):
+    """
+    Функция скачивания мода и учета количества скачиваний.
+
+    Не рекомендую на уровне пользователя использовать фактический адрес, т.к. он может менятся, и данная функци доп. уровень абстракции.
+    """
     statistics.update("mod", mod_id, "download")
     return RedirectResponse(url=F'{config.STORAGE_URL}/download/archive/mods/{mod_id}/main.zip')
 
-@router.get(MAIN_URL+"/list/mods/access/{ids_array}")
-async def access_to_mods(response: Response, request: Request, ids_array, edit: bool = False,
-                         user: int = -1, token: str = "none"):
+@router.get(
+    MAIN_URL+"/list/mods/access/{ids_array}",
+    tags=["Mod"],
+    summary="Проверка прав доступа к модам",
+    status_code=200,
+    responses={
+        200: {
+            "description": "Массив ID модов",
+            "content": {
+                "application/json": {
+                    "example": [1, 2, 3]
+                }
+            }
+        },
+        403: {
+            "description": "Нет доступа (не админ И не передан правильный токен)",
+            "content": {
+                "text/plain": {
+                    "example": "Access denied"
+                }
+            }
+        }
+    }
+)
+async def access_to_mods(
+    response: Response, 
+    request: Request, 
+    ids_array = Path(description="Массив ID модов"), 
+    edit: bool = Query(False, description="Фильтр на edit доступ"),
+    user: int = Query(-1, description="ID пользователя"),
+    token: str = Query("none", description="Токен для проверки прав других пользователей, аналог токена - админские права просящего")
+):
     """
     Принимает массив ID модов, возвращает этот же массив в котором ID модов к которым есть read (или выше) доступ.
-
-    Если edit = True, то фильтром выступает минимум edit доступ.
 
     Используется в Storage для проверки правомерности доступа к архиву мода.
     """
@@ -53,17 +97,38 @@ async def access_to_mods(response: Response, request: Request, ids_array, edit: 
     else:
         return tools.access_mods(response=response, request=request, mods_ids=ids_array, edit=edit, check_mode=True)
 
-@router.get(MAIN_URL+"/list/mods/public/{ids_array}")
-async def public_mods(ids_array, in_catalog:bool = False):
-    """
-    Возвращает список публичных модов на сервере.
-    Принимает массив ID модов. Возвращает масссив id's модов.
-    Ограничение на разовый запрос - 50 элементов.
-    """
+@router.get(
+    MAIN_URL+"/list/mods/public/{ids_array}",
+    tags=["Mod"],
+    summary="Возвращает список публичных модов",
+    status_code=200,
+    responses={
+        200: {
+            "description": "Массив ID модов",
+            "content": {
+                "application/json": {
+                    "example": [1, 2, 3]
+                }
+            }
+        },
+        413: {
+            "description": "Слишком большой массив ID модов",
+            "content": {
+                "text/plain": {
+                    "example": "the size of the array is not correct"
+                }
+            }
+        }
+    }
+)
+async def public_mods(
+    ids_array = Path(description="Массив ID модов (максимум 50 штук)"),
+    in_catalog:bool = Query(False, description="Возвращает только полностью публичные моды")
+):
     ids_array = tools.str_to_list(ids_array)
 
     if len(ids_array) < 1 or len(ids_array) > 50:
-        return JSONResponse(status_code=413, content={"message": "the size of the array is not correct", "error_id": 1})
+        return PlainTextResponse(status_code=413, content="the size of the array is not correct")
 
     output = []
 
@@ -84,20 +149,69 @@ async def public_mods(ids_array, in_catalog:bool = False):
     session.close()
     return output
 
-@router.get(MAIN_URL+"/list/mods/")
-async def mod_list(response: Response, request: Request, page_size: int = 10, page: int = 0, sort: str = "DOWNLOADS",
-                   tags=[], game: int = -1, allowed_ids=[], independents: bool = False, primary_sources=[],
-                   name: str = "", short_description: bool = False, description: bool = False, dates: bool = False,
-                   general: bool = True, user: int = 0, user_owner: int = -1, user_catalog: bool = True):
+@router.get(
+    MAIN_URL+"/list/mods/",
+    tags=["Mod"],
+    summary="Возвращает список модов",
+    status_code=200,
+    responses={
+        200: {
+            "description": "Массив словарей с информацией о модах",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "database_size": 123, 
+                        "offset": 123, 
+                        "results": [
+                            {
+                                "id": 1,
+                                "name": "name",
+                                "date_creation": "1984-01-01 00:00:00",
+                                "date_update": "1984-01-01 00:00:00"
+                            },
+                            "Access denied (hide info)",
+                            {
+                                "id": 3,
+                                "name": "name",
+                                "date_creation": "1984-01-01 00:00:00",
+                                "date_update": "1984-01-01 00:00:00"
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+        413: {
+            "description": "Слишком сложный запрос ИЛИ page_size вне диапазона.",
+        }
+    }
+)
+async def mod_list(
+    response: Response, 
+    request: Request, 
+    page_size: int = Query(10, description="Размер 1 страницы. Диапазон - 1...50 элементов."), 
+    page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
+    sort: str = Query("DOWNLOADS", description="Сортировка. Подробнее в полном описании функции."),
+    tags = Query([], description="Массив ID тегов", example="[1, 2, 3]"),
+    game: int = Query(-1, description="ID игры."),
+    allowed_ids = Query([], description="Массив ID разрешенных модов.", example="[1, 2, 3]"),
+    independents: bool = Query(False, description="Не передавать моды с зависимостями."),
+    primary_sources = Query([], description="Массив разрешенных источников.", example="['local', 'steam']"),
+    name: str = Query("", description="Поиск по названию."),
+    user: int = Query(0, description="Фильтрация по модам определенного автора, 0 <= не фильтровать."),
+    user_owner: int = Query(-1, description="Фильтрация по роли пользователя в разработке модов (работает если активен user параметр). -1 <= не фильтровать, 0 - владелец, 1 - разработчик"),
+    user_catalog: bool = Query(True, description="Включать только публичные моды пользователя*"),
+    short_description: bool = Query(False, description="Включать ли в ответ короткое описание модов."),
+    description: bool = Query(False, description="Включать ли в ответ полное описание модов."),
+    dates: bool = Query(False, description="Включать ли в ответ даты создания и обновления модов."),
+    general: bool = Query(True, description="Включать ли в ответ общую информацию о моде (название, размер, источник, кол-во скачиваний).")
+):
     """
-    Возвращает список модов к конкретной игре, которые есть на сервере. Не до конца провалидированные моды и не полностью публичные моды в список не попадают.
+    Возвращает список модов с возможностью многочисленных опциональных фильтров и настрое.
+    Не до конца провалидированные моды и не полностью публичные моды* в список не попадают.
 
-    1. `page_size` *(int)* - размер 1 страницы. Диапазон - 1...50 элементов.
-    2. `page` *(int)* - номер странице. Не должна быть отрицательной.
-    3. `short_description` *(bool)* - отправлять ли короткое описание мода в ответе. В длину оно максимум 256 символов. По умолчанию `False`.
-    4. `description` *(bool)* - отправлять ли полное описание мода в ответе. По умолчанию `False`.
-    5. `dates` *(bool)* - отправлять ли дату последнего обновления и дату создания в ответе. По умолчанию `False`.
-    6. `general` *(bool)* - отправлять ли базовые поля *(название, размер, источник, количество загрузок)*. По умолчанию `True`.
+    **Если идет фильтрация по пользователю и запрошены не только моды в каталоге, то будут возвращены моды с любой публичностью, но если запрашивающий
+    пользователь не имеет доступа к конкретному моду, вместо словаря с информацией о нем, будет заглушка "Access denied (hide info)"*
 
     О сортировке:
     Префикс `i` указывает что сортировка должна быть инвертированной.
@@ -109,20 +223,6 @@ async def mod_list(response: Response, request: Request, page_size: int = 10, pa
     5. REQUEST_DATE - сортировка по дате последнего запроса.
     6. SOURCE - сортировка по источнику.
     7. MOD_DOWNLOADS *(по умолчанию)* - сортировка по количеству загрузок.
-
-    О фильтрации:
-    1. `tags` - передать список тегов которые должен содержать мод *(по умолчанию пуст)* *(нужно передать ID тегов)*.
-    2. `game` - ID игры за которой закреплен мод *(фильтр работает если `значение > 0`)*.
-    3. `allowed_ids` - если передан хотя бы один элемент, идет выдача конкретно этих модов.
-    4. `dependencies` *(bool)* - отфильтровывает моды у которых есть зависимости на другие моды.
-    5. `primary_sources` - список допустимых первоисточников.
-    6. `name` - поиск по имени. Например `name=Harmony` *(в отличии от передаваемых списков, тут скобки не нужны)*.
-    Работает как проверка есть ли у мода в названии определенная последовательности символов.
-    7. `user` *(int)* - если > 0, то фильтрует по конкретному переданному пользователю.
-    8. `user_owner` *(int)* - учитывается, если фильтрация по user активна. Если 0 возвращает моды, где юзер "создатель".
-    Если 1, то возвращает моды где юзре "соавтор". При других значениях (рекомендую -1) фильтрация по этому признаку не производится.
-    9. `user_catalog` *(bool)* - если False, то возврашает все моды (требует запрос от имени запрашиваемого пользователя, либо права админа).
-    Если True, возвращает моды с публичностью "в каталоге" (public == 0).
     """
     tags = tools.str_to_list(tags)
     primary_sources = tools.str_to_list(primary_sources)
@@ -130,28 +230,10 @@ async def mod_list(response: Response, request: Request, page_size: int = 10, pa
 
     if page_size > 50 or page_size < 1:
         return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 1})
-    elif (len(tags) + len(primary_sources) + len(allowed_ids)) > 30:
+    elif (len(tags) + len(primary_sources) + len(allowed_ids)) > 90:
         return JSONResponse(status_code=413,
-                            content={"message": "the maximum complexity of filters is 30 elements in sum",
+                            content={"message": "the maximum complexity of filters is 90 elements in sum",
                                      "error_id": 2})
-
-    if user > 0 and not user_catalog:
-        access_result = await account.check_access(request=request, response=response)
-
-        if not access_result or access_result.get("owner_id", -1) < 0:
-            return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
-
-        # Создание сессии
-        user_session = sessionmaker(bind=account.engine)()
-
-        if not user_catalog and user != access_result.get("owner_id", -1):
-            # Выполнение запроса
-            row = user_session.query(account.Account).filter_by(id=access_result.get("owner_id", -1))
-            row_result = row.first()
-            if not row_result or not row_result.admin:
-                user_session.close()
-                return JSONResponse(status_code=403, content="Вы не имеете доступа к этой информации!")
-            user_session.close()
 
     # Создание сессии
     session = sessionmaker(bind=catalog.engine)()
@@ -169,7 +251,9 @@ async def mod_list(response: Response, request: Request, page_size: int = 10, pa
 
     query = query.order_by(tools.sort_mods(sort))
     query = query.filter(catalog.Mod.condition == 0)
-    query = query.filter(catalog.Mod.public == 0)
+    only_publics = user_catalog or user == 0
+    if only_publics:
+        query = query.filter(catalog.Mod.public == 0)
 
     # Фильтрация по конкретным ID
     if len(allowed_ids) > 0:
@@ -205,9 +289,6 @@ async def mod_list(response: Response, request: Request, page_size: int = 10, pa
         if user_owner in [0, 1]:
             query = query.filter(account.mod_and_author.c.owner == (user_owner == 0))
 
-        if user_catalog:
-            query = query.filter(catalog.Mod.public == 0)
-
 
     mods_count = query.count()
 
@@ -216,71 +297,40 @@ async def mod_list(response: Response, request: Request, page_size: int = 10, pa
 
     session.close()
 
+    result_access_mods = []
+    if not only_publics:
+        result_access_mods = await tools.access_mods(response=response, request=request, mods_ids=[mod.id for mod in mods], check_mode=True)
+
     output_mods = []
     for mod in mods:
-        out = {"id": mod.id}
-        if description:
-            out["description"] = mod.description
-        if short_description:
-            out["short_description"] = mod.short_description
-        if dates:
-            out["date_update_file"] = mod.date_update_file
-            out["date_creation"] = mod.date_creation
-        if general:
-            out["name"] = mod.name
-            out["size"] = mod.size
-            out["source"] = mod.source
-            out["downloads"] = mod.downloads
+        def append_mod():
+            out = {"id": mod.id}
+            if description:
+                out["description"] = mod.description
+            if short_description:
+                out["short_description"] = mod.short_description
+            if dates:
+                out["date_update_file"] = mod.date_update_file
+                out["date_creation"] = mod.date_creation
+            if general:
+                out["name"] = mod.name
+                out["size"] = mod.size
+                out["source"] = mod.source
+                out["downloads"] = mod.downloads
 
-        output_mods.append(out)
+            output_mods.append(out)
+
+        if only_publics:
+            append_mod()
+        else:
+            if mod.id in result_access_mods:
+                append_mod()
+            else:
+                output_mods.append("Access denied (hide info)")
+                mods_count -= 1
 
     # Вывод результатов
     return {"database_size": mods_count, "offset": offset, "results": output_mods}
-
-@router.get(MAIN_URL+"/list/tags/mods/{mods_ids_list}")
-async def list_tags_for_mods(response: Response, request: Request, mods_ids_list, tags=[], only_ids: bool = False):
-    """
-    Возвращает ассоциации модов с тегами.
-    Если в переданном списке модов есть ID непубличного мода, то будет отказано в доступе, делать такие запросы через микросервис account!
-
-    1. `mods_ids_list` - список модов к которым нужно вернуть ассоциации (принимает список ID модов).
-    2. `tags` - если не пуст возвращает ассоциации конкретно с этими тегами (принимает список ID тегов).
-    3. `only_ids` - если True возвращает только ID ассоцируемых тегов, если False возвращает всю информацию о каждом ассоцируемом теге.
-    """
-    mods_ids_list = tools.str_to_list(mods_ids_list)
-    tags = tools.str_to_list(tags)
-
-    if (len(mods_ids_list) + len(tags)) > 80:
-        return JSONResponse(status_code=413,
-                            content={"message": "the maximum complexity of filters is 80 elements in sum",
-                                     "error_id": 1})
-
-    # Создание сессии
-    session = sessionmaker(bind=catalog.engine)()
-
-    query = session.query(catalog.Mod.id)
-    query = query.filter(catalog.Mod.id.in_(mods_ids_list))
-
-    if len(query.all()) > 0:
-        result_access = await tools.access_mods(response=response, request=request, mods_ids=mods_ids_list)
-        if result_access != True:
-            return result_access
-
-    # Выполнение запроса
-    result = {}
-    query_global = session.query(catalog.Tag).join(catalog.mods_tags)
-    for mod_id in mods_ids_list:
-        query = query_global.filter(catalog.mods_tags.c.mod_id == mod_id)
-        if len(tags) > 0:
-            query = query.filter(catalog.Tag.id.in_(tags))
-
-        if only_ids:
-            if result.get(mod_id, None) == None: result[mod_id] = []
-            for id in query.all(): result[mod_id].append(id.id)
-        else:
-            result[mod_id] = query.all()
-
-    return result
 
 
 @router.get(MAIN_URL+"/info/mod/{mod_id}", tags=["Mod"])
