@@ -742,18 +742,25 @@ async def edit_mod(
     else:
         return access_result
 
-@router.post(MAIN_URL+"/edit/mod/authors", tags=["Mod"])
+@router.post(
+    MAIN_URL+"/edit/mod/authors",
+    tags=["Mod"],
+    summary="Редактирование авторов мода",
+    status_code=202,
+    responses={
+        200: {"description": "Изменения успешно выполнены."},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403]
+    }
+)
 async def edit_authors_mod(
     response: Response,
     request: Request,
-    mod_id:int,
-    mode:bool,
-    author:int,
-    owner:bool = False
+    mod_id:int = Form(..., description="ID мода для редактирования."),
+    mode:bool = Form(..., description="Добавить*(True)* или удалить*(False)* автора?"),
+    author:int = Form(..., description="ID автора."),
+    owner:bool = Form(False, description="Владелец ли? Текущий владелец если он есть станет участником.")
 ):
-    """
-    Тестовая функция
-    """
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
@@ -818,15 +825,34 @@ async def edit_authors_mod(
             return JSONResponse(status_code=200, content="Выполнено")
         else:
             session.close()
-            return JSONResponse(status_code=403, content="Операция заблокирована!")
+            return JSONResponse(status_code=403, content="Заблокировано!")
     else:
         return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
-@router.delete(MAIN_URL+"/delete/mod", tags=["Mod"])
-async def delete_mod(response: Response, request: Request, mod_id: int):
-    """
-    Тестовая функция
-    """
+@router.delete(
+    MAIN_URL+"/delete/mod",
+    tags=["Mod"],
+    summary="Удаление мода",
+    status_code=200,
+    responses={
+        200: {"description": "Мод успешно удален."},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        500: {
+            "description": "Не удалось удалить архив/ресурсы мода с файлового хранилища *(поробовать еще раз попозже)*.",
+            "content": {
+                "text/plain": {
+                    "example": "Не удалось удалить мод!"
+                }
+            }
+        }
+    }
+)
+async def delete_mod(
+    response: Response,
+    request: Request,
+    mod_id: int = Form(..., description="ID мода для удаления."),
+):
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
@@ -875,12 +901,12 @@ async def delete_mod(response: Response, request: Request, mod_id: int):
                 session.commit()
                 session.close()
 
-                return JSONResponse(status_code=200, content="Удалено")
+                return PlainTextResponse(status_code=200, content="Удалено")
             else:
                 session.close()
-                return JSONResponse(status_code=500, content="Не удалось удалить мод!")
+                return PlainTextResponse(status_code=500, content="Не удалось удалить мод!")
         else:
             session.close()
-            return JSONResponse(status_code=403, content="Заблокировано!")
+            return PlainTextResponse(status_code=403, content="Заблокировано!")
     else:
-        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+        return PlainTextResponse(status_code=401, content="Недействительный ключ сессии!")
