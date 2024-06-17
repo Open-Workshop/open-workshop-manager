@@ -494,29 +494,93 @@ async def info_mod(
     return JSONResponse(status_code=200, content=output)
 
 
-@router.post(MAIN_URL+"/add/mod", tags=["Mod"])
-async def add_mod(response: Response, request: Request, mod_id: int = -1, without_author: bool = False,
-                  mod_name: str = Form(...), mod_short_description: str = Form(''), mod_description: str = Form(''),
-                  mod_source: str = Form(...), mod_game: int = Form(...), mod_public: int = Form(...),
-                  mod_file: UploadFile = File(...)):
-    """
-    Тестовая функция
-    """
+@router.post(
+    MAIN_URL+"/add/mod", 
+    tags=["Mod"],
+    summary="Добавление мода",
+    status_code=201,
+    responses={
+        201: {"description": "Возвращает ID созданного мода", "content": {"application/json": {"example": 123}}},
+        401: {
+            "description": "Недействительный ключ сессии (не авторизован).",
+            "content": {
+                "text/plain": {
+                    "example": "Недействительный ключ сессии!"
+                }
+            }},
+        403: {
+            "description": "Нехватка прав.",
+            "content": {
+                "text/plain": {
+                    "example": "Заблокировано!"
+                }
+            },
+        },
+        411: {
+            "description": "Не достингнут минимальный размер (название мода).",
+            "content": {
+                "text/plain": {
+                    "example": "Название слишком короткое!"
+                }
+            }
+        },
+        412: {
+            "description": "Неккоректный ID выбранной игры ИЛИ выбранный ID мода уже занят.",
+            "content": {
+                "text/plain": {
+                    "example": "Такой игры не существует!"
+                }
+            }
+        },
+        413: {
+            "description": "Слишком длинное значение параметра(ов): короткое/полное описание, название, размер файла.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "... слишком длинное!",
+                        "error_id": 1
+                    }
+                }
+            }
+        },
+        500: {
+            "description": "Во время передачи файла на Storage сервер произошла ошибка.",
+            "content": {
+                "text/plain": {
+                    "example": "Не удалось загрузить файл!"
+                }
+            }
+        }
+    }
+)
+async def add_mod(
+    response: Response, 
+    request: Request, 
+    mod_id: int = Form(-1, description="Желаемый ID мода, если 0 <= то генерируется случайно. Для выбора должны быть админ права."), 
+    without_author: bool = Form(False, description="Указывать ли авторство мода. Для выбора должны быть админ права."),
+    mod_name: str = Form(..., description="Название мода", max_length=128),
+    mod_short_description: str = Form('', description="Короткое описание мода.", max_length=256),
+    mod_description: str = Form('', description="Полное описание мода.", max_length=10000),
+    mod_source: str = Form('local', description="Источник мода.", max_length=64), 
+    mod_game: int = Form(..., description="ID игры-владельца."),
+    mod_public: int = Form(..., description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."),
+    mod_file: UploadFile = File(..., description="Файл мода. Максимальный размер 838860800 байт (800 мб)."),
+):
     access_result = await account.check_access(request=request, response=response)
     user_id = access_result.get("owner_id", -1)
 
     if access_result and user_id >= 0:
         print(mod_short_description)
         if len(re.sub(r'\s+', ' ', mod_short_description)) > 256:
-            return JSONResponse(status_code=413, content="Короткое описание слишком длинное!")
+            return PlainTextResponse(status_code=413, content="Короткое описание слишком длинное!")
         elif len(re.sub(r'\s+', ' ', mod_description)) > 10000:
-            return JSONResponse(status_code=413, content="Описание слишком длинное!")
+            return PlainTextResponse(status_code=413, content="Описание слишком длинное!")
         elif len(mod_name) > 60:
-            return JSONResponse(status_code=413, content="Название слишком длинное!")
+            return PlainTextResponse(status_code=413, content="Название слишком длинное!")
         elif len(mod_name) < 1:
-            return JSONResponse(status_code=411, content="Название слишком короткое!")
+            return PlainTextResponse(status_code=411, content="Название слишком короткое!")
         elif not await tools.check_game_exists(mod_game):
-            return JSONResponse(status_code=412, content="Такой игры не существует!")
+            return PlainTextResponse(status_code=412, content="Такой игры не существует!")
 
         # Выполнение запроса
         session = sessionmaker(bind=account.engine)()

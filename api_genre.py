@@ -88,7 +88,7 @@ async def list_genres(
 async def add_genre(
     response: Response, 
     request: Request, 
-    genre_name: str = Form(..., description="Название добавляемого жанра"),
+    genre_name: str = Form(..., description="Название добавляемого жанра", max_length=128),
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
@@ -133,7 +133,7 @@ async def edit_genre(
     response: Response, 
     request: Request, 
     genre_id: int = Form(..., description="ID жанра для редактирования"),
-    genre_name: str = Form(None, description="Название жанра"),
+    genre_name: str = Form(None, description="Название жанра", max_length=128),
 ):
     access_result = await tools.access_admin(response=response, request=request)
 

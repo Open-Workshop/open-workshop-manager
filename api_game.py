@@ -164,11 +164,11 @@ async def games_list(
 async def add_game(
     response: Response,  # Ответ HTTP
     request: Request,  # Запрос HTTP
-    game_name: str = Form(..., description="Название игры"),  # Название игры
-    game_short_desc: str = Form(..., description="Краткое описание игры"),  # Краткое описание игры
-    game_desc: str = Form(..., description="Полное описание игры"),  # Описание игры
-    game_type: str = Form("game", description="Тип игры"),  # Тип игры (по умолчанию "game")
-) -> JSONResponse:
+    game_name: str = Form(..., description="Название игры", max_length=128),  # Название игры
+    game_short_desc: str = Form(..., description="Краткое описание игры", max_length=256),  # Краткое описание игры
+    game_desc: str = Form(..., description="Полное описание игры", max_length=10000),  # Описание игры
+    game_type: str = Form("game", description="Тип игры", max_length=32),  # Тип игры (по умолчанию "game")
+):
     access_result = await tools.access_admin(response=response, request=request)
 
     if access_result == True:
@@ -219,11 +219,11 @@ async def edit_game(
     response: Response,  # Ответ HTTP
     request: Request,  # Запрос HTTP
     game_id: int = Form(..., description="ID игры для редактирования"),  # ID игры для редактирования
-    game_name: str = Form(None, description="Название игры"),  # Название игры
-    game_short_desc: str = Form(None, description="Краткое описание игры"),  # Краткое описание игры
-    game_desc: str = Form(None, description="Полное описание игры"),  # Описание игры
-    game_type: str = Form(None, description="Тип игры"),  # Тип игры
-    game_source: str = Form(None, description="Источник игры"),  # Источник игры
+    game_name: str = Form(None, description="Название игры", max_length=128),  # Название игры
+    game_short_desc: str = Form(None, description="Краткое описание игры", max_length=256),  # Краткое описание игры
+    game_desc: str = Form(None, description="Полное описание игры", max_length=10000),  # Описание игры
+    game_type: str = Form(None, description="Тип игры", max_length=32),  # Тип игры
+    game_source: str = Form(None, description="Источник игры", max_length=64),  # Источник игры
 ) -> JSONResponse:
     """
     Возвращает код состояния и сообщение о результате.
