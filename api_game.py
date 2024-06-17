@@ -264,7 +264,7 @@ async def delete_game(
     response: Response,
     request: Request, 
     game_id: int = Form(..., description="ID игры для удаления")
-) -> JSONResponse:
+):
     """
     Удаляет игру, все её ассоциации и ресурсы. 
 
