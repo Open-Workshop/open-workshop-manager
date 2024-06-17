@@ -333,13 +333,79 @@ async def mod_list(
     return {"database_size": mods_count, "offset": offset, "results": output_mods}
 
 
-@router.get(MAIN_URL+"/info/mod/{mod_id}", tags=["Mod"])
-async def info_mod(response: Response, request: Request, mod_id: int, dependencies: bool = None,
-                   short_description: bool = None, description: bool = None, dates: bool = None,
-                   general: bool = True, game: bool = None, authors: bool = None):
-    """
-    Тестовая функция
-    """
+@router.get(
+    MAIN_URL+"/info/mod/{mod_id}", 
+    tags=["Mod"],
+    summary="Возвращает информацию о моде",
+    status_code=200,
+    responses={
+        200: {
+            "description": "OK",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "dependencies": [1, 2, 3],
+                        "dependencies_count": 3,
+                        "authors": {
+                            1: {"owner": True},
+                            2: {"owner": False}
+                        },
+                        "result": {
+                            "condition": 0,
+                            "description": "Some description",
+                            "short_description": "Some short description",
+                            "date_update_file": "1984-05-22 02:42:42",
+                            "date_edit": "1984-07-12 15:77:12",
+                            "date_creation": "1984-01-01 15:11:40",
+                            "name": "Some name",
+                            "size": 123456789,
+                            "source": "local",
+                            "downloads": 42,
+                            "public": 0,
+                            "game": {"id": 1, "name": "game"}
+                        }
+                    }
+                }
+            }
+        },
+        401: {
+            "description": "Недействительный ключ сессии (не авторизован).",
+            "content": {
+                "text/plain": {
+                    "example": "Недействительный ключ сессии!"
+                }
+            }
+        },
+        403: {
+            "description": "Нехватка прав.",
+            "content": {
+                "text/plain": {
+                    "example": "Заблокировано!"
+                }
+            }
+        },
+        404: {
+            "description": "Not found",
+            "content": {
+                "text/plain": {
+                    "example": "Mod not found."
+                }
+            }
+        }
+    }
+)
+async def info_mod(
+    response: Response, 
+    request: Request, 
+    mod_id: int = Path(description="ID мода"), 
+    dependencies: bool = Query(False, description="Передать ли список зависимостей."),
+    short_description: bool = Query(False, description="Передать ли краткое описание мода."),
+    description: bool = Query(False, description="Передать ли описание мода."),
+    dates: bool = Query(False, description="Передать ли дату обновления и создания мода."),
+    general: bool = Query(True, description="Передать ли основные данные о моде."),
+    game: bool = Query(False, description="Передать ли информацию о игре мода."),
+    authors: bool = Query(False, description="Передать ли список авторов мода."),
+):
     output = {}
 
     # Создание сессии
@@ -363,7 +429,7 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
     output["pre_result"] = query.first()
 
     if not output["pre_result"]:
-        return JSONResponse(status_code=404, content="Mod not found.")
+        return PlainTextResponse(status_code=404, content="Mod not found.")
 
     if output["pre_result"].public >= 2:
         result_access = await tools.access_mods(response=response, request=request, mods_ids=mod_id, edit=False)
@@ -418,9 +484,9 @@ async def info_mod(response: Response, request: Request, mod_id: int, dependenci
 
         row_results = row.all()
 
-        output["authors"] = []
+        output["authors"] = {}
         for i in row_results:
-            output["authors"].append({"user": i.user_id, "owner": i.owner})
+            output["authors"][i.user_id] = {"owner": i.owner}
 
         session_account.close()
 

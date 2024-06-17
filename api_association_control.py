@@ -16,12 +16,20 @@ ASSOCIATION_RESPONSES = {
             "content": {"application/json": {"example": "Complite"}},
         },
         401: {
-            "description": "Пользователь не авторизован (недействительный ключ сессии).",
-            "content": {"application/json": {"example": "Недействительный ключ сессии!"}},
+            "description": "Недействительный ключ сессии (не авторизован).",
+            "content": {
+                "text/plain": {
+                    "example": "Недействительный ключ сессии!"
+                }
+            }
         },
         403: {
-            "description": "Вы не админ.",
-            "content": {"application/json": {"example": "Вы не админ!"}},
+            "description": "Нехватка прав.",
+            "content": {
+                "text/plain": {
+                    "example": "Заблокировано!"
+                }
+            },
         },
         409: {
             "description": "Запрашиваемое состояние уже реализовано.",
@@ -34,12 +42,20 @@ ASSOCIATION_RESPONSES = {
             "content": {"application/json": {"example": "Complite"}},
         },
         401: {
-            "description": "Пользователь не авторизован (недействительный ключ сессии).",
-            "content": {"application/json": {"example": "Недействительный ключ сессии!"}},
+            "description": "Недействительный ключ сессии (не авторизован).",
+            "content": {
+                "text/plain": {
+                    "example": "Недействительный ключ сессии!"
+                }
+            }
         },
         403: {
             "description": "Нехватка прав.",
-            "content": {"application/json": {"example": "Заблокировано!"}},
+            "content": {
+                "text/plain": {
+                    "example": "Заблокировано!"
+                }
+            },
         },
         409: {
             "description": "Запрашиваемое состояние уже реализовано.",

@@ -3,7 +3,7 @@ from sql_logic import sql_catalog as catalog
 import ow_config as config
 from io import BytesIO
 from fastapi import Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import desc
 import aiohttp
@@ -223,9 +223,9 @@ async def access_mods(response: Response, request: Request, mods_ids: list[int] 
         if mini_result != False:
             return mini_result
         else:
-            return JSONResponse(status_code=403, content="Заблокировано!")
+            return PlainTextResponse(status_code=403, content="Заблокировано!")
     else:
-        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+        return PlainTextResponse(status_code=401, content="Недействительный ключ сессии!")
 
 async def check_game_exists(game_id:int) -> bool:
     """
