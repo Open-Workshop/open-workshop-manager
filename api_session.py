@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Request, Response, Form
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi import APIRouter, Request, Response, Form, Query, Path
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, PlainTextResponse
 from sql_logic import sql_account as account
 import json
 from yandexid import AsyncYandexOAuth, AsyncYandexID
@@ -16,6 +16,7 @@ import ow_config as config
 import aiohttp
 from sqlalchemy import insert
 from sqlalchemy.orm import sessionmaker
+import standarts
 
 
 STANDART_STR_TIME = account.STANDART_STR_TIME
@@ -127,13 +128,31 @@ async def password_authorization(
     session.close()
     return JSONResponse(status_code=412, content=False)
 
-@router.get(MAIN_URL+"/session/google/complite", response_class=HTMLResponse, tags=["Session"])
-async def google_complite(response: Response, request: Request, code:str, _state:str = "", _scope:str = "",
-                          _authuser:int = -1, _prompt:str = ""):
+@router.get(
+    MAIN_URL+"/session/google/complite",
+    response_class=HTMLResponse,
+    tags=["Session"],
+    status_code=200,
+    summary="Завершение авторизации (Google)",
+    responses={
+        200: {"description": "Авторизация прошла успешно."},
+        409: {"description": "К аккаунту пользователя уже подлючен Google ID."},
+        410: {"description": "Аккаунт Google использовался в недавно удаленном аккаунте OW *(подождать)*."},
+    }
+)
+async def google_complite(
+    response: Response,
+    request: Request,
+    code:str = Query(description="Код доступа к Google OAuth API"),
+    _state:str = "",
+    _scope:str = "",
+    _authuser:int = -1, 
+    _prompt:str = ""
+):
     """
-    Авторизация в систему через Google.
+    Если данный аккаунт Google не привязан ни к одному из аккаунтов OW и при этом передать действующий access_token то произойдет коннект.
 
-    Если данный аккаунт не привязан ни к одному из аккаунтов OW и при этом передать access_token то произойдет коннект.
+    Если не передать действующий access_token то создаётся новый аккаунт OW. С Google будет взят аватар и сгенерирован случайный никнейм.
     """
     ru = await account.no_from_russia(request=request)
     if ru: return ru
@@ -159,7 +178,7 @@ async def google_complite(response: Response, request: Request, code:str, _state
 
     if not rows:
         if session.query(account.blocked_account_creation).filter_by(google_id=user_data["id"]).first():
-            return "Этот аккаунт Google использовался в недавно удаленном аккаунте Open Workshop!"
+            return PlainTextResponse(status_code=410, content="Этот аккаунт Google использовался в недавно удаленном аккаунте Open Workshop!")
 
         access_result = await account.check_access(request=request, response=response)
 
@@ -173,7 +192,7 @@ async def google_complite(response: Response, request: Request, code:str, _state
                 id = row_connect_result.id
             else:
                 session.close()
-                return JSONResponse(status_code=400, content="Пользователь привязанный за токеном не найден, или к его аккаунту уже подключен Google ID")
+                return PlainTextResponse(status_code=409, content="К аккаунту пользователя уже подключен Google ID")
         else:
             dtime = datetime.datetime.now()
 
@@ -239,12 +258,27 @@ async def google_complite(response: Response, request: Request, code:str, _state
 
     return "Если это окно не закрылось автоматически, можете закрыть его сами :)"
 
-@router.get(MAIN_URL+"/session/yandex/complite", response_class=HTMLResponse, tags=["Session"])
-async def yandex_complite(response: Response, request: Request, code:int):
+@router.get(
+    MAIN_URL+"/session/yandex/complite",
+    response_class=HTMLResponse,
+    tags=["Session"],
+    status_code=200,
+    summary="Завершение авторизации (Yandex)",
+    responses={
+        200: {"description": "Авторизация прошла успешно."},
+        409: {"description": "К аккаунту пользователя уже подлючен YandexID."},
+        410: {"description": "Аккаунт Yandex использовался в недавно удаленном аккаунте OW *(подождать)*."},
+    }
+)
+async def yandex_complite(
+    response: Response,
+    request: Request,
+    code:int = Query(description="Код доступа к Yandex OAuth API")
+):
     """
-    Авторизация в систему через YandexID.
+    Если данный аккаунт Yandex не привязан ни к одному из аккаунтов OW и при этом передать действующий access_token то произойдет коннект.
 
-    Если данный аккаунт не привязан ни к одному из аккаунтов OW и при этом передать access_token то произойдет коннект.
+    Если не передать действующий access_token то создаётся новый аккаунт OW. С Yandex будет взят аватар и никнейм.
     """
     token = await yandex_oauth.get_token_from_code(str(code))
     user_data = await AsyncYandexID(oauth_token=token.access_token).get_user_info_json()
@@ -257,7 +291,7 @@ async def yandex_complite(response: Response, request: Request, code:int):
 
     if not rows:
         if session.query(account.blocked_account_creation).filter_by(yandex_id=user_data.id).first():
-            return "Этот аккаунт Yandex использовался в недавно удаленном аккаунте Open Workshop!"
+            return PlainTextResponse(status_code=410, content="Этот аккаунт Yandex использовался в недавно удаленном аккаунте Open Workshop!")
 
         access_result = await account.check_access(request=request, response=response)
 
@@ -271,7 +305,7 @@ async def yandex_complite(response: Response, request: Request, code:int):
                 id = row_connect_result.id
             else:
                 session.close()
-                return JSONResponse(status_code=400, content="Пользователь привязанный за токеном не найден, или к его аккаунту уже подключен Yandex ID")
+                return PlainTextResponse(status_code=409, content="К аккаунту пользователя уже подключен Yandex ID")
         else:
             dtime = datetime.datetime.now()
             print(dtime, type(dtime))
@@ -327,17 +361,31 @@ async def yandex_complite(response: Response, request: Request, code:int):
 
     return "Если это окно не закрылось автоматически, можете закрыть его сами :)"
 
-@router.post(MAIN_URL+"/session/disconnect", tags=["Session", "Profile"])
-async def disconnect_service(response: Response, request: Request, service_name: str):
+@router.post(
+    MAIN_URL+"/session/{service_name}/disconnect",
+    tags=["Session", "Profile"],
+    status_code=200,
+    summary="Отвязывание сервиса от аккаунта",
+    responses={
+        200: {"description": "Отвязывание прошло успешно."},
+        400: {"description": "Недопустимое значение `service_name`"},
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Аккаунт не найден."},
+        406: {"description": "Нельзя отсоединить все сервисы от аккаунта."}
+    }
+)
+async def disconnect_service(
+    response: Response,
+    request: Request,
+    service_name: str = Path(description="Сервис, который необходимо отключить", example=["yandex", "google"]),
+):
     """
     Отвязываем один из сервисов от аккаунта, при этом OW не допустит чтобы от аккаунта были отвязаны все сервисы.
-
-    `service_name` - доступные параметры: `google`, `yandex`
     """
     services = ["google", "yandex"]
 
     if service_name not in services:
-        return JSONResponse(status_code=400, content="Недопустимое значение service_name!")
+        return PlainTextResponse(status_code=400, content="Недопустимое значение service_name!")
 
     access_result = await account.check_access(request=request, response=response)
 
@@ -356,44 +404,76 @@ async def disconnect_service(response: Response, request: Request, service_name:
                 session.commit()
                 session.close()
 
-                return JSONResponse(status_code=200, content="Успешно!")
+                return PlainTextResponse(status_code=200, content="Успешно!")
             else:
                 session.close()
-                return JSONResponse(status_code=406, content="Нельзя отсоединить все сервисы от аккаунта!")
+                return PlainTextResponse(status_code=406, content="Нельзя отсоединить все сервисы от аккаунта!")
         else:
             session.close()
-            return JSONResponse(status_code=404, content="Пользователь не найден!")
+            return PlainTextResponse(status_code=404, content="Пользователь не найден!")
     else:
-        return JSONResponse(status_code=403, content="Недействительный ключ сессии!")
+        return PlainTextResponse(status_code=403, content="Недействительный ключ сессии!")
 
-@router.post(MAIN_URL+"/session/refresh", tags=["Session"])
-async def refresh(response: Response, request: Request):
+@router.post(
+    MAIN_URL+"/session/refresh",
+    tags=["Session"],
+    status_code=200,
+    summary="Обновление токенов доступа",
+    responses={
+        200: {"description": "Токены обновлены."},
+        401: standarts.responses[401]
+    }
+)
+async def refresh(
+    response: Response,
+    request: Request
+):
     """
     Получение новой пары access+refresh токенов на основе еще живого refresh токена
     """
-    return bool(await account.update_session(response=response, request=request))
+    return PlainTextResponse(
+        status_code=200 if bool(await account.update_session(response=response, request=request)) else 401,
+        content="Запрос обработан"
+    )
 
-@router.post(MAIN_URL+"/session/logout", tags=["Session"])
-async def logout(response: Response, request: Request):
+@router.post(
+    MAIN_URL+"/session/logout",
+    tags=["Session"],
+    status_code=200,
+    summary="Выход из системы",
+    responses={
+        200: {"description": "Успешно"},
+        401: standarts.responses[401]
+    }
+)
+async def logout(
+    response: Response,
+    request: Request
+):
     """
     Выход из системы.
-    Удаляет аккаунт-куки у пользователя, а так же убивает сессию (соответсвующее токены становятся невалидными)!
+
+    Удаляет аккаунт-куки у пользователя, а так же убивает сессию *(соответсвующее токены становятся невалидными)*!
     """
 
     # Создание сессии
     session = sessionmaker(bind=account.engine)()
 
-    # Выполнение запроса
-    session.query(account.Session).filter_by(access_token=request.cookies.get("accessToken", "")).update(
-        {"broken": "logout"})
-    session.commit()
-    session.close()
+    query = session.query(account.Session).filter_by(access_token=request.cookies.get("accessToken", ""))
 
-    # Удаление токенов у юзера
-    response.delete_cookie(key='accessToken')
-    response.delete_cookie(key='refreshToken')
-    response.delete_cookie(key='loginJS')
-    response.delete_cookie(key='accessJS')
-    response.delete_cookie(key='userID')
+    if query.first():
+        # Выполнение запроса
+        query.update({"broken": "logout"})
+        session.commit()
+        session.close()
 
-    return True
+        # Удаление токенов у юзера
+        response.delete_cookie(key='accessToken')
+        response.delete_cookie(key='refreshToken')
+        response.delete_cookie(key='loginJS')
+        response.delete_cookie(key='accessJS')
+        response.delete_cookie(key='userID')
+
+        return PlainTextResponse(status_code=200, content="Успешно!")
+    else:
+        return PlainTextResponse(status_code=401, content="Недействительный ключ сессии!")
