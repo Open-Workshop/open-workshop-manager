@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Response, Form, UploadFile, File
+from fastapi import APIRouter, Request, Response, Form, Query, Path, UploadFile, File
 from fastapi.responses import JSONResponse, RedirectResponse, PlainTextResponse
 from io import BytesIO
 import bcrypt
@@ -9,20 +9,32 @@ import ow_config as config
 from sqlalchemy import insert
 from sqlalchemy.orm import sessionmaker
 from sql_logic import sql_account as account
+import standarts
+
 
 router = APIRouter()
 
 
-@router.get(MAIN_URL + "/profile/info/{user_id}", tags=["Profile"])
-async def info_profile(response: Response, request: Request, user_id: int, general: bool = True, rights: bool = False,
-                       private: bool = False):
-    """
-    Возвращает информацию о пользователях.
-
-    `general` - могут просматривать все.
-    `rights` - исключительно админы и сам пользователь.
-    `private` - исключительно админы и сам пользователь.
-    """
+@router.get(
+    MAIN_URL+"/profile/info/{user_id}",
+    tags=["Profile"],
+    summary="Информация о профиле",
+    status_code=200,
+    responses={
+        200: {"description": "Возвращает информацию о профиле по запрошенным разделам."},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Профиль не найден."}
+    }
+)
+async def info_profile(
+    response: Response,
+    request: Request,
+    user_id: int = Path(description="ID запрашивающего профиля."),
+    general: bool = Query(True, description="Вернуть ли общую информацию."), 
+    rights: bool = Query(False, description="Вернуть ли права пользователя *(должен быть владельцем аккаунта или админом)*."),
+    private: bool = Query(False, description="Вернуть ли скрытую информацию *(должен быть владельцем аккаунта или админом)*."),
+):
     result = {}
     # Создание сессии
     session = sessionmaker(bind=account.engine)()
@@ -31,7 +43,7 @@ async def info_profile(response: Response, request: Request, user_id: int, gener
     row = query.first()
     if not row:
         session.close()
-        return JSONResponse(status_code=404, content="Пользователь не найден(")
+        return PlainTextResponse(status_code=404, content="Пользователь не найден(")
 
     if rights or private:
         # Чекаем сессию юзера
@@ -48,7 +60,7 @@ async def info_profile(response: Response, request: Request, user_id: int, gener
 
                 if not owner_row.admin:
                     session.close()
-                    return JSONResponse(status_code=403, content="Вы не имеете доступа к этой информации!")
+                    return PlainTextResponse(status_code=403, content="Вы не имеете доступа к этой информации!")
 
             if private:
                 result["private"] = {}
@@ -82,7 +94,7 @@ async def info_profile(response: Response, request: Request, user_id: int, gener
                 result["rights"]["vote_for_reputation"] = row.vote_for_reputation
         else:
             session.close()
-            return JSONResponse(status_code=403, content="Недействительный ключ сессии!")
+            return PlainTextResponse(status_code=403, content="Недействительный ключ сессии!")
 
     if general:
         result["general"] = {}
@@ -101,8 +113,20 @@ async def info_profile(response: Response, request: Request, user_id: int, gener
     session.close()
     return result
 
-@router.get(MAIN_URL + "/profile/avatar/{user_id}", tags=["Profile"])
-async def avatar_profile(user_id: int):
+@router.get(
+    MAIN_URL+"/profile/avatar/{user_id}",
+    tags=["Profile"],
+    summary="Аватар профиля",
+    status_code=307,
+    responses={
+        207: {"description": "Пользователь не назначил аватар."},
+        307: {"description": "Перенаправляет на аватар*(файл)* пользователя."},
+        404: {"description": "Пользователь не найден."},
+    }
+)
+async def avatar_profile(
+    user_id: int = Path(description="ID профиля."),
+):
     """
     Возвращает url, по которому можно получить аватар пользователя при условии, что он есть.
     """
@@ -123,11 +147,36 @@ async def avatar_profile(user_id: int):
         return PlainTextResponse(status_code=404, content="User not found!")
 
 
-@router.post(MAIN_URL + "/profile/edit/{user_id}", tags=["Profile"])
-async def edit_profile(response: Response, request: Request, user_id: int, username: str = Form(None),
-                       about: str = Form(None), avatar: UploadFile = File(None), empty_avatar: bool = Form(None),
-                       grade: str = Form(None), off_password: bool = Form(None), new_password: str = Form(None),
-                       mute: datetime.datetime = Form(None)):
+@router.post(
+    MAIN_URL+"/profile/edit/{user_id}",
+    tags=["Profile"],
+    summary="Редактирование профиля",
+    status_code=202,
+    responses={
+        202: {"description": "Профиль успешно отредактирован."},
+        400: {"description": "Нельзя замутить самого себя."},
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Пользователь не найден."},
+        411: {"description": "Недостигнута длина *(слишком короткий никнейм/грейд/пароль)*, либо указанная дата мута уже прошла."},
+        413: {"desctiption": "Превышена длина *(никнейм/обо мне/грейд/пароль)*, либо загружаемый аватар превышает 2 мб."},
+        425: {"description": "Отказано в изменении, т.к. запрашивающий в муте *(узнать о длине мута можно в /profile/info/)*, либо слишком часто меняется пароль/никнейм *(в таком случае в теле ответа возвращается дата снятия ограничения)*"},
+        500: {"description": "Неизвестная ошибка при подготовке изменений *(детали в теле ответа)*."},
+        523: {"description": "Ошибка на стороне файлового сервера."} 
+    }
+)
+async def edit_profile(
+    response: Response,
+    request: Request,
+    user_id: int = Path(description="ID профиля."),
+    username: str = Form(None, description="Новое имя пользователя.", min_length=3, max_length=128),
+    about: str = Form(None, description="Новое описание профиля.", max_length=512),
+    avatar: UploadFile = File(None, description="Новый аватар профиля *(ограничение 2097152 байт т.е. 2 мегабайта)*."),
+    empty_avatar: bool = Form(None, description="Удалить аватар профиля *(приоритетней установки аватара)*."),
+    grade: str = Form(None, description="Новое звание пользователя *(назначается только админами)*.", min_length=3, max_length=128),
+    off_password: bool = Form(None, description="Отключить пароль *(приоритетней установки пароля)*."),
+    new_password: str = Form(None, description="Новый пароль.", min_length=6, max_length=100),
+    mute: datetime.datetime = Form(None, description="Время мута *(может быть назначен только админом и не самому себе)*, *(время не должно быть прошедшим)*."),
+):
     """
     Редактирование пользователей *(самого себя или другого юзера)*.
     """
@@ -150,7 +199,7 @@ async def edit_profile(response: Response, request: Request, user_id: int, usern
             # Проверка, существует ли пользователь
             if not user:
                 session.close()
-                return JSONResponse(status_code=404, content="Пользователь не найден!")
+                return PlainTextResponse(status_code=404, content="Пользователь не найден!")
 
             try:
                 today = datetime.datetime.now()
@@ -163,59 +212,59 @@ async def edit_profile(response: Response, request: Request, user_id: int, usern
                         for i in [username, about, avatar, empty_avatar, grade, off_password, new_password]:
                             if i is not None:
                                 session.close()
-                                return JSONResponse(status_code=403, content="Доступ запрещен!")
+                                return PlainTextResponse(status_code=403, content="Доступ запрещен!")
                         else:
                             # Проверяем, есть ли у запрашивающего право мутить других пользователей и пытается ли он замутить
                             if not row.mute_users or mute is None:  # разрешено ли мутить, пытается ли замутить
                                 session.close()
-                                return JSONResponse(status_code=403, content="Доступ запрещен!")
+                                return PlainTextResponse(status_code=403, content="Доступ запрещен!")
                     elif new_password is not None or off_password is not None:
                         session.close()
-                        return JSONResponse(status_code=403, content="Даже администраторы не могут менять пароли!")
+                        return PlainTextResponse(status_code=403, content="Даже администраторы не могут менять пароли!")
                 else:
                     if mute is not None:
                         session.close()
-                        return JSONResponse(status_code=400, content="Нельзя замутить самого себя!")
+                        return PlainTextResponse(status_code=400, content="Нельзя замутить самого себя!")
                     elif not row.admin:  # Админы могут менять свои пароли и имена пользователей без ограничений
                         if row.mute_until and row.mute_until > today:  # Даже если админ замутен, то на него ограничение не распространяется
                             session.close()
-                            return JSONResponse(status_code=425,
+                            return PlainTextResponse(status_code=425,
                                                 content="Вам выдано временное ограничение на социальную активность :(")
 
                         if grade is not None:
                             session.close()
-                            return JSONResponse(status_code=403, content="Не админ не может менять грейды!")
+                            return PlainTextResponse(status_code=403, content="Не админ не может менять грейды!")
 
                         if new_password is not None and row.last_password_reset and row.last_password_reset + datetime.timedelta(
                                 minutes=5) > today:
                             session.close()
-                            return JSONResponse(status_code=425, content=(
+                            return PlainTextResponse(status_code=425, content=(
                                         row.last_password_reset + datetime.timedelta(minutes=5)).strftime(
                                 STANDART_STR_TIME))
                         if username is not None:
                             if not row.change_username:
                                 session.close()
-                                return JSONResponse(status_code=403,
+                                return PlainTextResponse(status_code=403,
                                                     content="Вам по какой-то причине запрещено менять никнейм!")
                             elif row.last_username_reset and (
                                     row.last_username_reset + datetime.timedelta(days=30)) > today:
                                 session.close()
-                                return JSONResponse(status_code=425, content=(
+                                return PlainTextResponse(status_code=425, content=(
                                             row.last_username_reset + datetime.timedelta(days=30)).strftime(
                                     STANDART_STR_TIME))
                         if avatar is not None or empty_avatar is not None:
                             if not row.change_avatar:
                                 session.close()
-                                return JSONResponse(status_code=403,
+                                return PlainTextResponse(status_code=403,
                                                     content="Вам по какой-то причине запрещено менять аватар!")
                         if about is not None:
                             if not row.change_about:
                                 session.close()
-                                return JSONResponse(status_code=403,
+                                return PlainTextResponse(status_code=403,
                                                     content="Вам по какой-то причине запрещено менять \"обо мне\"!")
             except:
                 session.close()
-                return JSONResponse(status_code=500, content='Что-то пошло не так при проверке ваших прав...')
+                return PlainTextResponse(status_code=500, content='Что-то пошло не так при проверке ваших прав...')
 
             # Подготавливаемся к выполнению операции и смотрим чтобы переданные данные были корректны
             query_update = {}
@@ -225,48 +274,48 @@ async def edit_profile(response: Response, request: Request, user_id: int, usern
                     if username:
                         if len(username) < 2:
                             session.close()
-                            return JSONResponse(status_code=411,
+                            return PlainTextResponse(status_code=411,
                                                 content="Слишком короткий никнейм! (минимальная длина 2 символа)")
-                        elif len(username) > 50:
+                        elif len(username) > 128:
                             session.close()
-                            return JSONResponse(status_code=413,
+                            return PlainTextResponse(status_code=413,
                                                 content="Слишком длинный никнейм! (максимальная длина 50 символов)")
 
                         query_update["username"] = username
                         query_update["last_username_reset"] = today
                 except:
                     session.close()
-                    return JSONResponse(status_code=500,
+                    return PlainTextResponse(status_code=500,
                                         content='Что-то пошло не так при подготовке данных (username) на обновление БД...')
 
                 try:
                     if about:
                         if len(about) > 512:
                             session.close()
-                            return JSONResponse(status_code=413,
+                            return PlainTextResponse(status_code=413,
                                                 content="Слишком длинное поле \"обо мне\"! (максимальная длина 512 символов)")
 
                         query_update["about"] = about
                 except:
                     session.close()
-                    return JSONResponse(status_code=500,
+                    return PlainTextResponse(status_code=500,
                                         content='Что-то пошло не так при подготовке данных (about) на обновление БД...')
 
                 try:
                     if grade:
                         if len(grade) < 2:
                             session.close()
-                            return JSONResponse(status_code=411,
+                            return PlainTextResponse(status_code=411,
                                                 content="Слишком короткий грейд! (минимальная длина 2 символа)")
-                        elif len(grade) > 100:
+                        elif len(grade) > 128:
                             session.close()
-                            return JSONResponse(status_code=413,
+                            return PlainTextResponse(status_code=413,
                                                 content="Слишком длинный грейд! (максимальная длина 100 символов)")
 
                         query_update["grade"] = grade
                 except:
                     session.close()
-                    return JSONResponse(status_code=500,
+                    return PlainTextResponse(status_code=500,
                                         content='Что-то пошло не так при подготовке данных (grade) на обновление БД...')
 
                 try:
@@ -276,11 +325,11 @@ async def edit_profile(response: Response, request: Request, user_id: int, usern
                     elif new_password:
                         if len(new_password) < 6:
                             session.close()
-                            return JSONResponse(status_code=411,
+                            return PlainTextResponse(status_code=411,
                                                 content="Слишком короткий пароль! (минимальная длина 6 символа)")
                         elif len(new_password) > 100:
                             session.close()
-                            return JSONResponse(status_code=413,
+                            return PlainTextResponse(status_code=413,
                                                 content="Слишком длинный пароль! (максимальная длина 100 символов)")
 
                         query_update["password_hash"] = (
@@ -288,19 +337,19 @@ async def edit_profile(response: Response, request: Request, user_id: int, usern
                         query_update["last_password_reset"] = today
                 except:
                     session.close()
-                    return JSONResponse(status_code=500,
+                    return PlainTextResponse(status_code=500,
                                         content='Что-то пошло не так при подготовке данных (password) на обновление БД...')
 
                 try:
                     if mute:
                         if mute < today:
                             session.close()
-                            return JSONResponse(status_code=411, content="Указанная дата окончания мута уже прошла!")
+                            return PlainTextResponse(status_code=411, content="Указанная дата окончания мута уже прошла!")
 
                         query_update["mute_until"] = mute
                 except:
                     session.close()
-                    return JSONResponse(status_code=500,
+                    return PlainTextResponse(status_code=500,
                                         content='Что-то пошло не так при подготовке данных (mute) на обновление БД...')
 
                 try:
@@ -313,7 +362,7 @@ async def edit_profile(response: Response, request: Request, user_id: int, usern
                             format_name = avatar_url.split(".")[1]
                             if not tools.storage_file_delete(type="avatar", path=f"{user.id}.{format_name}"):
                                 session.close()
-                                return JSONResponse(status_code=523,
+                                return PlainTextResponse(status_code=523,
                                                     content="Что-то пошло не так при удалении аватара из системы.")
                     elif avatar is not None:  # Проверка на аватар в самом конце, т.к. он приводит к изменениям в файловой системе
                         format_name = avatar.filename.split(".")[-1]
@@ -323,19 +372,19 @@ async def edit_profile(response: Response, request: Request, user_id: int, usern
 
                         if avatar.size >= 2097152:
                             session.close()
-                            return JSONResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
+                            return PlainTextResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
 
 
                         if not await tools.storage_file_upload(type="avatar", path=f"{user.id}.{format_name}", file=BytesIO(await avatar.read())):
                             print("Google регистрация: во время загрузки аватара произошла ошибка!")
-                            return JSONResponse(status_code=500,
+                            return PlainTextResponse(status_code=523,
                                                 content="Что-то пошло не так при обработке аватара ._.")
                 except:
                     session.close()
-                    return JSONResponse(status_code=500,
+                    return PlainTextResponse(status_code=500,
                                         content='Что-то пошло не так при подготовке данных (avatar) на обновление БД...')
             except:
-                return JSONResponse(status_code=500,
+                return PlainTextResponse(status_code=500,
                                     content='Что-то пошло не так при подготовке данных на обновление БД...')
 
             # Выполняем запрошенную операцию
@@ -344,11 +393,11 @@ async def edit_profile(response: Response, request: Request, user_id: int, usern
             session.close()
 
             # Возвращаем успешный результат
-            return JSONResponse(status_code=202, content='Изменения приняты :)')
+            return PlainTextResponse(status_code=202, content='Изменения приняты :)')
         else:
-            return JSONResponse(status_code=403, content="Недействительный ключ сессии!")
+            return PlainTextResponse(status_code=403, content="Недействительный ключ сессии!")
     except:
-        return JSONResponse(status_code=500, content='В огромной функции произошла неизвестная ошибка...')
+        return PlainTextResponse(status_code=500, content='В огромной функции произошла неизвестная ошибка...')
 
 
 @router.post(MAIN_URL + "/edit/profile/rights", tags=["Profile"])
