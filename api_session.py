@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Request, Response, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sql_logic import sql_account as account
 import json
@@ -40,10 +40,22 @@ yandex_oauth = AsyncYandexOAuth(
 )
 
 
-@router.get(MAIN_URL+"/session/google/link", response_class=HTMLResponse, tags=["Session"])
-async def google_send_link(request: Request):
+@router.get(
+    MAIN_URL+"/session/google/link",
+    response_class=HTMLResponse,
+    tags=["Session"],
+    status_code=307,
+    summary="Переадресация на авторизацию Google",
+    responses={
+        200: {"description": "Запрещено на основании законодательства РФ."},
+        307: {"description": "Переадресация на SSO Google."}
+    }
+)
+async def google_send_link(
+    request: Request
+):
     """
-    Получение ссылки на авторизацию через Google
+    Получение ссылки на авторизацию через Google.
     """
     ru = await account.no_from_russia(request=request)
     if ru: return ru
@@ -51,17 +63,38 @@ async def google_send_link(request: Request):
     authorization_url, state = Flow.authorization_url()
     return RedirectResponse(url=authorization_url)
 
-@router.get(MAIN_URL+"/session/yandex/link", tags=["Session"])
+@router.get(
+    MAIN_URL+"/session/yandex/link",
+    tags=["Session"],
+    status_code=307,
+    summary="Переадресация на авторизацию Yandex",
+    responses={
+        307: {"description": "Переадресация на SSO Yandex *(YandexID)*."}
+    }
+)
 async def yandex_send_link():
     """
     Получение ссылки на авторизацию через YandexID
     """
     return RedirectResponse(url=yandex_oauth.get_authorization_url())
 
-@router.post(MAIN_URL+"/session/password", tags=["Session"])
-async def password_authorization(response: Response, login: str, password: str):
+@router.post(
+    MAIN_URL+"/session/password",
+    tags=["Session"],
+    status_code=200,
+    summary="Авторизация через пароль",
+    responses={
+        200: {"description": "Авторизация прошла успешно."},
+        412: {"description": "Неправильный пароль/логин."},
+    }
+)
+async def password_authorization(
+    response: Response,
+    login: str = Form(..., description="Логин *(имя пользователя)*", max_length=128),
+    password: str = Form(..., description="Пароль", min_length=6, max_length=100)
+):
     """
-    Авторизация в систему через пароль. Не очень безопасный метод :)
+    Рекомендую использовать внешние SSO сервисы авторизации.
     """
     # Создание сессии
     session = sessionmaker(bind=account.engine)()
