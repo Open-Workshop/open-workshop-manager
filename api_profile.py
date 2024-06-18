@@ -400,20 +400,45 @@ async def edit_profile(
         return PlainTextResponse(status_code=500, content='В огромной функции произошла неизвестная ошибка...')
 
 
-@router.post(MAIN_URL + "/edit/profile/rights", tags=["Profile"])
-async def edit_profile_rights(response: Response, request: Request, user_id: int, write_comments: bool = Form(None),
-                              set_reactions: bool = Form(None), create_reactions: bool = Form(None),
-                              mute_users: bool = Form(None), publish_mods: bool = Form(None),
-                              change_authorship_mods: bool = Form(None), change_self_mods: bool = Form(None),
-                              change_mods: bool = Form(None), delete_self_mods: bool = Form(None),
-                              delete_mods: bool = Form(None), create_forums: bool = Form(None),
-                              change_authorship_forums: bool = Form(None), change_self_forums: bool = Form(None),
-                              change_forums: bool = Form(None), delete_self_forums: bool = Form(None),
-                              delete_forums: bool = Form(None), change_username: bool = Form(None),
-                              change_about: bool = Form(None), change_avatar: bool = Form(None),
-                              vote_for_reputation: bool = Form(None)):
+@router.post(
+    MAIN_URL+"/edit/profile/rights/{user_id}",
+    tags=["Profile"],
+    summary="Редактирование прав профиля",
+    status_code=202,
+    responses={
+        202: {"description": "Изменения приняты."},
+        401: standarts.responses[401],
+        403: standarts.responses["admin"][403],
+        404: {"description": "Профиль не найден."},
+    }
+)
+async def edit_profile_rights(
+    response: Response,
+    request: Request,
+    user_id: int = Path(description="ID профиля."),
+    write_comments: bool = Form(None, description="Разрешено ли писать комментарии."),
+    set_reactions: bool = Form(None, description="Разрешено ли устанавливать реакции."),
+    create_reactions: bool = Form(None, description="Разрешено ли создавать реакции."),
+    mute_users: bool = Form(None, description="Разрешено ли мутить юзеров."),
+    publish_mods: bool = Form(None, description="Разрешено ли публиковать моды."),
+    change_authorship_mods: bool = Form(None, description="Разрешено ли менять авторство модов *(чужих)*."),
+    change_self_mods: bool = Form(None, description="Разрешено ли менять свои моды."),
+    change_mods: bool = Form(None, description="Разрешено ли менять чужие моды."),
+    delete_self_mods: bool = Form(None, description="Разрешено ли удалять свои моды."),
+    delete_mods: bool = Form(None, description="Разрешено ли удалять чужие моды."),
+    create_forums: bool = Form(None, description="Разрешено ли создавать форумы."),
+    change_authorship_forums: bool = Form(None, description="Разрешено ли менять авторство форумов *(чужих)*."),
+    change_self_forums: bool = Form(None, description="Разрешено ли менять свои форумы."),
+    change_forums: bool = Form(None, description="Разрешено ли менять чужие форумы."),
+    delete_self_forums: bool = Form(None, description="Разрешено ли удалять свои форумы."),
+    delete_forums: bool = Form(None, description="Разрешено ли удалять чужие форумы."),
+    change_username: bool = Form(None, description="Разрешено ли менять юзернейм."),
+    change_about: bool = Form(None, description="Разрешено ли менять о \"обо мне\"."),
+    change_avatar: bool = Form(None, description="Разрешено ли менять аватар."),
+    vote_for_reputation: bool = Form(None, description="Разрешено ли голосовать за репутацию модов и форумов."),
+):
     """
-    Функция для изменения прав пользователей
+    Изменять права может только администратор.
     """
     access_result = await account.check_access(request=request, response=response)
 
@@ -431,14 +456,14 @@ async def edit_profile_rights(response: Response, request: Request, user_id: int
         # Проверка, существует ли пользователь
         if not user:
             session.close()
-            return JSONResponse(status_code=404, content="Пользователь не найден!")
+            return PlainTextResponse(status_code=404, content="Пользователь не найден!")
 
         # Проверка, может ли просящий выполнить такую операцию
         query = session.query(account.Account).filter_by(id=owner_id)
         row = query.first()
         if not row.admin:
             session.close()
-            return JSONResponse(status_code=403, content="Только админ может менять права!")
+            return PlainTextResponse(status_code=403, content="Только админ может менять права!")
 
         # Подготавливаемся к выполнению операции и смотрим чтобы переданные данные были корректны
         sample_query_update = {
@@ -475,12 +500,25 @@ async def edit_profile_rights(response: Response, request: Request, user_id: int
         session.close()
 
         # Возвращаем успешный результат
-        return JSONResponse(status_code=202, content='Изменения приняты :)')
+        return PlainTextResponse(status_code=202, content='Изменения приняты :)')
     else:
-        return JSONResponse(status_code=403, content="Недействительный ключ сессии!")
+        return PlainTextResponse(status_code=401, content="Недействительный ключ сессии!")
 
-@router.delete(MAIN_URL+"/profile/delete", tags=["Profile"])
-async def delete_account(response: Response, request: Request):
+@router.delete(
+    MAIN_URL+"/profile/delete",
+    tags=["Profile"],
+    summary="Удаление аккаунта",
+    status_code=200,
+    responses={
+        200: {"description": "Удален успешно."},
+        401: standarts.responses[401],
+        523: {"description": "Не удалось удалить аватар пользователя *(удаление прервано)*."},
+    }
+)
+async def delete_account(
+    response: Response,
+    request: Request
+):
     """
     Удаление аккаунта. Сделать это может только сам пользователь, при этом удаляются только персональные данные пользователя.
     Т.е. - аватар, никнейм, "обо мне", электронный адрес, ассоциация с сервисами авторизации, текста комментариев.
@@ -511,8 +549,8 @@ async def delete_account(response: Response, request: Request):
             format_name = avatar_url.split(".")[1]
             if not tools.storage_file_delete(type="avatar", path=f"{row.id}.{format_name}"):
                 session.close()
-                return JSONResponse(status_code=523,
-                                    content="Что-то пошло не так при удалении аватара из системы.")
+                return PlainTextResponse(status_code=523,
+                                         content="Что-то пошло не так при удалении аватара из системы.")
 
         # Выполнение операции INSERT
         session.execute(insert_statement)
@@ -532,9 +570,8 @@ async def delete_account(response: Response, request: Request):
         })
 
         session.commit()
+
         session.close()
-
-        return JSONResponse(status_code=200, content="Успешно!")
+        return PlainTextResponse(status_code=200, content="Успешно!")
     else:
-        return JSONResponse(status_code=403, content="Недействительный ключ сессии!")
-
+        return PlainTextResponse(status_code=401, content="Недействительный ключ сессии!")
