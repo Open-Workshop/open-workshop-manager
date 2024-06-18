@@ -24,7 +24,7 @@ async def list_resources(response: Response, request: Request, owner_type: str, 
     if owner_type not in ['mods', 'games']:
         return JSONResponse(status_code=400, content={"message": "unknown owner_type", "error_id": 5})
 
-    if len(types_resources) + len(resources_list_idt) > 80:
+    if len(types_resources) + len(resources_list_id) > 80:
         return JSONResponse(status_code=413, content={"message": "the maximum complexity of filters is 80 elements in sum", "error_id": 2})
     elif page_size > 50 or page_size < 1:
         return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 3})

@@ -11,7 +11,7 @@ router = APIRouter()
 
 
 @router.get(
-    MAIN_URL+"/list/tags/games/{game_id}",
+    MAIN_URL+"/list/tags",
     tags=["Tag", "Game", "Association"],
     summary="Ассоциации тегов с играми",
     status_code=200,
@@ -45,14 +45,14 @@ router = APIRouter()
     }
 )
 async def list_tags(
-    game_id: int = Path(description="ID игры"),
+    game_id: int = Query(-1, description="ID игры *(для активации фильтра значение `>0`)*."),
     page_size: int = Query(10, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
     page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
     name: str = Query("", description="Поиск по названию.", max_length=128),
     tags_ids = Query([], description="Фильтрация по id тегов *(массив id)*.", example="[1, 2, 3]"),
 ):
     """
-    Возвращает список тегов закрепленных за игрой и её модами. Нужно передать ID интересующей игры.
+    Возвращает список тегов. Они могут быть отфильтрованны по закрепленности за конкретной игрой.
     """
     if page_size > 50 or page_size < 1:
         return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 1})
@@ -64,7 +64,8 @@ async def list_tags(
     session = Session()
     # Выполнение запроса
     query = session.query(catalog.Tag)
-    query = query.filter(catalog.Tag.associated_games.any(catalog.Game.id == game_id))
+    if game_id > 0:
+        query = query.filter(catalog.Tag.associated_games.any(catalog.Game.id == game_id))
     if len(name) > 0:
         query = query.filter(catalog.Tag.name.ilike(f'%{name}%'))
 
