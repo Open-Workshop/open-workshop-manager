@@ -53,7 +53,7 @@ class Game(base): # Таблица "игры"
 class Mod(base): # Таблица "моды"
     __tablename__ = 'mods'
     id = Column(Integer, primary_key=True)
-    name = Column(String)
+    name = Column(String(128))
 
     short_description = Column(String(256))
     description = Column(String(10000))
@@ -75,7 +75,7 @@ class Mod(base): # Таблица "моды"
         secondaryjoin=(mods_dependencies.c.dependence == id), backref='mods',
         foreign_keys=[mods_dependencies.c.mod_id, mods_dependencies.c.dependence]
     )
-    game = Column(Integer)
+    game = Column(Integer, ForeignKey('games.id'))
 
 class Resource(base): # Ресурсы (скриншоты и лого)
     __tablename__ = 'resources_mods'
