@@ -3,8 +3,7 @@ from sqlalchemy.orm import relationship, declarative_base
 import ow_config as config
 
 
-# engine = create_engine(f'mysql+mysqldb://{user_sql}:{password_sql}@localhost/catalog')
-engine = create_engine('sqlite:///./catalog.db', echo=True) # echo=True для видео
+engine = create_engine(f'mysql+mysqldb://{config.user_sql}:{config.password_sql}@{config.url_sql}/catalog')
 base = declarative_base()
 
 
@@ -85,7 +84,7 @@ class Resource(base): # Ресурсы (скриншоты и лого)
 
     # Если начинается с local/, то по факту можно заменить на {config.STORAGE_URL}/(действие)/resource/...
     # При возвращении юзеру обязательно перерабатывать url в фактический (с точки зрения юзера)
-    url = Column(String)
+    url = Column(String(256))
     @property
     def real_url(self, action='download'):
         if self.url.startswith('local/'):

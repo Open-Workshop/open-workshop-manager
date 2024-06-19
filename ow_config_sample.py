@@ -11,6 +11,7 @@ MAIN_URL = "/api/accounts"
 
 password_sql = 'password'
 user_sql = 'user'
+url_sql = 'localhost'
 
 
 # Хеши токенов

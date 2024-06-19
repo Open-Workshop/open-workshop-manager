@@ -4,10 +4,10 @@ from sqlalchemy.ext.declarative import declarative_base
 from fastapi import Request, Response
 import bcrypt
 import datetime
+import ow_config as config
 
 
-# engine = create_engine(f'mysql+mysqldb://{user_sql}:{password_sql}@localhost/account')
-engine = create_engine('sqlite:///./account.db', echo=True) # echo=True для видео
+engine = create_engine(f'mysql+mysqldb://{config.user_sql}:{config.password_sql}@{config.url_sql}/catalog')
 base = declarative_base()
 
 STANDART_STR_TIME = "%d.%m.%Y/%H:%M:%S"

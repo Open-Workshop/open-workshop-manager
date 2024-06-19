@@ -2,11 +2,10 @@ from datetime import datetime, date
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Date, insert
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
+import ow_config as config
 
 
-
-# engine = create_engine(f'mysql+mysqldb://{user_sql}:{password_sql}@localhost/statistic')
-engine = create_engine('sqlite:///./statistic.db', echo=True) # echo=True для видео
+engine = create_engine(f'mysql+mysqldb://{config.user_sql}:{config.password_sql}@{config.url_sql}/catalog')
 base = declarative_base()
 
 
