@@ -81,7 +81,7 @@ class Mod(base): # Таблица "моды"
 class Resource(base): # Ресурсы (скриншоты и лого)
     __tablename__ = 'resources_mods'
     id = Column(Integer, primary_key=True)
-    type = Column(String)
+    type = Column(String(64))
 
     # Если начинается с local/, то по факту можно заменить на {config.STORAGE_URL}/(действие)/resource/...
     # При возвращении юзеру обязательно перерабатывать url в фактический (с точки зрения юзера)
@@ -95,7 +95,7 @@ class Resource(base): # Ресурсы (скриншоты и лого)
 
     date_event = Column(DateTime)
 
-    owner_type = Column(String) #games, mods, etc...
+    owner_type = Column(String(64)) #games, mods, etc...
     owner_id = Column(Integer)
 
 

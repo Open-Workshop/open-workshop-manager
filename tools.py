@@ -150,6 +150,12 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
 
             output_check = []
 
+            if len(mods) == 0:
+                if check_mode:
+                    return output_check
+                else:
+                    return False
+
             for mod in mods:
                 output_check.append(mod.id)
 
