@@ -6,7 +6,8 @@ import bcrypt
 import datetime
 
 
-engine = create_engine('sqlite:///accounts/account.db')
+# engine = create_engine(f'mysql+mysqldb://{user_sql}:{password_sql}@localhost/account')
+engine = create_engine('sqlite:///./account.db', echo=True) # echo=True для видео
 base = declarative_base()
 
 STANDART_STR_TIME = "%d.%m.%Y/%H:%M:%S"
@@ -16,24 +17,25 @@ class Account(base): # Аккаунты юзеров
     id = Column(Integer, primary_key=True)
 
     yandex_id = Column(Integer)
-    google_id = Column(String)
+    google_id = Column(String(512))
 
-    username = Column(String)
+    username = Column(String(128))
     last_username_reset = Column(DateTime)
 
-    about = Column(String, default="") # Ограничение 512 символов
-    avatar_url = Column(String, default="") # если содержит "local" - обращаться к этому же серверу по id юзера, в ином случае содержит прямую ссылку, если пуст, то аватара нет
-    grade = Column(String, default="")
+    about = Column(String(512), default="") # Ограничение 512 символов
+    # если содержит "local" - обращаться к этому же серверу по id юзера, в ином случае содержит прямую ссылку, если пуст, то аватара нет
+    avatar_url = Column(String(512), default="") # если "local", так же содержит после себя .расширение_файла, т.е. "local.png", "local.webp"
+    grade = Column(String(128), default="")
 
-    comments = Column(Integer)
-    author_mods = Column(Integer)
+    comments = Column(Integer, default=0)
+    author_mods = Column(Integer, default=0)
 
     registration_date = Column(DateTime)
 
-    password_hash = Column(String)
+    password_hash = Column(String(512))
     last_password_reset = Column(DateTime)
 
-    reputation = Column(Integer)
+    reputation = Column(Integer, default=0)
 
     ## Права пользователей
     admin = Column(Boolean, default=False) # только админ может менять грейды у всех юзеров, а так же назначать новых админов и назначать права юзерам, дает доступ ко всем правам
@@ -69,7 +71,7 @@ class Account(base): # Аккаунты юзеров
 
 blocked_account_creation = Table('blocked_account_creation', base.metadata,
     Column('yandex_id', Integer),
-    Column('google_id', String),
+    Column('google_id', String(512)),
     Column('forget', DateTime)
 )
 
@@ -80,12 +82,12 @@ class Session(base): # Теги для модов
 
     owner_id = Column(Integer)
 
-    access_token = Column(String)
-    refresh_token = Column(String)
+    access_token = Column(String(512))
+    refresh_token = Column(String(512))
 
-    broken = Column(String) # Сессия закрыта по причине - `logout`, `too many sessions`
+    broken = Column(String(124)) # Сессия закрыта по причине - `logout`, `too many sessions`
 
-    login_method = Column(String)
+    login_method = Column(String(124))
 
     last_request_date = Column(DateTime)
     start_date = Column(DateTime)
@@ -98,20 +100,20 @@ black_list = Table('black_list', base.metadata,
     Column('when', DateTime),
 )
 
-mod_and_author = Table('mods', base.metadata,
+mod_and_author = Table('mods_and_authors', base.metadata,
     Column('user_id', Integer, ForeignKey('accounts.id')),
     Column('owner', Boolean), #только овнеры могут удалять свои моды, передавать овнерство другим, приглашать других на правах члена (не может удалить мод и не может приглашать новых членов)
-    Column('mod_id', Integer)
+    Column('mod_id', Integer, ForeignKey('mods.id'))
 )
 
 class Forum(base): # Форумы, личные сообщения и все что угодно
     __tablename__ = 'forums'
     id = Column(Integer, primary_key=True)
 
-    title = Column(String)
-    description = Column(String) # Ограничение 512 символов
+    title = Column(String(124))
+    description = Column(String(4096)) # Ограничение 4096 символов
 
-    to_type = Column(String) #game / mod / private_messages
+    to_type = Column(String(64)) #game / mod / private_messages
     to_id = Column(Integer)
     author_id = Column(Integer)
 
@@ -125,7 +127,7 @@ class Comment(base): # Теги для модов
     __tablename__ = 'comments'
     id = Column(Integer, primary_key=True)
 
-    text = Column(String)
+    text = Column(String(8192))
 
     forum_id = Column(Integer)
     reply_id = Column(Integer)
@@ -146,8 +148,8 @@ comments_reactions = Table('unity_comments_reactions', base.metadata,
 class Reaction(base): # Жанры для игр
     __tablename__ = 'reactions'
     id = Column(Integer, primary_key=True)
-    name = Column(String)
-    icon_url = Column(String)
+    name = Column(String(124))
+    icon_url = Column(String(512))
 
     creation_date = Column(DateTime)
     update_date = Column(DateTime)
@@ -156,12 +158,12 @@ class Reaction(base): # Жанры для игр
 
 async def gen_session(user_id:int, session, login_method:str = "unknown"):
     ddate = datetime.datetime.now()
-    # Проверяем есть ли более 5 активных сессий
+    # Проверяем есть ли более 10 активных сессий
     # Если есть - аннулируем все сессии
     row = session.query(Session).filter_by(owner_id=user_id, broken=None)
     row = row.filter(Session.end_date_refresh > ddate)
 
-    if row.count() > 4:
+    if row.count() > 9:
         row.update({"broken": "too many sessions"})
 
 
@@ -224,7 +226,7 @@ async def update_session(response: Response, request: Request, result_row: bool 
 
         response.set_cookie(key='loginJS', value=end_refresh.strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
         response.set_cookie(key='accessJS', value=end_access.strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
-        response.set_cookie(key='userID', value=res.owner_id, secure=True, max_age=5184000)
+        response.set_cookie(key='userID', value=str(res.owner_id), secure=True, max_age=5184000)
 
         if result_row:
             rr = session.query(Session).filter_by(id=res.id).first().__dict__
@@ -261,7 +263,6 @@ async def check_session(user_access_token:str):
         session.close()
         return False
     except:
-        session.close()
         return False
 
 async def forget_accounts():
