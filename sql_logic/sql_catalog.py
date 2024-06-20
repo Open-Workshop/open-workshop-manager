@@ -37,7 +37,7 @@ class Game(base): # Таблица "игры"
     name = Column(String(128))
     type = Column(String(32))
 
-    short_description = Column(String(256))
+    short_description = Column(String(512))
     description = Column(String(10000))
 
     mods_downloads = Column(Integer)
@@ -55,7 +55,7 @@ class Mod(base): # Таблица "моды"
     id = Column(Integer, primary_key=True)
     name = Column(String(128))
 
-    short_description = Column(String(256))
+    short_description = Column(String(512))
     description = Column(String(10000))
 
     size = Column(Integer)
@@ -84,7 +84,7 @@ class Resource(base): # Ресурсы (скриншоты и лого)
 
     # Если начинается с local/, то по факту можно заменить на {config.STORAGE_URL}/(действие)/resource/...
     # При возвращении юзеру обязательно перерабатывать url в фактический (с точки зрения юзера)
-    url = Column(String(256))
+    url = Column(String(512))
     @property
     def real_url(self, action='download'):
         if self.url.startswith('local/'):
