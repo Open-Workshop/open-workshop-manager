@@ -80,7 +80,7 @@ class Mod(base): # Таблица "моды"
     game = Column(Integer, ForeignKey('games.id'))
 
 class Resource(base): # Ресурсы (скриншоты и лого)
-    __tablename__ = 'resources_mods'
+    __tablename__ = 'resources'
     id = Column(Integer, primary_key=True)
     type = Column(String(64))
 
