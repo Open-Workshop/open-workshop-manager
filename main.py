@@ -22,14 +22,20 @@ app = FastAPI(
     openapi_url=MAIN_URL+"/openapi.json",
     contact={
         "name": "Contacts",
-        "url": "https://github.com/Open-Workshop/open-workshop-accounts",
+        "url": "https://github.com/Open-Workshop/open-workshop-manager",
         "email": "miskler@yandex.ru"
     },
     license_info={
         "name": "MPL-2.0 license",
         "identifier": "MPL-2.0",
     },
-    redoc_url=MAIN_URL+"/"
+    description="""
+    OpenWorkshop.Manager - это оркестратор "сервисного монолита" OpenWorkshop. Через него выполняются все операции чтения/записи каталога.
+
+    Оркестратор имеет зависимые микросервисы: MySQL *(заблокирован для использования вне оркестратора)*, Storage *(файловый сервер к которому можно обращаться напрямую)*.
+    """,
+    redoc_url=MAIN_URL+"/",
+    docs_url=MAIN_URL+"/docs"
 )
 
 app.include_router(game_router)
