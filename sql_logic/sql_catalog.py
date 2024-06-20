@@ -40,8 +40,8 @@ class Game(base): # Таблица "игры"
     short_description = Column(String(512))
     description = Column(Text)
 
-    mods_downloads = Column(BigInteger(unsigned=True))
-    mods_count = Column(BigInteger(unsigned=True))
+    mods_downloads = Column(BigInteger)
+    mods_count = Column(BigInteger)
 
     creation_date = Column(DateTime)
 
@@ -58,7 +58,7 @@ class Mod(base): # Таблица "моды"
     short_description = Column(String(512))
     description = Column(Text)
 
-    size = Column(BigInteger(unsigned=True))
+    size = Column(BigInteger)
 
     condition = Column(Integer) #0 - загружен, 1 - загружается
     public = Column(Integer) #0 - публичен, 1 - публичен, не встречается в каталоге, не индексируется, 2 - доступен с предоставлением токена
