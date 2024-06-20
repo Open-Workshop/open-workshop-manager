@@ -46,6 +46,7 @@ class Game(base): # Таблица "игры"
     creation_date = Column(DateTime)
 
     source = Column(String(64))
+    source_id = Column(BigInteger, unique=True, nullable=True)
 
     genres = relationship('Genre', secondary=game_genres, backref='games')
     allowed_tags_for_mods = relationship('Tag', secondary=allowed_mods_tags, backref='games', viewonly=True)
@@ -68,6 +69,7 @@ class Mod(base): # Таблица "моды"
     date_edit = Column(DateTime)
 
     source = Column(String(64))
+    source_id = Column(BigInteger, unique=True, nullable=True)
     downloads = Column(BigInteger)
 
     tags = relationship('Tag', secondary=mods_tags, backref='mods')
