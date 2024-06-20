@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, Response, Form, Query, Path
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 import tools
 from ow_config import MAIN_URL
 from sqlalchemy.orm import sessionmaker
@@ -200,6 +200,7 @@ async def add_game(
         401: standarts.responses[401],
         403: standarts.responses["admin"][403],
         404: {"description": "Игра не найдена."},
+        412: {"description": "Такая source-связка уже существует."},
         418: {"description": "Пустой запрос. Возникает если не передан ни один из параметров-свойств."},
     }
 )
@@ -211,7 +212,8 @@ async def edit_game(
     game_short_desc: str = Form(None, description="Краткое описание игры", max_length=256),  # Краткое описание игры
     game_desc: str = Form(None, description="Полное описание игры", max_length=10000),  # Описание игры
     game_type: str = Form(None, description="Тип игры", max_length=32),  # Тип игры
-    game_source: str = Form(None, description="Источник игры", max_length=64),  # Источник игры
+    game_source: str = Form(None, description="Источник игры. Так же обязательно передавать и `game_source_id`!", max_length=64),  # Источник игры
+    game_source_id: int = Form(None, description="ID игры в первоисточнике"),  # ID источника игры
 ) -> JSONResponse:
     """
     Возвращает код состояния и сообщение о результате.
@@ -237,15 +239,19 @@ async def edit_game(
             data_edit["type"] = game_type
         if game_source:
             data_edit["source"] = game_source
+            data_edit["source_id"] = game_source_id
+
+            if session.query(catalog.Game).filter_by(source=game_source, source_id=game_source_id).first():
+                return PlainTextResponse(status_code=412, content="The element already exists")
 
         if len(data_edit) <= 0:
-            return JSONResponse(status_code=418, content="The request is empty")
+            return PlainTextResponse(status_code=418, content="The request is empty")
 
         # Меняем данные в БД
         game.update(data_edit)
         session.commit()
         session.close()
-        return JSONResponse(status_code=202, content="Complite")
+        return PlainTextResponse(status_code=202, content="Complite")
     else:
         return access_result
 

@@ -523,7 +523,7 @@ async def info_mod(
         403: standarts.responses["non-admin"][403],
         411: routers_edit_mod_response[411],
         412: {
-            "description": "Неккоректный ID выбранной игры ИЛИ выбранный ID мода уже занят.",
+            "description": "Неккоректный ID выбранной игры ИЛИ выбранный ID мода уже занят ИЛИ source-связка уже занята.",
             "content": {
                 "text/plain": {
                     "example": "Такой игры не существует!"
@@ -537,12 +537,12 @@ async def info_mod(
 async def add_mod(
     response: Response, 
     request: Request, 
-    mod_id: int = Form(-1, description="Желаемый ID мода, если 0 <= то генерируется случайно. Для выбора должны быть админ права."), 
     without_author: bool = Form(False, description="Указывать ли авторство мода. Для выбора должны быть админ права."),
     mod_name: str = Form(..., description="Название мода", max_length=128),
     mod_short_description: str = Form('', description="Короткое описание мода.", max_length=256),
     mod_description: str = Form('', description="Полное описание мода.", max_length=10000),
-    mod_source: str = Form('local', description="Источник мода.", max_length=64), 
+    mod_source: str = Form('local', description="Источник мода.", max_length=64),
+    mod_source_id: int = Form(-1, description="ID мода в первоисточнике."),
     mod_game: int = Form(..., description="ID игры-владельца."),
     mod_public: int = Form(..., description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."),
     mod_file: UploadFile = File(..., description="Файл мода. Максимальный размер 838860800 байт (800 мб)."),
@@ -571,7 +571,7 @@ async def add_mod(
             if user_req.admin:
                 return True
             else:
-                if mod_id > 0 or without_author:
+                if without_author:
                     return False
                 elif user_req.mute_until and user_req.mute_until > datetime.now():
                     return False
@@ -585,20 +585,13 @@ async def add_mod(
             if mod_file.size >= 838860800:
                 return JSONResponse(status_code=413, content="The file is too large.")
 
-            Session = sessionmaker(bind=catalog.engine)
-
-            session = Session()
-            if mod_id > 0:
-                if session.query(catalog.Mod).filter_by(id=mod_id).first():
-                    return JSONResponse(status_code=412, content="Мод с таким ID уже существует!")
-            session.close()
-
             real_mod_file = io.BytesIO(await mod_file.read())
             real_mod_file.name = mod_file.filename
 
             if mod_public not in [0, 1, 2]:
                 mod_public = 0
 
+            Session = sessionmaker(bind=catalog.engine)
             session = Session()
             # Create the insert statement
             insert_statement = insert(catalog.Mod)
@@ -618,8 +611,14 @@ async def add_mod(
             )
 
             # If mod_id is given, update the insert statement
-            if mod_id > 0:
-                insert_statement = insert_statement.values(id=mod_id)
+            if mod_source_id > 0 and mod_source != 'local':
+                insert_statement = insert_statement.values(source_id=mod_source_id)
+
+                tsession = sessionmaker(bind=catalog.engine)()
+                result = tsession.query(catalog.Mod).filter_by(source=mod_source, source_id=mod_source_id).first()
+                tsession.close()
+                if result:
+                    return PlainTextResponse(status_code=412, content="Такая source-связка уже существует!")
 
             result = session.execute(insert_statement)
             id = result.lastrowid  # Получаем ID последней вставленной строки
@@ -674,6 +673,7 @@ async def add_mod(
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
         411: routers_edit_mod_response[411],
+        412: {"description": "Такой игры не существует или такая source-связка занята."},
         413: routers_edit_mod_response[413],
         500: routers_edit_mod_response[500]
     }
@@ -685,7 +685,8 @@ async def edit_mod(
     mod_name: str = Form(None, description="Название мода.", max_length=128),
     mod_short_description: str = Form(None, description="Краткое описание мода.", max_length=256),
     mod_description: str = Form(None, description="Полное описание мода.", max_length=10000),
-    mod_source: str = Form(None, description="Источник мода.", max_length=64),
+    mod_source: str = Form(None, description="Источник мода. Так же обязательно передать и `mod_source_id`, даже если его данные не изменились!", max_length=64),
+    mod_source_id: int = Form(None, description="ID мода в первоисточнике."),
     mod_game: int = Form(None, description="ID игры-владельца."),
     mod_public: int = Form(None, description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."),
     mod_file: UploadFile = File(None, description="Файл мода. Максимальный размер 838860800 байт (800 мб).")
@@ -695,30 +696,40 @@ async def edit_mod(
         body = {}
         if mod_name is not None:
             if len(mod_name) > 60:
-                return JSONResponse(status_code=413, content="Название слишком длинное!")
+                return PlainTextResponse(status_code=413, content="Название слишком длинное!")
             elif len(mod_name) < 1:
-                return JSONResponse(status_code=411, content="Название слишком короткое!")
-            body["mod_name"] = mod_name
+                return PlainTextResponse(status_code=411, content="Название слишком короткое!")
+            body["name"] = mod_name
         if mod_short_description is not None:
             if len(re.sub(r'\s+', ' ', mod_short_description)) > 256:
-                return JSONResponse(status_code=413, content="Короткое описание слишком длинное!")
-            body["mod_short_description"] = mod_short_description
+                return PlainTextResponse(status_code=413, content="Короткое описание слишком длинное!")
+            body["short_description"] = mod_short_description
         if mod_description is not None:
             if len(re.sub(r'\s+', ' ', mod_description)) > 10000:
-                return JSONResponse(status_code=413, content="Описание слишком длинное!")
-            body["mod_description"] = mod_description
+                return PlainTextResponse(status_code=413, content="Описание слишком длинное!")
+            body["description"] = mod_description
         if mod_source is not None:
-            body["mod_source"] = mod_source
+            body["source"] = mod_source
+            if mod_source_id is not None and mod_source_id > 0 and mod_source != "local":
+                body["source_id"] = mod_source_id
+            else:
+                body["source_id"] = None
+            
+            session = sessionmaker(bind=catalog.engine)()
+            result = session.query(catalog.Mod).filter_by(source=mod_source, source_id=body["source_id"]).first()
+            session.close()
+            if result:
+                return PlainTextResponse(status_code=412, content="Такая source-связка уже существует!")
         if mod_game is not None:
             if not await tools.check_game_exists(mod_game):
-                return JSONResponse(status_code=412, content="Такой игры не существует!")
-            body["mod_game"] = mod_game
+                return PlainTextResponse(status_code=412, content="Такой игры не существует!")
+            body["game"] = mod_game
         if mod_public is not None:
             if mod_public in [0, 1, 2]:
-                body["mod_public"] = mod_public
+                body["public"] = mod_public
 
         if len(body) <= 0 and mod_file is None:
-            return JSONResponse(status_code=411, content="Ничего не было изменено!")
+            return PlainTextResponse(status_code=411, content="Ничего не было изменено!")
 
         if len(body) > 0:
             body["date_edit"] = datetime.now()
@@ -732,13 +743,13 @@ async def edit_mod(
 
             result_file_update = await tools.storage_file_upload(type="archive", path=url, file=real_mod_file)
             if not result_file_update:
-                return JSONResponse(status_code=500, content="Не удалось обновить файл!")
+                return PlainTextResponse(status_code=500, content="Не удалось обновить файл!")
                 
         session = sessionmaker(bind=catalog.engine)()
         session.query(catalog.Mod).filter_by(id=mod_id).update(body)
         session.commit()
         session.close()
-        return JSONResponse(status_code=201, content="OK")
+        return PlainTextResponse(status_code=201, content="OK")
     else:
         return access_result
 
