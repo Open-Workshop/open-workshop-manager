@@ -54,7 +54,8 @@ async def games_list(
     name: str = Query("", description="Фильтр по заголовку/названию."),
     type_app = Query([], description="Фильтр по типу *(`game` и/или `app`)*.", example="['game','app']"),
     genres=Query([], description="Фильтр по жанрам. Передать id интересующих жанров.", example="[1,2]"),
-    primary_sources=Query([], description="Фильтр по источникам. Передать id источников.", example="['local','steam']"), 
+    primary_sources=Query([], description="Фильтр по источникам. Передать названия источников.", example="['local','steam']"), 
+    allowed_sources_ids=Query([], description="Фильтр по source_id. Передать id в источниках (не работает если не передан `primary_sources`).", example="[1,2]"),
     allowed_ids=Query([], description="Фильтр по id. Передать id игр.", example="[1,2]"),
     short_description: bool = Query(False, description="Отправлять ли короткое описание."),
     description: bool = Query(False, description="Отправлять ли описание."),
@@ -75,12 +76,13 @@ async def games_list(
     type_app = tools.str_to_list(type_app)
     primary_sources = tools.str_to_list(primary_sources)
     allowed_ids = tools.str_to_list(allowed_ids)
+    allowed_sources_ids = tools.str_to_list(allowed_sources_ids)
 
     if page_size > 50 or page_size < 1:
         return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 1})
-    elif (len(type_app) + len(genres) + len(primary_sources) + len(allowed_ids)) > 50:
+    elif (len(type_app) + len(genres) + len(primary_sources) + len(allowed_ids) + len(allowed_sources_ids)) > 80:
         return JSONResponse(status_code=413,
-                            content={"message": "the maximum complexity of filters is 30 elements in sum",
+                            content={"message": "the maximum complexity of filters is 80 elements in sum",
                                      "error_id": 2})
 
     # Создание сессии
@@ -114,6 +116,8 @@ async def games_list(
     # Фильтрация по первоисточникам
     if len(primary_sources) > 0:
         query = query.filter(catalog.Game.source.in_(primary_sources))
+        if len(allowed_sources_ids) > 0:
+            query = query.filter(catalog.Game.source_id.in_(allowed_sources_ids))
 
     # Фильтрация по типу
     if len(type_app) > 0:
@@ -129,7 +133,7 @@ async def games_list(
 
     output_games = []
     for game in games:
-        out = {"id": game.id, "name": game.name, "type": game.type, "source": game.source}
+        out = {"id": game.id, "name": game.name, "type": game.type, "source": game.source, "source_id": game.source_id}
         if description:
             out["description"] = game.description
         if short_description:

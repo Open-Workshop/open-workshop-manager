@@ -229,6 +229,7 @@ async def mod_list(
     allowed_ids = Query([], description="Массив ID разрешенных модов.", example="[1, 2, 3]"),
     independents: bool = Query(False, description="Не передавать моды с зависимостями."),
     primary_sources = Query([], description="Массив разрешенных источников.", example="['local', 'steam']"),
+    allowed_sources_ids = Query([], description="Массив ID модов в разрешенных источниках. Обязательно передать `primary_sources`.", example="[1, 2, 3]"),
     name: str = Query("", description="Поиск по названию."),
     user: int = Query(0, description="Фильтрация по модам определенного автора, 0 <= не фильтровать."),
     user_owner: int = Query(-1, description="Фильтрация по роли пользователя в разработке модов (работает если активен user параметр). -1 <= не фильтровать, 0 - владелец, 1 - разработчик"),
@@ -259,10 +260,11 @@ async def mod_list(
     tags = tools.str_to_list(tags)
     primary_sources = tools.str_to_list(primary_sources)
     allowed_ids = tools.str_to_list(allowed_ids)
+    allowed_sources_ids = tools.str_to_list(allowed_sources_ids)
 
     if page_size > 50 or page_size < 1:
         return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 1})
-    elif (len(tags) + len(primary_sources) + len(allowed_ids)) > 90:
+    elif (len(tags) + len(primary_sources) + len(allowed_ids) + len(allowed_sources_ids)) > 90:
         return JSONResponse(status_code=413,
                             content={"message": "the maximum complexity of filters is 90 elements in sum",
                                      "error_id": 2})
@@ -279,7 +281,7 @@ async def mod_list(
     if dates:
         query = query.add_columns(catalog.Mod.date_update_file, catalog.Mod.date_creation)
     if general:
-        query = query.add_columns(catalog.Mod.name, catalog.Mod.size, catalog.Mod.source, catalog.Mod.downloads)
+        query = query.add_columns(catalog.Mod.name, catalog.Mod.size, catalog.Mod.source, catalog.Mod.source_id, catalog.Mod.downloads)
 
     query = query.order_by(tools.sort_mods(sort))
     query = query.filter(catalog.Mod.condition == 0)
@@ -298,6 +300,8 @@ async def mod_list(
     # Фильтрация по первоисточникам
     if len(primary_sources) > 0:
         query = query.filter(catalog.Mod.source.in_(primary_sources))
+        if len(allowed_sources_ids) > 0:
+            query = query.filter(catalog.Mod.source_id.in_(allowed_sources_ids))
 
     if independents:
         query = query.outerjoin(catalog.mods_dependencies, catalog.Mod.id == catalog.mods_dependencies.c.mod_id).filter(
@@ -348,6 +352,7 @@ async def mod_list(
                 out["name"] = mod.name
                 out["size"] = mod.size
                 out["source"] = mod.source
+                out["source_id"] = mod.source_id
                 out["downloads"] = mod.downloads
 
             output_mods.append(out)
@@ -392,6 +397,7 @@ async def mod_list(
                             "name": "Some name",
                             "size": 123456789,
                             "source": "local",
+                            "source_id": None,
                             "downloads": 42,
                             "public": 0,
                             "game": {"id": 1, "name": "game"}
@@ -438,7 +444,7 @@ async def info_mod(
     if dates:
         query = query.add_columns(catalog.Mod.date_update_file, catalog.Mod.date_creation, catalog.Mod.date_edit)
     if general:
-        query = query.add_columns(catalog.Mod.name, catalog.Mod.size, catalog.Mod.source, catalog.Mod.downloads)
+        query = query.add_columns(catalog.Mod.name, catalog.Mod.size, catalog.Mod.source, catalog.Mod.source_id, catalog.Mod.downloads)
     if game:
         query = query.add_columns(catalog.Mod.game)
 
@@ -484,6 +490,7 @@ async def info_mod(
         output["result"]["name"] = output["pre_result"].name
         output["result"]["size"] = output["pre_result"].size
         output["result"]["source"] = output["pre_result"].source
+        output["result"]["source_id"] = output["pre_result"].source_id
         output["result"]["downloads"] = output["pre_result"].downloads
         output["result"]["public"] = output["pre_result"].public
     if game:
