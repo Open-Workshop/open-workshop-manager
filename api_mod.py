@@ -122,7 +122,7 @@ async def access_to_mods(
 
             session.close()
             return mods_ids
-        elif await tools.check_token(token_name="access_mods_check_anonymous", token=token) or tools.access_admin(response=response, request=request):
+        elif await tools.check_token(token_name="access_mods_check_anonymous", token=token) or await tools.access_admin(response=response, request=request):
             return await tools.anonymous_access_mods(user_id=user, mods_ids=ids_array, edit=edit, check_mode=True)
         else:
             return PlainTextResponse(status_code=403, content="Access denied")

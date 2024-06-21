@@ -231,7 +231,8 @@ async def access_mods(response: Response, request: Request, mods_ids: list[int] 
         else:
             return PlainTextResponse(status_code=403, content="Заблокировано!")
     else:
-        return PlainTextResponse(status_code=401, content="Недействительный ключ сессии!")
+        if check_mode: return []
+        else: return PlainTextResponse(status_code=401, content="Недействительный ключ сессии!")
 
 async def check_game_exists(game_id:int) -> bool:
     """
