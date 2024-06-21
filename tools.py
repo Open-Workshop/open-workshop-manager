@@ -206,9 +206,11 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
         mods = session_catalog.query(catalog.Mod.id).filter(catalog.Mod.id.in_(mods_ids))
         mods = mods.filter(catalog.Mod.public <= 1)
         if check_mode:
+            mods = mods.all()
+            
             if len(mods) == 0: return []
 
-            return [mod.id for mod in mods.all()]
+            return [mod.id for mod in mods]
         else:
             return len(mods) == mods.count()
 
