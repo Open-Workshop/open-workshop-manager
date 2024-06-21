@@ -360,7 +360,7 @@ async def edit_profile(
 
                         if avatar_url.startswith("local"):
                             format_name = avatar_url.split(".")[1]
-                            if not tools.storage_file_delete(type="avatar", path=f"{user.id}.{format_name}"):
+                            if not await tools.storage_file_delete(type="avatar", path=f"{user.id}.{format_name}"):
                                 session.close()
                                 return PlainTextResponse(status_code=523,
                                                     content="Что-то пошло не так при удалении аватара из системы.")
@@ -547,7 +547,7 @@ async def delete_account(
 
         if avatar_url.startswith("local"):
             format_name = avatar_url.split(".")[1]
-            if not tools.storage_file_delete(type="avatar", path=f"{row.id}.{format_name}"):
+            if not await tools.storage_file_delete(type="avatar", path=f"{row.id}.{format_name}"):
                 session.close()
                 return PlainTextResponse(status_code=523,
                                          content="Что-то пошло не так при удалении аватара из системы.")
