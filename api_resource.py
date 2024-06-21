@@ -15,7 +15,7 @@ router = APIRouter()
 
 @router.get(
     MAIN_URL+"/list/resources/{owner_type}/{owner_ids}",
-    tags=["Resource", "Game", "Mods", "Association"],
+    tags=["Resource", "Game", "Mod", "Association"],
     status_code=200,
     summary="Список ресурсов",
     responses={

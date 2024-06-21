@@ -60,8 +60,7 @@ async def list_tags(
     tags_ids = tools.str_to_list(tags_ids)
 
     # Создание сессии
-    Session = sessionmaker(bind=catalog.engine)
-    session = Session()
+    session = sessionmaker(bind=catalog.engine)()
     # Выполнение запроса
     query = session.query(catalog.Tag)
     if game_id > 0:
