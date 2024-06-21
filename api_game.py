@@ -89,7 +89,7 @@ async def games_list(
     session = sessionmaker(bind=catalog.engine)()
 
     # Выполнение запроса
-    query = session.query(catalog.Game.id, catalog.Game.name, catalog.Game.type, catalog.Game.source)
+    query = session.query(catalog.Game.id, catalog.Game.name, catalog.Game.type, catalog.Game.source, catalog.Game.source_id)
     if description:
         query = query.add_column(catalog.Game.description)
     if short_description:
