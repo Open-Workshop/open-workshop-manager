@@ -237,9 +237,11 @@ async def access_mods(response: Response, request: Request, mods_ids: list[int] 
     if isinstance(mods_ids, int): mods_ids = [mods_ids]
 
     access_result = await account.check_access(request=request, response=response)
+    
+    uid = access_result.get("owner_id", -1) if access_result else -1
 
-    if not edit or (access_result and access_result.get("owner_id", -1) >= 0):
-        mini_result = await anonymous_access_mods(user_id=access_result.get("owner_id", -1), mods_ids=mods_ids, edit=edit, check_mode=check_mode)
+    if not edit or (access_result and uid >= 0):
+        mini_result = await anonymous_access_mods(user_id=uid, mods_ids=mods_ids, edit=edit, check_mode=check_mode)
 
         if mini_result != False:
             return mini_result
