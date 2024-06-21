@@ -193,10 +193,25 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
     #т.е.:
     #АДМИН или (НЕ В МУТЕ и ((в числе участников И имеет право на редактирование своих модов И (владелец ИЛИ действие не запрещено участникам)) ИЛИ не участник И имеет право на редактирование чужих модов))
 
-    mini_result = await mini()
-    
-    session.close()
-    return mini_result
+    if user_id > 0 and user_req:
+        mini_result = await mini()
+        session.close()
+        return mini_result
+    else:
+        session.close()
+        
+        if edit: return [] if check_mode else False
+
+        session_catalog = sessionmaker(bind=catalog.engine)()
+        mods = session_catalog.query(catalog.Mod.id).filter(catalog.Mod.id.in_(mods_ids))
+        mods = mods.filter(catalog.Mod.public <= 1)
+        if check_mode:
+            if len(mods) == 0: return []
+
+            return [mod.id for mod in mods.all()]
+        else:
+            return len(mods) == mods.count()
+
 
 async def access_mods(response: Response, request: Request, mods_ids: list[int] | int, edit: bool = False, check_mode: bool = False) -> JSONResponse | list[int]:
     """
