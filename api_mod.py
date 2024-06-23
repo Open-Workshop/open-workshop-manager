@@ -483,9 +483,11 @@ async def info_mod(
     if short_description:
         output["result"]["short_description"] = output["pre_result"].short_description
     if dates:
-        output["result"]["date_update_file"] = output["pre_result"].date_update_file
-        output["result"]["date_edit"] = output["pre_result"].date_edit
-        output["result"]["date_creation"] = output["pre_result"].date_creation
+        strformattime = "%Y-%m-%dT%H:%M:%S"
+        
+        output["result"]["date_update_file"] = output["pre_result"].date_update_file.strftime(strformattime)
+        output["result"]["date_edit"] = output["pre_result"].date_edit.strftime(strformattime)
+        output["result"]["date_creation"] = output["pre_result"].date_creation.strftime(strformattime)
     if general:
         output["result"]["name"] = output["pre_result"].name
         output["result"]["size"] = output["pre_result"].size
