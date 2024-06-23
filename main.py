@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from ow_config import MAIN_URL
 
@@ -37,6 +37,15 @@ app = FastAPI(
     redoc_url=MAIN_URL+"/",
     docs_url=MAIN_URL+"/docs"
 )
+
+
+@app.middleware("http")
+async def modify_header(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Expose-Headers"] = "Content-Type,Content-Disposition"
+    return response
+
 
 app.include_router(game_router)
 app.include_router(mod_router)
