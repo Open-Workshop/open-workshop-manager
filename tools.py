@@ -212,7 +212,7 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
 
             return [mod.id for mod in mods]
         else:
-            return len(mods) == mods.count()
+            return len(mods_ids) == mods.count()
 
 
 async def access_mods(response: Response, request: Request, mods_ids: list[int] | int, edit: bool = False, check_mode: bool = False) -> JSONResponse | list[int]:
