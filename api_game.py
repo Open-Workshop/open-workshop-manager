@@ -127,7 +127,7 @@ async def games_list(
     if len(name) > 0:
         query = query.filter(catalog.Game.name.ilike(f'%{name}%'))
 
-    mods_count = query.count()
+    games_count = query.count()
     offset = page_size * page
     games = query.offset(offset).limit(page_size).all()
 
@@ -146,7 +146,7 @@ async def games_list(
         output_games.append(out)
 
     session.close()
-    return {"database_size": mods_count, "offset": offset, "results": output_games}
+    return {"database_size": games_count, "offset": offset, "results": output_games}
 
 
 @router.post(

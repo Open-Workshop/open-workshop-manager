@@ -56,6 +56,9 @@ router = APIRouter()
     responses={
         307: {
             "description": "Перенаправление на фактический адрес скачивания мода",
+        },
+        404: {
+            "description": "Мод не найден",
         }
     }
 )
@@ -67,7 +70,22 @@ async def download_mod(
 
     Не рекомендую на уровне пользователя использовать фактический адрес, т.к. он может менятся, и данная функци доп. уровень абстракции.
     """
-    statistics.update("mod", mod_id, "download")
+    session = sessionmaker(bind=catalog.engine)()
+
+    mod_query = session.query(catalog.Mod).filter(catalog.Mod.id == mod_id)
+    mod = mod_query.first()
+    if mod is None:
+        session.close()
+        return PlainTextResponse(status_code=404, content="Not found")
+    else:
+        mod_query.update({catalog.Mod.downloads: catalog.Mod.downloads + 1})
+        session.query(catalog.Game).filter(catalog.Game.id == mod.game).update({catalog.Game.mods_downloads: catalog.Game.mods_downloads + 1})
+        session.commit()
+
+        session.close()
+
+        statistics.update("mod", mod_id, "download")
+
     return RedirectResponse(url=F'{config.STORAGE_URL}/download/archive/mods/{mod_id}/main.zip')
 
 @router.get(
@@ -649,7 +667,7 @@ async def add_mod(
             if result_upload:
                 session.query(catalog.Mod).filter_by(id=id).update({"condition": 0})
                 session.query(catalog.Game).filter_by(id=mod_game).update({
-                    catalog.Game.mod_count: func.coalesce(catalog.Game.mod_count, 0) + 1
+                    catalog.Game.mods_count: func.coalesce(catalog.Game.mods_count, 0) + 1
                 })
                 session.commit()
 
@@ -914,11 +932,18 @@ async def delete_mod(
 
                 session = sessionmaker(bind=catalog.engine)()
 
+                game_id = session.query(catalog.Mod).filter_by(id=id).first().game
+
                 session.query(catalog.Mod).filter_by(id=id).delete()
                 session.query(catalog.mods_dependencies).filter_by(mod_id=id).delete()
                 session.query(catalog.mods_tags).filter_by(mod_id=id).delete()
 
                 session.commit()
+
+                session.query(catalog.Game).filter_by(id=game_id).update({catalog.Game.mods_count: catalog.Game.mods_count - 1})
+
+                session.commit()
+
                 session.close()
 
                 return PlainTextResponse(status_code=200, content="Удалено")
