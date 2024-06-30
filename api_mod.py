@@ -86,7 +86,7 @@ async def download_mod(
 
         statistics.update("mod", mod_id, "download")
 
-    return RedirectResponse(url=F'{config.STORAGE_URL}/download/archive/mods/{mod_id}/main.zip')
+    return RedirectResponse(url=F'{config.STORAGE_URL}/download/mods/{mod_id}/main.zip')
 
 @router.get(
     MAIN_URL+"/list/mods/access/{ids_array}",
