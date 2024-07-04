@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Plai
 from sql_logic import sql_account as account
 import json
 from yandexid import AsyncYandexOAuth, AsyncYandexID
-from google_auth_oauthlib.flow import Flow
+from google_auth_oauthlib.flow import InstalledAppFlow
 import bcrypt
 from urllib import parse
 import datetime
@@ -26,18 +26,16 @@ router = APIRouter()
 
 
 # Создаем объект Flow
-with open('credentials.json', 'r') as config_file:
-    google_config = json.load(config_file)
-data = {
-    'client_id': google_config["web"]["client_id"],
-    'client_secret': google_config["web"]["client_secret"],
-    'redirect_uri': google_config["web"]["redirect_uris"][0],
-    'grant_type': 'authorization_code'
-}
+flow = InstalledAppFlow.from_client_secrets_file(
+    'credentials.json',
+    scopes=['profile', 'email']
+)
+
+# Создаем объект YandexOAuth
 yandex_oauth = AsyncYandexOAuth(
     client_id=config.yandex_client_id,
     client_secret=config.yandex_client_secret,
-    redirect_uri="https://openworkshop.su/broken/yandex"#'https://openworkshop.su'+MAIN_URL+'/authorization/yandex/complite'
+    redirect_uri="https://openworkshop.su/session/yandex/complite"
 )
 
 
@@ -61,7 +59,7 @@ async def google_send_link(
     ru = await account.no_from_russia(request=request)
     if ru: return ru
 
-    authorization_url, state = Flow.authorization_url()
+    authorization_url, state = flow.authorization_url()
     return RedirectResponse(url=authorization_url)
 
 @router.get(
