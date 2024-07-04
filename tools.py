@@ -132,7 +132,7 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
     # Выполнение запроса
     user_req = session.query(account.Account).filter_by(id=user_id).first()
 
-    async def mini():
+    async def mini(session, user_req, mods_ids: list[int], edit: bool = False, check_mode: bool = False):
         if user_req.admin:
             return True
         else:
@@ -194,7 +194,7 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
     #АДМИН или (НЕ В МУТЕ и ((в числе участников И имеет право на редактирование своих модов И (владелец ИЛИ действие не запрещено участникам)) ИЛИ не участник И имеет право на редактирование чужих модов))
 
     if user_id > 0 and user_req:
-        mini_result = await mini()
+        mini_result = await mini(session=session, user_req=user_req, mods_ids=mods_ids, edit=edit, check_mode=check_mode)
         session.close()
         return mini_result
     else:
@@ -215,7 +215,7 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
             return len(mods_ids) == mods.count()
 
 
-async def access_mods(response: Response, request: Request, mods_ids: list[int] | int, edit: bool = False, check_mode: bool = False) -> JSONResponse | list[int]:
+async def access_mods(response: Response, request: Request, mods_ids: list[int] | int, edit: bool = False, check_mode: bool = False) -> PlainTextResponse | list[int]:
     """
     Asynchronously checks the access permissions for a set of mods.
 

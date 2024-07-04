@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Plai
 from sql_logic import sql_account as account
 import json
 from yandexid import AsyncYandexOAuth, AsyncYandexID
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import Flow
 import bcrypt
 from urllib import parse
 import datetime
@@ -26,10 +26,18 @@ router = APIRouter()
 
 
 # Создаем объект Flow
-flow = InstalledAppFlow.from_client_secrets_file(
-    'credentials.json',
-    scopes=['profile', 'email'],
-    redirect_uri="https://openworkshop.su/api/manager/session/google/complite"
+with open('credentials.json', 'r') as config_file:
+    google_config = json.load(config_file)
+data = {
+    'client_id': google_config["web"]["client_id"],
+    'client_secret': google_config["web"]["client_secret"],
+    'redirect_uri': google_config["web"]["redirect_uris"][0],
+    'grant_type': 'authorization_code'
+}
+flow = Flow.from_client_config(
+    google_config,
+    scopes=['openid', 'profile'],
+    redirect_uri=google_config["web"]["redirect_uris"][0]
 )
 
 # Создаем объект YandexOAuth
