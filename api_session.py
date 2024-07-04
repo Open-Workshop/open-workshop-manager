@@ -35,7 +35,7 @@ flow = InstalledAppFlow.from_client_secrets_file(
 yandex_oauth = AsyncYandexOAuth(
     client_id=config.yandex_client_id,
     client_secret=config.yandex_client_secret,
-    redirect_uri="https://openworkshop.su/session/yandex/complite"
+    redirect_uri="https://openworkshop.su/api/manager/session/yandex/complite"
 )
 
 
