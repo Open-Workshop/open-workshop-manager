@@ -28,7 +28,8 @@ router = APIRouter()
 # Создаем объект Flow
 flow = InstalledAppFlow.from_client_secrets_file(
     'credentials.json',
-    scopes=['profile', 'email']
+    scopes=['profile', 'email'],
+    redirect_uri="https://openworkshop.su/api/manager/session/google/complite"
 )
 
 # Создаем объект YandexOAuth
