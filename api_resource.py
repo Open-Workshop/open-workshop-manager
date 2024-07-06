@@ -260,7 +260,7 @@ async def edit_resource(
                 real_file = io.BytesIO(await resource_file.read())
                 real_path = f'{got_resource.owner_type}/{got_resource.owner_id}/{resource_file.filename}'
 
-                result_upload = await tools.storage_file_upload(type="resource", path=real_path, file=real_file)
+                result_upload_code, result_upload = await tools.storage_file_upload(type="resource", path=real_path, file=real_file)
                 if not result_upload:
                     return JSONResponse(status_code=500, content='Upload error')
                 else:

@@ -661,7 +661,7 @@ async def add_mod(
             session.close()
 
             file_ext = mod_file.filename.split(".")[-1]
-            result_upload = await tools.storage_file_upload(type="archive", path=f"mods/{id}/main.{file_ext}", file=real_mod_file)
+            result_upload_code, result_upload = await tools.storage_file_upload(type="archive", path=f"mods/{id}/main.{file_ext}", file=real_mod_file)
 
             session = Session()
             if result_upload:
@@ -768,7 +768,7 @@ async def edit_mod(
 
             body["date_update_file"] = datetime.now()
 
-            result_file_update = await tools.storage_file_upload(type="archive", path=url, file=real_mod_file)
+            result_file_update_code, result_file_update = await tools.storage_file_upload(type="archive", path=url, file=real_mod_file)
             if not result_file_update:
                 return PlainTextResponse(status_code=500, content="Не удалось обновить файл!")
                 

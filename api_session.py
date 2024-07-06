@@ -236,7 +236,8 @@ async def google_complite(
                             # может содержать: image/jpeg, image/png, image/gif, image/bmp, image/webp
                             format_name = resp.headers['Content-Type'].split("/")[1]
 
-                            if await tools.storage_file_upload(type="avatar", path=f"{id}.{format_name}", file=BytesIO(await resp.read())):
+                            result_upload_code, result_upload = await tools.storage_file_upload(type="avatar", path=f"{id}.{format_name}", file=BytesIO(await resp.read()))
+                            if result_upload:
                                 # Помечаем в БД пользователя, что у него есть аватар
                                 session.query(account.Account).filter(account.Account.id == id).update({"avatar_url": f"local.{format_name}"})
                                 session.commit()
@@ -343,7 +344,8 @@ async def yandex_complite(
                             # может содержать: image/jpeg, image/png, image/gif, image/bmp, image/webp
                             format_name = resp.headers['Content-Type'].split("/")[1]
 
-                            if await tools.storage_file_upload(type="avatar", path=f"{id}.{format_name}", file=BytesIO(await resp.read())):
+                            result_upload_code, result_upload = await tools.storage_file_upload(type="avatar", path=f"{id}.{format_name}", file=BytesIO(await resp.read()))
+                            if result_upload:
                                 # Помечаем в БД пользователя, что у него есть аватар
                                 session.query(account.Account).filter(account.Account.id == id).update({"avatar_url": f"local.{format_name}"})
                                 session.commit()
