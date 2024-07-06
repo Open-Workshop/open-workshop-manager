@@ -268,11 +268,11 @@ async def storage_file_upload(type: str, path: str, file: BytesIO) -> tuple[int,
     real_url = f'{config.STORAGE_URL}/upload?token={config.storage_upload_token}'
 
     async with aiohttp.ClientSession() as session:
-        async with session.put(real_url, data={
+        async with session.post(real_url, data={
                                             'file': file,
                                             'type': type,
                                             'path': path}
-                                ) as resp:
+                               ) as resp:
             if resp.status != 201:
                 return resp.status, False
             else:
