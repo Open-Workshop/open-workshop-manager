@@ -921,7 +921,7 @@ async def delete_mod(
             session.close()
             
             resource_delete_result = await tools.delete_resources(owner_type="mods", owner_id=mod_id)
-            if resource_delete_result and await tools.storage_file_delete(type="mod", path=f"mods/{mod_id}/main.zip"):
+            if resource_delete_result and await tools.storage_file_delete(type="mods", path=f"mods/{mod_id}/main.zip"):
                 session = Session()
                 
                 delete_mod = account.mod_and_author.delete().where(account.mod_and_author.c.mod_id == mod_id)

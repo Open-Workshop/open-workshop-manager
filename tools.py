@@ -294,7 +294,7 @@ async def storage_file_delete(type: str, path: str) -> bool:
 
     async with aiohttp.ClientSession() as session:
         async with session.delete(real_url, data={'type': type, 'path': path}) as resp:
-            return resp.status != 200
+            return resp.status not in [404, 200]
 
 
 async def delete_resources(owner_type:str, resources_ids:list[int] = [], owner_id: int = -1) -> bool:
