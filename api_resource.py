@@ -178,7 +178,7 @@ async def add_resource(
             real_path = f'{owner_type}/{resource_owner_id}/{resource_file.filename}'
 
             result_code, result_upload = await tools.storage_file_upload(type="resource", path=real_path, file=real_file)
-            if not result_upload:
+            if result_upload == False:
                 return PlainTextResponse(status_code=500, content=f'Upload error ({result_code})')
             else:
                 real_url = f'local/{result_upload}'
@@ -261,8 +261,8 @@ async def edit_resource(
                 real_path = f'{got_resource.owner_type}/{got_resource.owner_id}/{resource_file.filename}'
 
                 result_upload_code, result_upload = await tools.storage_file_upload(type="resource", path=real_path, file=real_file)
-                if not result_upload:
-                    return JSONResponse(status_code=500, content='Upload error')
+                if result_upload == False:
+                    return JSONResponse(status_code=500, content=f'Upload error ({result_upload_code})')
                 else:
                     data_edit["url"] = f'local/{result_upload}'
             else:

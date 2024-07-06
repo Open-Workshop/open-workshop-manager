@@ -664,7 +664,7 @@ async def add_mod(
             result_upload_code, result_upload = await tools.storage_file_upload(type="archive", path=f"mods/{id}/main.{file_ext}", file=real_mod_file)
 
             session = Session()
-            if result_upload:
+            if result_upload != False:
                 session.query(catalog.Mod).filter_by(id=id).update({"condition": 0})
                 session.query(catalog.Game).filter_by(id=mod_game).update({
                     catalog.Game.mods_count: func.coalesce(catalog.Game.mods_count, 0) + 1
@@ -769,7 +769,7 @@ async def edit_mod(
             body["date_update_file"] = datetime.now()
 
             result_file_update_code, result_file_update = await tools.storage_file_upload(type="archive", path=url, file=real_mod_file)
-            if not result_file_update:
+            if result_file_update == False:
                 return PlainTextResponse(status_code=500, content="Не удалось обновить файл!")
                 
         session = sessionmaker(bind=catalog.engine)()

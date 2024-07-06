@@ -375,7 +375,7 @@ async def edit_profile(
                             return PlainTextResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
 
                         result_upload_code, result_upload = await tools.storage_file_upload(type="avatar", path=f"{user.id}.{format_name}", file=BytesIO(await avatar.read()))
-                        if not result_upload:
+                        if result_upload == False:
                             print("Google регистрация: во время загрузки аватара произошла ошибка!")
                             return PlainTextResponse(status_code=523,
                                                 content="Что-то пошло не так при обработке аватара ._.")

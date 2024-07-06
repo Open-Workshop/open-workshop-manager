@@ -237,7 +237,7 @@ async def google_complite(
                             format_name = resp.headers['Content-Type'].split("/")[1]
 
                             result_upload_code, result_upload = await tools.storage_file_upload(type="avatar", path=f"{id}.{format_name}", file=BytesIO(await resp.read()))
-                            if result_upload:
+                            if result_upload != False:
                                 # Помечаем в БД пользователя, что у него есть аватар
                                 session.query(account.Account).filter(account.Account.id == id).update({"avatar_url": f"local.{format_name}"})
                                 session.commit()
@@ -345,7 +345,7 @@ async def yandex_complite(
                             format_name = resp.headers['Content-Type'].split("/")[1]
 
                             result_upload_code, result_upload = await tools.storage_file_upload(type="avatar", path=f"{id}.{format_name}", file=BytesIO(await resp.read()))
-                            if result_upload:
+                            if result_upload != False:
                                 # Помечаем в БД пользователя, что у него есть аватар
                                 session.query(account.Account).filter(account.Account.id == id).update({"avatar_url": f"local.{format_name}"})
                                 session.commit()
