@@ -276,7 +276,7 @@ async def storage_file_upload(type: str, path: str, file: BytesIO) -> tuple[int,
             if resp.status != 201:
                 return resp.status, False
             else:
-                return resp.status, str(await resp.read()) # Возвращаем итоговый url
+                return resp.status, str(await resp.text()) # Возвращаем итоговый url
             
 async def storage_file_delete(type: str, path: str) -> bool:
     """
