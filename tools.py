@@ -132,12 +132,12 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
     # Выполнение запроса
     user_req = session.query(account.Account).filter_by(id=user_id).first()
 
-    async def mini(session, user_req, mods_ids: list[int], edit: bool = False, check_mode: bool = False):
+    async def mini(session, user_req, mods_ids: list[int], edit: bool = False):
         if user_req.admin:
-            return True
+            return mods_ids
         else:
             if edit and (user_req.mute_until and user_req.mute_until > datetime.datetime.now()):
-                return False
+                return []
 
             mods_to_user = session.query(account.mod_and_author).filter_by(user_id=user_id)
             mods_to_user = mods_to_user.filter(account.mod_and_author.c.mod_id.in_(mods_ids))
@@ -151,37 +151,18 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
             output_check = []
 
             if len(mods) == 0:
-                if check_mode:
-                    return output_check
-                else:
-                    return False
+                return output_check
 
             for mod in mods:
-                output_check.append(mod.id)
-
                 if mod.id in mods_to_user:
-                    if edit:
-                        if not user_req.change_self_mods or not mods_to_user.get(mod.id, False):
-                            if check_mode:
-                                output_check.remove(mod.id)
-                            else:
-                                return False
-                elif mod.public <= 1:
-                    if edit and not user_req.change_mods:
-                        if check_mode:
-                            output_check.remove(mod.id)
-                        else:
-                            return False
-                else:
-                    if check_mode:
-                        output_check.remove(mod.id)
-                    else:
-                        return False
+                    if edit and(not user_req.change_self_mods or not mods_to_user.get(mod.id, False)):
+                        continue
+                elif mod.public > 1 or (edit and not user_req.change_mods):
+                    continue
+
+                output_check.append(mod.id)
             else:
-                if check_mode:
-                    return output_check
-                else:
-                    return True
+                return output_check
     # АДМИН
     # или
     # ВЛАДЕЛЕЦ МОДА и НЕ В МУТЕ и ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ СВОИХ МОДОВ
@@ -194,9 +175,9 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
     #АДМИН или (НЕ В МУТЕ и ((в числе участников И имеет право на редактирование своих модов И (владелец ИЛИ действие не запрещено участникам)) ИЛИ не участник И имеет право на редактирование чужих модов))
 
     if user_id > 0 and user_req:
-        mini_result = await mini(session=session, user_req=user_req, mods_ids=mods_ids, edit=edit, check_mode=check_mode)
+        mini_result = await mini(session=session, user_req=user_req, mods_ids=mods_ids, edit=edit)
         session.close()
-        return mini_result
+        return mini_result if check_mode else len(mini_result) == len(mods_ids)
     else:
         session.close()
         

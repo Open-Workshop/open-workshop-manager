@@ -118,8 +118,7 @@ async def list_resources(
         ids_mods = [mod.id for mod in query.all()]
 
         if len(ids_mods) > 0:
-            ids_access = await tools.access_mods(response=response, request=request, mods_ids=ids_mods, check_mode=True)
-            if len(ids_access) != len(ids_mods):
+            if not await tools.access_mods(response=response, request=request, mods_ids=ids_mods, check_mode=True):
                 session.close()
                 return PlainTextResponse(status_code=403, content="Access denied.")
 
