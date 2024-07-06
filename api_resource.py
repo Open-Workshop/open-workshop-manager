@@ -252,8 +252,8 @@ async def edit_resource(
                 if len(resource_url) <= 6 or len(resource_url) > 256 or not resource_url.startswith('http'):
                     return PlainTextResponse(status_code=400, content='Incorrect URL')
 
-            if resource.url.startswith("local/") and \
-                    not await tools.storage_file_delete(type="resource", path=resource.url.replace("local/", "")):
+            if got_resource.url.startswith("local/") and \
+                    not await tools.storage_file_delete(type="resource", path=got_resource.url.replace("local/", "")):
                 return JSONResponse(status_code=500, content="delete old file error")
 
             if resource_file:
