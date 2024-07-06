@@ -177,9 +177,9 @@ async def add_resource(
             real_file = io.BytesIO(await resource_file.read())
             real_path = f'{owner_type}/{resource_owner_id}/{resource_file.filename}'
 
-            result_upload = await tools.storage_file_upload(type="resource", path=real_path, file=real_file)
+            result_code, result_upload = await tools.storage_file_upload(type="resource", path=real_path, file=real_file)
             if not result_upload:
-                return PlainTextResponse(status_code=500, content='Upload error')
+                return PlainTextResponse(status_code=500, content=f'Upload error ({result_code})')
             else:
                 real_url = f'local/{result_upload}'
         elif len(resource_url) <= 6 or len(resource_url) > 256 or not resource_url.startswith('http'):

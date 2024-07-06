@@ -251,7 +251,7 @@ async def check_game_exists(game_id:int) -> bool:
     session.close()
     return bool(result)
 
-async def storage_file_upload(type: str, path: str, file: BytesIO) -> bool | str:
+async def storage_file_upload(type: str, path: str, file: BytesIO) -> tuple[int, bool | str]:
     """
     Uploads a file to the storage service.
 
@@ -274,9 +274,9 @@ async def storage_file_upload(type: str, path: str, file: BytesIO) -> bool | str
                                             'path': path}
                                 ) as resp:
             if resp.status != 201:
-                return False
+                return resp.status, False
             else:
-                return str(await resp.read()) # Возвращаем итоговый url
+                return resp.status, str(await resp.read()) # Возвращаем итоговый url
             
 async def storage_file_delete(type: str, path: str) -> bool:
     """
