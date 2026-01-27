@@ -2,4 +2,5 @@ fastapi[standard]
 SQLAlchemy
 google-auth-oauthlib
 bcrypt
+gunicorn
 mysqlclient
