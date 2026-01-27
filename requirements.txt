@@ -1,0 +1,6 @@
+fastapi[standard]
+SQLAlchemy
+google-auth-oauthlib
+bcrypt
+mysqlclient
+yandexid
