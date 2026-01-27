@@ -2,5 +2,5 @@ fastapi[standard]
 SQLAlchemy
 google-auth-oauthlib
 bcrypt
-mysqlclient
+mysqlclient==2.2.5
 yandexid
