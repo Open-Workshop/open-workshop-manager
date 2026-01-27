@@ -1,8 +1,6 @@
-cffi==1.17.1
-
-fastapi[standard]==0.128.0
-SQLAlchemy==2.0.46
-google-auth-oauthlib==1.2.4
-bcrypt==4.2.1
-mysqlclient==2.2.5
-yandexid==0.3.1
+fastapi[standard]
+SQLAlchemy
+google-auth-oauthlib
+bcrypt
+mysqlclient
+yandexid
