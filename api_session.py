@@ -118,14 +118,14 @@ async def password_authorization(
         sessions_data = await account.gen_session(user_id=user.id, session=session, login_method="password")
 
         response.set_cookie(key='accessToken', value=sessions_data["access"]["token"], httponly=True, secure=True,
-                            max_age=2100, samesite="lax", domain=".openworkshop.miskler.com")
+                            max_age=2100, samesite="lax", domain=".openworkshop.miskler.ru")
         response.set_cookie(key='refreshToken', value=sessions_data["refresh"]["token"], httponly=True, secure=True,
-                            max_age=5184000, samesite="lax", domain=".openworkshop.miskler.com")
+                            max_age=5184000, samesite="lax", domain=".openworkshop.miskler.ru")
 
         response.set_cookie(key='loginJS', value=sessions_data["refresh"]["end"].strftime(STANDART_STR_TIME),
-                            secure=True, max_age=5184000, samesite="lax", domain=".openworkshop.miskler.com")
+                            secure=True, max_age=5184000, samesite="lax", domain=".openworkshop.miskler.ru")
         response.set_cookie(key='accessJS', value=sessions_data["access"]["end"].strftime(STANDART_STR_TIME),
-                            secure=True, max_age=5184000, samesite="lax", domain=".openworkshop.miskler.com")
+                            secure=True, max_age=5184000, samesite="lax", domain=".openworkshop.miskler.ru")
         response.set_cookie(key='userID', value=user.id, secure=True, max_age=5184000)
 
         session.commit()
@@ -255,15 +255,15 @@ async def google_complite(
     session.close()
 
     response.set_cookie(key='accessToken', value=sessions_data["access"]["token"], httponly=True, secure=True,
-                        max_age=2100, samesite="lax", domain=".openworkshop.miskler.com")
+                        max_age=2100, samesite="lax", domain=".openworkshop.miskler.ru")
     response.set_cookie(key='refreshToken', value=sessions_data["refresh"]["token"], httponly=True, secure=True,
-                        max_age=5184000, samesite="lax", domain=".openworkshop.miskler.com")
+                        max_age=5184000, samesite="lax", domain=".openworkshop.miskler.ru")
 
     response.set_cookie(key='loginJS', value=sessions_data["refresh"]["end"].strftime(STANDART_STR_TIME), secure=True,
-                        max_age=5184000, samesite="lax", domain=".openworkshop.miskler.com")
+                        max_age=5184000, samesite="lax", domain=".openworkshop.miskler.ru")
     response.set_cookie(key='accessJS', value=sessions_data["access"]["end"].strftime(STANDART_STR_TIME), secure=True,
-                        max_age=5184000, samesite="lax", domain=".openworkshop.miskler.com")
-    response.set_cookie(key='userID', value=id, secure=True, max_age=5184000, samesite="lax", domain=".openworkshop.miskler.com")
+                        max_age=5184000, samesite="lax", domain=".openworkshop.miskler.ru")
+    response.set_cookie(key='userID', value=id, secure=True, max_age=5184000, samesite="lax", domain=".openworkshop.miskler.ru")
 
     return "Если это окно не закрылось автоматически, можете закрыть его сами :)"
 
