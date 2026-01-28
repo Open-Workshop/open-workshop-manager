@@ -366,7 +366,7 @@ async def edit_profile(
     return PlainTextResponse(status_code=202, content='Изменения приняты :)')
 
 @router.post(
-    MAIN_URL+"/edit/profile/rights/{user_id}",
+    MAIN_URL+"/profile/edit/rights/{user_id}",
     tags=["Profile"],
     summary="Редактирование прав профиля",
     status_code=202,
