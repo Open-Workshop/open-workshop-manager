@@ -1,5 +1,5 @@
-from fastapi import FastAPI, Request
-
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from ow_config import MAIN_URL
 
 from games.api_game import router as game_router
@@ -38,14 +38,17 @@ app = FastAPI(
     docs_url=MAIN_URL+"/docs"
 )
 
-
-@app.middleware("http")
-async def modify_header(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Expose-Headers"] = "Content-Type,Content-Disposition"
-    return response
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://openworkshop.miskler.ru",
+        "https://api.openworkshop.miskler.ru", # сам API
+    ],
+    allow_credentials=True,  # КРИТИЧЕСКИ ВАЖНО для кук
+    allow_methods=["*"],     # Разрешить все методы
+    allow_headers=["*"],     # Разрешить все заголовки
+    expose_headers=["Content-Type", "Content-Disposition"]  # Какие заголовки доступны JS
+)
 
 app.include_router(game_router)
 app.include_router(mod_router)
