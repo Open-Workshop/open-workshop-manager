@@ -239,31 +239,28 @@ async def update_session(response: Response, request: Request, result_row: bool 
     return False
 
 async def check_session(user_access_token:str):
-    try:
-        # Создание сессии
-        USession = sessionmaker(bind=engine)
-        session = USession()
+    # Создание сессии
+    USession = sessionmaker(bind=engine)
+    session = USession()
 
-        # Выполнение запроса
-        row = session.query(Session).filter_by(access_token=user_access_token, broken=None)
+    # Выполнение запроса
+    row = session.query(Session).filter_by(access_token=user_access_token, broken=None)
 
-        today = datetime.datetime.now()
-        row = row.filter(Session.end_date_access > today)
+    today = datetime.datetime.now()
+    row = row.filter(Session.end_date_access > today)
 
-        res = row.first()
-        if res:
-            res = res.__dict__
-            # Обновление БД
-            row.update({"last_request_date": today})
-            session.commit()
-            session.close()
-
-            return res
-
+    res = row.first()
+    if res:
+        res = res.__dict__
+        # Обновление БД
+        row.update({"last_request_date": today})
+        session.commit()
         session.close()
-        return False
-    except:
-        return False
+
+        return res
+
+    session.close()
+    return False
 
 async def forget_accounts():
     # Создание сессии
