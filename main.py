@@ -2,19 +2,19 @@ from fastapi import FastAPI, Request
 
 from ow_config import MAIN_URL
 
-from api_game import router as game_router
-from api_mod import router as mod_router
-from api_genre import router as genre_router
-from api_tag import router as tag_router
-from api_resource import router as resource_router
-from api_association_control import router as association_control_router
-from api_association_getter import router as association_getter_router
-from api_profile import router as profile_router
-from api_session import router as session_router
-from api_reaction import router as reaction_router
-from api_black_list import router as black_list_router
-from api_forum import router as forum_router
-from api_forum_comment import router as forum_comment_router
+from games.api_game import router as game_router
+from mods.api_mod import router as mod_router
+from games.api_genre import router as genre_router
+from mods.api_tag import router as tag_router
+from mods.api_resource import router as resource_router
+from association.api_association_control import router as association_control_router
+from association.api_association_getter import router as association_getter_router
+from social.api_profile import router as profile_router
+from social.api_session import router as session_router
+from social.api_reaction import router as reaction_router
+from social.api_black_list import router as black_list_router
+from social.api_forum import router as forum_router
+from social.api_forum_comment import router as forum_comment_router
 
 
 app = FastAPI(
