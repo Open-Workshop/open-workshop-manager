@@ -18,41 +18,36 @@ from social.api_reaction import router as reaction_router
 from social.api_black_list import router as black_list_router
 from social.api_forum import router as forum_router
 from social.api_forum_comment import router as forum_comment_router
+from starlette.types import ASGIApp, Receive, Scope, Send
 
-class CustomJSONResponse(JSONResponse):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-    
-    def set_cookie(
-        self,
-        key: str,
-        value: str = "",
-        max_age: Optional[int] = None,
-        expires: Union[datetime, int, None] = None,
-        path: str = "/",
-        domain: Optional[str] = None,
-        secure: bool = False,
-        httponly: bool = False,
-        samesite: Literal["lax", "strict", "none"] = "lax",
-        partitioned: bool = False,
-    ) -> None:
-        # Apply defaults if not specified
-        if domain is None:
-            domain = '.openworkshop.miskler.ru'
-        if samesite is None:
-            samesite = 'lax'
-        super().set_cookie(
-            key=key,
-            value=value,
-            max_age=max_age,
-            expires=expires,
-            path=path,
-            domain=domain,
-            secure=secure,
-            httponly=httponly,
-            samesite=samesite,
-            partitioned=partitioned,
-        )
+class CookieDefaultsMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                headers = message.get("headers", [])
+                new_headers = []
+                for name, value in headers:
+                    if name.lower() == b"set-cookie":
+                        cookie_str = value.decode("latin-1")
+                        # Add Domain if not present
+                        if "Domain=" not in cookie_str:
+                            cookie_str += "; Domain=.openworkshop.miskler.ru"
+                        # Optionally add SameSite if not present (though Starlette defaults to Lax)
+                        if "SameSite=" not in cookie_str:
+                            cookie_str += "; SameSite=Lax"
+                        value = cookie_str.encode("latin-1")
+                    new_headers.append((name, value))
+                message["headers"] = new_headers
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
 
 app = FastAPI(
     title="OpenWorkshop.Manager",
@@ -73,7 +68,6 @@ app = FastAPI(
     """,
     redoc_url=MAIN_URL+"/",
     docs_url=MAIN_URL+"/docs",
-    default_response_class=CustomJSONResponse  # Используем кастомный класс
 )
 
 app.add_middleware(
@@ -87,6 +81,7 @@ app.add_middleware(
     allow_headers=["*"],     # Разрешить все заголовки
     expose_headers=["Content-Type", "Content-Disposition"]  # Какие заголовки доступны JS
 )
+app.add_middleware(CookieDefaultsMiddleware)
 
 app.include_router(game_router)
 app.include_router(mod_router)
