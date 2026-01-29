@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Response
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from ow_config import MAIN_URL
 from typing import Optional, Union, Literal
@@ -18,7 +19,10 @@ from social.api_black_list import router as black_list_router
 from social.api_forum import router as forum_router
 from social.api_forum_comment import router as forum_comment_router
 
-class CustomResponse(Response):
+class CustomJSONResponse(JSONResponse):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+    
     def set_cookie(
         self,
         key: str,
