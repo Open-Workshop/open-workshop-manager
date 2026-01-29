@@ -657,7 +657,13 @@ async def add_mod(
             # Указываем авторство, если пользователь не запросил обратного
             if not without_author:
                 session = sessionmaker(bind=account.engine)()
-                session.add(account.mod_and_author(mod_id=id, user_id=user_id, owner=True))
+                session.execute(
+                    account.mod_and_author.insert().values(
+                        mod_id=id, 
+                        user_id=user_id, 
+                        owner=True
+                    )
+                )
                 session.commit()
 
             session.close()
