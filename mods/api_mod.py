@@ -669,7 +669,7 @@ async def add_mod(
             session.close()
 
             file_ext = mod_file.filename.split(".")[-1]
-            result_upload_code, result_upload = await tools.storage_file_upload(type="archive", path=f"mods/{id}/main.{file_ext}", file=real_mod_file)
+            result_upload_code, result_content, result_upload = await tools.storage_file_upload(type="archive", path=f"mods/{id}/main.{file_ext}", file=real_mod_file)
 
             session = Session()
             if result_upload != False:
@@ -691,7 +691,7 @@ async def add_mod(
                 session.commit()
                 session.close()
 
-                return JSONResponse(status_code=500, content="Не удалось загрузить файл!")
+                return JSONResponse(status_code=result_upload_code, content=f"Не удалось загрузить файл! {result_content}")
         else:
             session.close()
             return JSONResponse(status_code=403, content="Заблокировано!")
