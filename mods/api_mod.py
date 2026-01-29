@@ -575,6 +575,8 @@ async def add_mod(
     mod_file: UploadFile = File(..., description="Файл мода. Максимальный размер 838860800 байт (800 мб)."),
 ):
     access_result = await account.check_access(request=request, response=response)
+    if isinstance(access_result, bool):
+        return JSONResponse(status_code=403, content="Нет кук доступа!")
     user_id = access_result.get("owner_id", -1)
 
     if access_result and user_id >= 0:

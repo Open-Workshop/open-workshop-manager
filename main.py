@@ -38,6 +38,13 @@ app = FastAPI(
     docs_url=MAIN_URL+"/docs"
 )
 
+app.config.update(
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_DOMAIN='.openworkshop.miskler.ru',
+    REMEMBER_COOKIE_SAMESITE='Lax',
+    REMEMBER_COOKIE_DOMAIN='.openworkshop.miskler.ru'
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
