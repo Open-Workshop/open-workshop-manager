@@ -73,7 +73,7 @@ app = FastAPI(
     """,
     redoc_url=MAIN_URL+"/",
     docs_url=MAIN_URL+"/docs",
-    default_response_class=CustomResponse  # Используем кастомный класс
+    default_response_class=CustomJSONResponse  # Используем кастомный класс
 )
 
 app.add_middleware(
