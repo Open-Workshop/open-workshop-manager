@@ -940,10 +940,10 @@ async def delete_mod(
 
                 session = sessionmaker(bind=catalog.engine)()
 
-                game_id = session.query(catalog.Mod).filter_by(id=id).first().game
+                game_id = session.query(catalog.Mod).filter_by(id=mod_id).first().game
 
-                session.query(catalog.Mod).filter_by(id=id).delete()
-                session.query(catalog.mods_dependencies).filter_by(mod_id=id).delete()
+                session.query(catalog.Mod).filter_by(id=mod_id).delete()
+                session.query(catalog.mods_dependencies).filter_by(mod_id=mod_id).delete()
                 session.query(catalog.mods_tags).filter_by(mod_id=id).delete()
 
                 session.commit()
