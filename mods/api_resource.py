@@ -155,7 +155,7 @@ async def add_resource(
     request: Request,
     owner_type: str = Path(description="Тип ресурса-владельца.", examples=["mods", "games"], max_length=64),
     resource_type: str = Form(..., description="Название типа ресурса.", min_length=2, max_length=64),
-    resource_url: str = Form("", description="URL ресурса *(если не передан файл)*.", min_length=7, max_length=256),
+    resource_url: str = Form("", description="URL ресурса *(если не передан файл)*.", min_length=0, max_length=256),
     resource_owner_id: int = Form(..., description="ID ресурса-владельца."),
     resource_file: UploadFile = File(None, description="Файл ресурса.")
 ):
@@ -182,7 +182,7 @@ async def add_resource(
                 return PlainTextResponse(status_code=result_code, content=f'Upload error ({result_upload})')
             else:
                 real_url = f'local/{result_upload}'
-        elif len(resource_url) <= 6 or len(resource_url) > 256 or not resource_url.startswith('http'):
+        elif len(resource_url) > 256 or not resource_url.startswith('http'):
             return PlainTextResponse(status_code=400, content='Incorrect URL')
 
         session = sessionmaker(bind=catalog.engine)()
