@@ -650,7 +650,7 @@ async def add_mod(
                     return PlainTextResponse(status_code=412, content="Такая source-связка уже существует!")
 
             result = session.execute(insert_statement)
-            id = result.lastrowid  # Получаем ID последней вставленной строки
+            rid = result.lastrowid  # Получаем ID последней вставленной строки
 
             session.commit()
 
@@ -659,7 +659,7 @@ async def add_mod(
                 session = sessionmaker(bind=account.engine)()
                 session.execute(
                     account.mod_and_author.insert().values(
-                        mod_id=id, 
+                        mod_id=rid, 
                         user_id=user_id, 
                         owner=True
                     )
@@ -673,21 +673,21 @@ async def add_mod(
 
             session = Session()
             if result_upload != False:
-                session.query(catalog.Mod).filter_by(id=id).update({"condition": 0})
+                session.query(catalog.Mod).filter_by(id=rid).update({"condition": 0})
                 session.query(catalog.Game).filter_by(id=mod_game).update({
                     catalog.Game.mods_count: func.coalesce(catalog.Game.mods_count, 0) + 1
                 })
                 session.commit()
 
                 session.close()
-                return JSONResponse(status_code=201, content=id)  # Возвращаем значение `id`
+                return JSONResponse(status_code=201, content=rid)  # Возвращаем значение `id`
             else:
-                session.query(catalog.Mod).filter_by(id=id).delete()
+                session.query(catalog.Mod).filter_by(id=rid).delete()
                 session.commit()
                 session.close()
 
                 session = sessionmaker(bind=account.engine)()
-                session.query(account.mod_and_author).filter_by(mod_id=id).delete()
+                session.query(account.mod_and_author).filter_by(mod_id=rid).delete()
                 session.commit()
                 session.close()
 
@@ -944,7 +944,7 @@ async def delete_mod(
 
                 session.query(catalog.Mod).filter_by(id=mod_id).delete()
                 session.query(catalog.mods_dependencies).filter_by(mod_id=mod_id).delete()
-                session.query(catalog.mods_tags).filter_by(mod_id=id).delete()
+                session.query(catalog.mods_tags).filter_by(mod_id=mod_id).delete()
 
                 session.commit()
 
