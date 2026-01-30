@@ -177,9 +177,9 @@ async def add_resource(
             real_file = io.BytesIO(await resource_file.read())
             real_path = f'{owner_type}/{resource_owner_id}/{resource_file.filename}'
 
-            result_code, result_upload = await tools.storage_file_upload(type="resource", path=real_path, file=real_file)
-            if result_upload == False:
-                return PlainTextResponse(status_code=500, content=f'Upload error ({result_code})')
+            result_code, result_upload, result_status = await tools.storage_file_upload(type="resource", path=real_path, file=real_file)
+            if result_status == False:
+                return PlainTextResponse(status_code=result_code, content=f'Upload error ({result_upload})')
             else:
                 real_url = f'local/{result_upload}'
         elif len(resource_url) <= 6 or len(resource_url) > 256 or not resource_url.startswith('http'):
@@ -260,9 +260,9 @@ async def edit_resource(
                 real_file = io.BytesIO(await resource_file.read())
                 real_path = f'{got_resource.owner_type}/{got_resource.owner_id}/{resource_file.filename}'
 
-                result_upload_code, result_upload = await tools.storage_file_upload(type="resource", path=real_path, file=real_file)
-                if result_upload == False:
-                    return JSONResponse(status_code=500, content=f'Upload error ({result_upload_code})')
+                result_upload_code, result_upload, result_status = await tools.storage_file_upload(type="resource", path=real_path, file=real_file)
+                if result_status == False:
+                    return JSONResponse(status_code=result_upload_code, content=f'Upload error ({result_upload})')
                 else:
                     data_edit["url"] = f'local/{result_upload}'
             else:

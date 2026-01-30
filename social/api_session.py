@@ -237,13 +237,13 @@ async def google_complite(
                             # может содержать: image/jpeg, image/png, image/gif, image/bmp, image/webp
                             format_name = resp.headers['Content-Type'].split("/")[1]
 
-                            result_upload_code, result_upload = await tools.storage_file_upload(type="avatar", path=f"{id}.{format_name}", file=BytesIO(await resp.read()))
-                            if result_upload != False:
+                            result_upload_code, result_upload, result_response = await tools.storage_file_upload(type="avatar", path=f"{id}.{format_name}", file=BytesIO(await resp.read()))
+                            if result_response != False:
                                 # Помечаем в БД пользователя, что у него есть аватар
                                 session.query(account.Account).filter(account.Account.id == id).update({"avatar_url": f"local.{format_name}"})
                                 session.commit()
                             else:
-                                print("Google регистрация: во время загрузки аватара произошла ошибка!")
+                                print(f"Google регистрация: во время загрузки аватара произошла ошибка! {result_upload_code} {result_upload}")
                         else:
                             print("Google регистрация: во время получения изображения произошла ошибка!")
     else:
@@ -345,7 +345,7 @@ async def yandex_complite(
 #                            # Чтобы узнать расширение файла из ответа сервера: resp.headers['Content-Type']
 #                            # может содержать: image/jpeg, image/png, image/gif, image/bmp, image/webp
 #                            format_name = resp.headers['Content-Type'].split("/")[1]
-
+                                # Тут еще sfu обновлен но апи юзается старое
 #                            result_upload_code, result_upload = await tools.storage_file_upload(type="avatar", path=f"{id}.{format_name}", file=BytesIO(await resp.read()))
 #                            if result_upload != False:
 #                                # Помечаем в БД пользователя, что у него есть аватар

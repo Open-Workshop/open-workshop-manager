@@ -776,9 +776,9 @@ async def edit_mod(
 
             body["date_update_file"] = datetime.now()
 
-            result_file_update_code, result_file_update = await tools.storage_file_upload(type="archive", path=url, file=real_mod_file)
-            if result_file_update == False:
-                return PlainTextResponse(status_code=500, content="Не удалось обновить файл!")
+            result_file_update_code, result_file_update, result_file_status = await tools.storage_file_upload(type="archive", path=url, file=real_mod_file)
+            if result_file_status == False:
+                return PlainTextResponse(status_code=result_file_update_code, content=f"Не удалось обновить файл! {result_file_update}")
                 
         session = sessionmaker(bind=catalog.engine)()
         session.query(catalog.Mod).filter_by(id=mod_id).update(body)

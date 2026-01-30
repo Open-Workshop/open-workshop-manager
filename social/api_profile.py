@@ -347,15 +347,15 @@ async def edit_profile(
             session.close()
             return PlainTextResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
 
-        result_upload_code, result_upload = await tools.storage_file_upload(
+        result_upload_code, result_upload, result_status = await tools.storage_file_upload(
             type="avatar", 
             path=f"{user.id}.{format_name}", 
             file=BytesIO(await avatar.read())
         )
-        if not result_upload:
+        if not result_status:
             print("Google регистрация: во время загрузки аватара произошла ошибка!")
-            return PlainTextResponse(status_code=523,
-                                content="Что-то пошло не так при обработке аватара ._.")
+            return PlainTextResponse(status_code=result_upload_code,
+                                content=f"Что-то пошло не так при обработке аватара ._. {result_upload}")
 
     # Выполняем запрошенную операцию
     user_query.update(query_update)
