@@ -2,10 +2,13 @@ from datetime import datetime, date
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Date, insert
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
-import ow_config as config
+from .envs import DB_HOST, DB_PASSWORD, DB_PORT, DB_USER
 
-
-engine = create_engine(f'mysql+mysqldb://{config.user_sql}:{config.password_sql}@{config.url_sql}/catalog')
+engine = create_engine(
+    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}"
+    f"@{DB_HOST}:{DB_PORT}/access",
+    pool_pre_ping=True,
+)
 base = declarative_base()
 
 

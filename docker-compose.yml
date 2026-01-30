@@ -1,37 +1,25 @@
-version: "3.9"
-
 services:
   api:
     build: .
+    image: openworkshop-api
     container_name: openworkshop_api
+    restart: unless-stopped
     ports:
       - "7776:7776"
+    env_file:
+      - .env
     depends_on:
       - mysql
-    environment:
-      DB_HOST: mysql
-      DB_PORT: 3306
-      DB_USER: openworkshop
-      DB_PASSWORD: openworkshop
-      DB_NAME: openworkshop
-    volumes:
-      - ./app:/app
-    restart: unless-stopped
 
   mysql:
     image: mysql:8.0
     container_name: openworkshop_mysql
+    restart: unless-stopped
     command: --default-authentication-plugin=mysql_native_password
-    environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: openworkshop
-      MYSQL_USER: openworkshop
-      MYSQL_PASSWORD: openworkshop
-    ports:
-      - "3306:3306"
+    env_file:
+      - .env
     volumes:
       - mysql_data:/var/lib/mysql
-    restart: unless-stopped
 
 volumes:
   mysql_data:

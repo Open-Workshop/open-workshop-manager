@@ -1,12 +1,15 @@
 from sqlalchemy import create_engine, Column, Integer, String, DateTime
 from sqlalchemy.ext.declarative import declarative_base
-import config_sql as config
+from .envs import DB_HOST, DB_PASSWORD, DB_PORT, DB_USER
 
-
-engine = create_engine(f'mysql+mysqldb://{config.user}:{config.password}@{config.host}/access')
+engine = create_engine(
+    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}"
+    f"@{DB_HOST}:{DB_PORT}/access",
+    pool_pre_ping=True,
+)
 base = declarative_base()
 
-class AccessError(base): # Таблица "игры"
+class AccessError(base):
     __tablename__ = 'access_errors'
     id = Column(Integer, primary_key=True)
 

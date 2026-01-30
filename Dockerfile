@@ -13,12 +13,4 @@ COPY app .
 
 EXPOSE 7776
 
-CMD [
-  "gunicorn",
-  "main:app",
-  "-b", "0.0.0.0:7776",
-  "--worker-class", "uvicorn.workers.UvicornWorker",
-  "--access-logfile", "-",
-  "--error-logfile", "-",
-  "-c", "gunicorn_config.py"
-]
+CMD ["gunicorn", "main:app", "-b", "0.0.0.0:7776", "--worker-class", "uvicorn.workers.UvicornWorker", "-c", "gunicorn_config.py"]

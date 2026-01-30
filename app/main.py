@@ -1,9 +1,6 @@
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from ow_config import MAIN_URL
-from typing import Optional, Union, Literal
-from datetime import datetime
 
 from games.api_game import router as game_router
 from mods.api_mod import router as mod_router
