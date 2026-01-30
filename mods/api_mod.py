@@ -901,65 +901,69 @@ async def delete_mod(
 ):
     access_result = await account.check_access(request=request, response=response)
 
-    if access_result and access_result.get("owner_id", -1) >= 0:
-        # Создание сессии
-        Session = sessionmaker(bind=account.engine)
-        session = Session()
+    if not access_result or access_result.get("owner_id", -1) < 0:
+        return PlainTextResponse(status_code=401, content="Недействительный ключ сессии!")
 
-        # Выполнение запроса
-        user_req = session.query(account.Account).filter_by(id=access_result.get("owner_id", -1)).first()
+    # Создание сессии для аккаунтов
+    Session = sessionmaker(bind=account.engine)
+    session = Session()
+
+    try:
+        user_req = session.query(account.Account).filter_by(id=access_result.get("owner_id")).first()
+        if not user_req:
+            return PlainTextResponse(status_code=403, content="Пользователь не найден!")
 
         async def mini():
             if user_req.admin:
                 return True
-            else:
-                if user_req.mute_until and user_req.mute_until > datetime.now():
-                    return False
+            if user_req.mute_until and user_req.mute_until > datetime.now():
+                return False
 
-                in_mod = session.query(account.mod_and_author).filter_by(mod_id=mod_id, user_id=access_result.get("owner_id", -1)).first()
+            in_mod = session.query(account.mod_and_author).filter_by(
+                mod_id=mod_id, user_id=access_result.get("owner_id")
+            ).first()
 
-                if in_mod:
-                    if user_req.delete_self_mods and in_mod.owner:
-                        return True
-                elif user_req.delete_mods:
-                    return True
+            if in_mod and user_req.delete_self_mods and in_mod.owner:
+                return True
+            if user_req.delete_mods:
+                return True
+
             return False
 
-        if await mini():
-            session.close()
-            
-            resource_delete_result = await tools.delete_resources(owner_type="mods", owner_id=mod_id)
-            if resource_delete_result and await tools.storage_file_delete(type="mods", path=f"mods/{mod_id}/main.zip"):
-                session = Session()
-                
-                delete_mod = account.mod_and_author.delete().where(account.mod_and_author.c.mod_id == mod_id)
-                session.execute(delete_mod)
-
-                session.commit()
-                session.close()
-
-                session = sessionmaker(bind=catalog.engine)()
-
-                game_id = session.query(catalog.Mod).filter_by(id=mod_id).first().game
-
-                session.query(catalog.Mod).filter_by(id=mod_id).delete()
-                session.query(catalog.mods_dependencies).filter_by(mod_id=mod_id).delete()
-                session.query(catalog.mods_tags).filter_by(mod_id=mod_id).delete()
-
-                session.commit()
-
-                session.query(catalog.Game).filter_by(id=game_id).update({catalog.Game.mods_count: catalog.Game.mods_count - 1})
-
-                session.commit()
-
-                session.close()
-
-                return PlainTextResponse(status_code=200, content="Удалено")
-            else:
-                session.close()
-                return PlainTextResponse(status_code=500, content="Не удалось удалить мод!")
-        else:
-            session.close()
+        if not await mini():
             return PlainTextResponse(status_code=403, content="Заблокировано!")
-    else:
-        return PlainTextResponse(status_code=401, content="Недействительный ключ сессии!")
+    finally:
+        session.close()
+
+    # Удаление ресурсов
+    resource_delete_result = await tools.delete_resources(owner_type="mods", owner_id=mod_id)
+    storage_delete_result = await tools.storage_file_delete(type="mods", path=f"mods/{mod_id}/main.zip")
+
+    if not (resource_delete_result and storage_delete_result):
+        return PlainTextResponse(status_code=500, content="Не удалось удалить мод!")
+
+    # Создание сессии для базы модов
+    session = sessionmaker(bind=catalog.engine)()
+    try:
+        mod_obj = session.query(catalog.Mod).filter_by(id=mod_id).first()
+        if not mod_obj:
+            return PlainTextResponse(status_code=404, content="Мод не найден")
+
+        game_id = mod_obj.game
+
+        # Удаление записей
+        session.query(catalog.Mod).filter_by(id=mod_id).delete()
+        session.query(catalog.mods_dependencies).filter_by(mod_id=mod_id).delete()
+        session.query(catalog.mods_tags).filter_by(mod_id=mod_id).delete()
+        session.commit()
+
+        # Обновление количества модов в игре
+        session.query(catalog.Game).filter_by(id=game_id).update({
+            catalog.Game.mods_count: catalog.Game.mods_count - 1
+        })
+        session.commit()
+
+    finally:
+        session.close()
+
+    return PlainTextResponse(status_code=200, content="Удалено")
