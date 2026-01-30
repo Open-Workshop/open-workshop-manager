@@ -4,4 +4,4 @@ google-auth-oauthlib
 bcrypt
 aiohttp
 gunicorn[standard]
-mysqlclient
+pymysql

@@ -6,8 +6,11 @@ import bcrypt
 import datetime
 import ow_config as config
 
-
-engine = create_engine(f'mysql+mysqldb://{config.user_sql}:{config.password_sql}@{config.url_sql}/catalog')
+engine = create_engine(
+    f"mysql+pymysql://{config.user_sql}:{config.password_sql}"
+    f"@{config.url_sql}:3306/catalog",
+    pool_pre_ping=True,
+)
 base = declarative_base()
 
 STANDART_STR_TIME = "%d.%m.%Y/%H:%M:%S"
