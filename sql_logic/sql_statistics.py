@@ -1,9 +1,11 @@
 from datetime import datetime, date
+from typing import Any
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Date, insert
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from .envs import DB_HOST, DB_PASSWORD, DB_PORT, DB_USER
 
+engine: Any | None = None
 engine = create_engine(
     f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}"
     f"@{DB_HOST}:{DB_PORT}/access",
