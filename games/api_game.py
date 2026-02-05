@@ -27,8 +27,8 @@ router = APIRouter()
                         "database_size": 123,
                         "offset": 123,
                         "results": [
-                            {"id": 1, "name": \"?\", \"type\": \"app\", \"source\": \"local\"},
-                            {"id": 2, "name": \"!?\", \"type\": \"game\", \"source\": \"steam\"},
+                            {"id": 1, "name": "?", "type": "app", "source": "local"},
+                            {"id": 2, "name": "!?", "type": "game", "source": "steam"},
                         ]
                     }
                 }
@@ -61,8 +61,8 @@ router = APIRouter()
                         "database_size": 123,
                         "offset": 123,
                         "results": [
-                            {"id": 1, "name": \"?\", \"type\": \"app\", \"source\": \"local\"},
-                            {"id": 2, "name": \"!?\", \"type\": \"game\", \"source\": \"steam\"},
+                            {"id": 1, "name": "?", "type": "app", "source": "local"},
+                            {"id": 2, "name": "!?", "type": "game", "source": "steam"},
                         ]
                     }
                 }

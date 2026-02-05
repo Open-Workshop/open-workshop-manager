@@ -50,7 +50,7 @@ async def list_resources_rest(
 ):
     owner_ids_value = owner_ids
     if owner_ids_value is None and owner_id is not None:
-        owner_ids_value = f\"[{owner_id}]\"
+        owner_ids_value = f"[{owner_id}]"
 
     if owner_ids_value is None:
         return PlainTextResponse(status_code=400, content="owner_ids is required")
