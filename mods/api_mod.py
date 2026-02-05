@@ -49,6 +49,20 @@ router = APIRouter()
 
 
 @router.get(
+    MAIN_URL+"/mods/{mod_id}/download",
+    tags=["Mod"],
+    summary="Скачивание мода",
+    status_code=307,
+    responses={
+        307: {
+            "description": "Перенаправление на фактический адрес скачивания мода",
+        },
+        404: {
+            "description": "Мод не найден",
+        },
+    },
+)
+@router.get(
     MAIN_URL+"/download/{mod_id}",
     tags=["Mod"],
     summary="Скачивание мода",
@@ -199,6 +213,43 @@ async def public_mods(
     session.close()
     return output
 
+@router.get(
+    MAIN_URL+"/mods",
+    tags=["Mod"],
+    summary="Список модов",
+    status_code=200,
+    responses={
+        200: {
+            "description": "Массив словарей с информацией о модах",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "database_size": 123,
+                        "offset": 123,
+                        "results": [
+                            {
+                                "id": 1,
+                                "name": "name",
+                                "date_creation": "1984-01-01 00:00:00",
+                                "date_update": "1984-01-01 00:00:00"
+                            },
+                            "Access denied (hide info)",
+                            {
+                                "id": 3,
+                                "name": "name",
+                                "date_creation": "1984-01-01 00:00:00",
+                                "date_update": "1984-01-01 00:00:00"
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+        413: {
+            "description": "Слишком сложный запрос ИЛИ page_size вне диапазона.",
+        },
+    },
+)
 @router.get(
     MAIN_URL+"/list/mods/",
     tags=["Mod"],
@@ -389,6 +440,54 @@ async def mod_list(
 
 
 @router.get(
+    MAIN_URL+"/mods/{mod_id}",
+    tags=["Mod"],
+    summary="Информация о моде",
+    status_code=200,
+    responses={
+        200: {
+            "description": "OK",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "dependencies": [1, 2, 3],
+                        "dependencies_count": 3,
+                        "authors": {
+                            1: {"owner": True},
+                            2: {"owner": False}
+                        },
+                        "result": {
+                            "condition": 0,
+                            "description": "Some description",
+                            "short_description": "Some short description",
+                            "date_update_file": "1984-05-22T02:42:42",
+                            "date_edit": "1984-07-12T15:77:12",
+                            "date_creation": "1984-01-01T15:11:40",
+                            "name": "Some name",
+                            "size": 123456789,
+                            "source": "local",
+                            "source_id": None,
+                            "downloads": 42,
+                            "public": 0,
+                            "game": {"id": 1, "name": "game"}
+                        }
+                    }
+                }
+            }
+        },
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        404: {
+            "description": "Not found",
+            "content": {
+                "text/plain": {
+                    "example": "Mod not found."
+                }
+            }
+        },
+    },
+)
+@router.get(
     MAIN_URL+"/info/mod/{mod_id}", 
     tags=["Mod"],
     summary="Информация о моде",
@@ -539,6 +638,163 @@ async def info_mod(
     return JSONResponse(status_code=200, content=output)
 
 
+@router.get(
+    MAIN_URL+"/mods/{mod_id}/resources",
+    tags=["Mod", "Resource"],
+    summary="Ресурсы мода",
+    status_code=200,
+    responses={
+        200: {"description": "OK"},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Мод не найден."},
+        413: {"description": "Неккоректный диапазон параметров *(размеров)*."},
+    },
+)
+async def mod_resources(
+    response: Response,
+    request: Request,
+    mod_id: int = Path(description="ID мода"),
+    resources_list_id = Query([], description="Список ID-ресурсов.", example='[1, 2, 3]'),
+    page_size: int = Query(10, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
+    page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
+    types_resources = Query([], description="Фильтрация по типу ресурсов *(массив типов)*.", example='[\"logo\", \"screenshot\"]'),
+    only_urls: bool = Query(False, description="Возвращать только ссылки или полную информацию."),
+):
+    resources_list_id = tools.str_to_list(resources_list_id)
+    types_resources = tools.str_to_list(types_resources)
+
+    if len(types_resources) + len(resources_list_id) > 120:
+        return JSONResponse(status_code=413, content={"message": "the maximum complexity of filters is 120 elements in sum", "error_id": 1})
+    elif page_size > 50 or page_size < 1:
+        return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 2})
+    elif page < 0:
+        return JSONResponse(status_code=413, content={"message": "incorrect page", "error_id": 3})
+
+    session = sessionmaker(bind=catalog.engine)()
+    mod_exists = session.query(catalog.Mod.id).filter_by(id=mod_id).first()
+    session.close()
+    if not mod_exists:
+        return PlainTextResponse(status_code=404, content="Mod not found.")
+
+    access_result = await tools.access_mods(response=response, request=request, mods_ids=[mod_id])
+    if access_result != True:
+        return access_result
+
+    session = sessionmaker(bind=catalog.engine)()
+    query = session.query(catalog.Resource)
+    query = query.filter_by(owner_type="mods", owner_id=mod_id)
+    if len(resources_list_id) > 0:
+        query = query.filter(catalog.Resource.id.in_(resources_list_id))
+    if len(types_resources) > 0:
+        query = query.filter(catalog.Resource.type.in_(types_resources))
+
+    resources_count = query.count()
+    offset = page_size * page
+    resources = query.offset(offset).limit(page_size).all()
+    session.close()
+
+    real_resources = await tools.resources_serialize(resources=resources, only_urls=only_urls)
+    return {"database_size": resources_count, "offset": offset, "results": real_resources}
+
+
+@router.get(
+    MAIN_URL+"/mods/{mod_id}/tags",
+    tags=["Mod", "Tag"],
+    summary="Теги мода",
+    status_code=200,
+    responses={
+        200: {"description": "OK"},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Мод не найден."},
+    },
+)
+async def mod_tags(
+    response: Response,
+    request: Request,
+    mod_id: int = Path(description="ID мода"),
+    only_ids: bool = Query(False, description="Если True вернет только ID тегов."),
+):
+    session = sessionmaker(bind=catalog.engine)()
+    mod_exists = session.query(catalog.Mod.id).filter_by(id=mod_id).first()
+    session.close()
+    if not mod_exists:
+        return PlainTextResponse(status_code=404, content="Mod not found.")
+
+    access_result = await tools.access_mods(response=response, request=request, mods_ids=[mod_id])
+    if access_result != True:
+        return access_result
+
+    session = sessionmaker(bind=catalog.engine)()
+    query = session.query(catalog.Tag).join(catalog.mods_tags)
+    query = query.filter(catalog.mods_tags.c.mod_id == mod_id)
+    tags = query.all()
+    session.close()
+
+    if only_ids:
+        return [tag.id for tag in tags]
+    return [{"id": tag.id, "name": tag.name} for tag in tags]
+
+
+@router.get(
+    MAIN_URL+"/mods/{mod_id}/dependencies",
+    tags=["Mod"],
+    summary="Зависимости мода",
+    status_code=200,
+    responses={
+        200: {"description": "OK"},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Мод не найден."},
+    },
+)
+async def mod_dependencies(
+    response: Response,
+    request: Request,
+    mod_id: int = Path(description="ID мода"),
+):
+    session = sessionmaker(bind=catalog.engine)()
+    mod_exists = session.query(catalog.Mod.id).filter_by(id=mod_id).first()
+    session.close()
+    if not mod_exists:
+        return PlainTextResponse(status_code=404, content="Mod not found.")
+
+    access_result = await tools.access_mods(response=response, request=request, mods_ids=[mod_id])
+    if access_result != True:
+        return access_result
+
+    session = sessionmaker(bind=catalog.engine)()
+    query = session.query(catalog.mods_dependencies.c.dependence)
+    query = query.filter(catalog.mods_dependencies.c.mod_id == mod_id)
+    dependencies = [row[0] for row in query.all()]
+    session.close()
+
+    return {"count": len(dependencies), "results": dependencies}
+
+
+@router.post(
+    MAIN_URL+"/mods",
+    tags=["Mod"],
+    summary="Добавление мода",
+    status_code=201,
+    responses={
+        201: {"description": "Возвращает ID созданного мода", "content": {"application/json": {"example": 123}}},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        411: routers_edit_mod_response[411],
+        412: {
+            "description": "Неккоректный ID выбранной игры ИЛИ выбранный ID мода уже занят ИЛИ source-связка уже занята.",
+            "content": {
+                "text/plain": {
+                    "example": "Такой игры не существует!"
+                }
+            }
+        },
+        413: routers_edit_mod_response[413],
+        500: routers_edit_mod_response[500],
+    },
+)
 @router.post(
     MAIN_URL+"/add/mod", 
     tags=["Mod"],
@@ -787,6 +1043,49 @@ async def edit_mod(
         return PlainTextResponse(status_code=201, content="OK")
     else:
         return access_result
+
+@router.patch(
+    MAIN_URL+"/mods/{mod_id}",
+    tags=["Mod"],
+    summary="Редактирование мода",
+    status_code=201,
+    responses={
+        201: {"description": "Изменения успешно выполнены."},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        411: routers_edit_mod_response[411],
+        412: {"description": "Такой игры не существует или такая source-связка занята."},
+        413: routers_edit_mod_response[413],
+        500: routers_edit_mod_response[500],
+    },
+)
+async def edit_mod_rest(
+    response: Response,
+    request: Request,
+    mod_id: int = Path(description="ID мода для редактирования."),
+    mod_name: str = Form(None, description="Название мода.", max_length=128),
+    mod_short_description: str = Form(None, description="Краткое описание мода.", max_length=256),
+    mod_description: str = Form(None, description="Полное описание мода.", max_length=10000),
+    mod_source: str = Form(None, description="Источник мода. Так же обязательно передать и `mod_source_id`, даже если его данные не изменились!", max_length=64),
+    mod_source_id: int = Form(None, description="ID мода в первоисточнике."),
+    mod_game: int = Form(None, description="ID игры-владельца."),
+    mod_public: int = Form(None, description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."),
+    mod_file: UploadFile = File(None, description="Файл мода. Максимальный размер 838860800 байт (800 мб)."),
+):
+    return await edit_mod(
+        response=response,
+        request=request,
+        mod_id=mod_id,
+        mod_name=mod_name,
+        mod_short_description=mod_short_description,
+        mod_description=mod_description,
+        mod_source=mod_source,
+        mod_source_id=mod_source_id,
+        mod_game=mod_game,
+        mod_public=mod_public,
+        mod_file=mod_file,
+    )
+
 
 @router.post(
     MAIN_URL+"/edit/mod/authors",

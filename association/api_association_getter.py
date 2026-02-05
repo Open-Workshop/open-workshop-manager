@@ -11,6 +11,40 @@ router = APIRouter()
 
 
 @router.get(
+    MAIN_URL+"/tags",
+    tags=["Tag", "Game", "Association"],
+    summary="Ассоциации тегов с играми",
+    status_code=200,
+    responses={
+        200: {
+            "description": "OK",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "database_size": 123,
+                        "offset": 123,
+                        "results": [
+                            {"id": 1, "name": "?"},
+                            {"id": 2, "name": "!"},
+                        ]
+                    }
+                }
+            }
+        },
+        413: {
+            "description": "Неккоректный диапазон параметров(размеров).",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "incorrect page size",
+                        "error_id": 1
+                    }
+                }
+            }
+        },
+    },
+)
+@router.get(
     MAIN_URL+"/list/tags",
     tags=["Tag", "Game", "Association"],
     summary="Ассоциации тегов с играми",

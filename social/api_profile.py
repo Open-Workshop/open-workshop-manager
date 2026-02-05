@@ -16,6 +16,18 @@ router = APIRouter()
 
 
 @router.get(
+    MAIN_URL+"/profiles/{user_id}",
+    tags=["Profile"],
+    summary="Информация о профиле",
+    status_code=200,
+    responses={
+        200: {"description": "Возвращает информацию о профиле по запрошенным разделам."},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Профиль не найден."},
+    },
+)
+@router.get(
     MAIN_URL+"/profile/info/{user_id}",
     tags=["Profile"],
     summary="Информация о профиле",
@@ -114,6 +126,17 @@ async def info_profile(
     return result
 
 @router.get(
+    MAIN_URL+"/profiles/{user_id}/avatar",
+    tags=["Profile"],
+    summary="Аватар профиля",
+    status_code=307,
+    responses={
+        207: {"description": "Пользователь не назначил аватар."},
+        307: {"description": "Перенаправляет на аватар*(файл)* пользователя."},
+        404: {"description": "Пользователь не найден."},
+    },
+)
+@router.get(
     MAIN_URL+"/profile/avatar/{user_id}",
     tags=["Profile"],
     summary="Аватар профиля",
@@ -147,6 +170,23 @@ async def avatar_profile(
         return PlainTextResponse(status_code=404, content="User not found!")
 
 
+@router.patch(
+    MAIN_URL+"/profiles/{user_id}",
+    tags=["Profile"],
+    summary="Редактирование профиля",
+    status_code=202,
+    responses={
+        202: {"description": "Профиль успешно отредактирован."},
+        400: {"description": "Нельзя замутить самого себя."},
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Пользователь не найден."},
+        411: {"description": "Недостигнута длина *(слишком короткий никнейм/грейд/пароль)*, либо указанная дата мута уже прошла."},
+        413: {"desctiption": "Превышена длина *(никнейм/обо мне/грейд/пароль)*, либо загружаемый аватар превышает 2 мб."},
+        425: {"description": "Отказано в изменении, т.к. запрашивающий в муте *(узнать о длине мута можно в /profile/info/)*, либо слишком часто меняется пароль/никнейм *(в таком случае в теле ответа возвращается дата снятия ограничения)*"},
+        500: {"description": "Неизвестная ошибка при подготовке изменений *(детали в теле ответа)*."},
+        523: {"description": "Ошибка на стороне файлового сервера."},
+    },
+)
 @router.post(
     MAIN_URL+"/profile/edit/{user_id}",
     tags=["Profile"],
@@ -337,20 +377,24 @@ async def edit_profile(
                 return PlainTextResponse(status_code=523,
                                     content="Что-то пошло не так при удалении аватара из системы.")
     elif avatar is not None:  # Проверка на аватар в самом конце, т.к. он приводит к изменениям в файловой системе
-        format_name = avatar.filename.split(".")[-1]
-        if len(format_name) <= 0:
-            format_name = "jpg"
-        
-        query_update["avatar_url"] = f"local.{format_name}"
-
         if avatar.size >= 2097152:
             session.close()
             return PlainTextResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
 
+        raw_bytes = await avatar.read()
+        try:
+            webp_bytes = tools.image_bytes_to_webp(raw_bytes)
+        except ValueError:
+            session.close()
+            return PlainTextResponse(status_code=400, content="Аватар должен быть изображением.")
+
+        format_name = "webp"
+        query_update["avatar_url"] = f"local.{format_name}"
+
         result_upload_code, result_upload, result_status = await tools.storage_file_upload(
-            type="avatar", 
-            path=f"{user.id}.{format_name}", 
-            file=BytesIO(await avatar.read())
+            type="avatar",
+            path=f"{user.id}.{format_name}",
+            file=BytesIO(webp_bytes),
         )
         if not result_status:
             print("Google регистрация: во время загрузки аватара произошла ошибка!")
@@ -365,6 +409,18 @@ async def edit_profile(
     # Возвращаем успешный результат
     return PlainTextResponse(status_code=202, content='Изменения приняты :)')
 
+@router.patch(
+    MAIN_URL+"/profiles/{user_id}/rights",
+    tags=["Profile"],
+    summary="Редактирование прав профиля",
+    status_code=202,
+    responses={
+        202: {"description": "Изменения приняты."},
+        401: standarts.responses[401],
+        403: standarts.responses["admin"][403],
+        404: {"description": "Профиль не найден."},
+    },
+)
 @router.post(
     MAIN_URL+"/profile/edit/rights/{user_id}",
     tags=["Profile"],
@@ -470,6 +526,18 @@ async def edit_profile_rights(
         return PlainTextResponse(status_code=401, content="Недействительный ключ сессии!")
 
 @router.delete(
+    MAIN_URL+"/profiles/{user_id}",
+    tags=["Profile"],
+    summary="Удаление аккаунта",
+    status_code=200,
+    responses={
+        200: {"description": "Удален успешно."},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        523: {"description": "Не удалось удалить аватар пользователя *(удаление прервано)*."},
+    },
+)
+@router.delete(
     MAIN_URL+"/profile/delete",
     tags=["Profile"],
     summary="Удаление аккаунта",
@@ -482,7 +550,8 @@ async def edit_profile_rights(
 )
 async def delete_account(
     response: Response,
-    request: Request
+    request: Request,
+    user_id: int | None = None,
 ):
     """
     Удаление аккаунта. Сделать это может только сам пользователь, при этом удаляются только персональные данные пользователя.
@@ -492,6 +561,8 @@ async def delete_account(
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
+        if user_id is not None and user_id != access_result.get("owner_id", -1):
+            return PlainTextResponse(status_code=403, content="Вы не можете удалить этот аккаунт!")
         # Создание сессии
         session = sessionmaker(bind=account.engine)()
 

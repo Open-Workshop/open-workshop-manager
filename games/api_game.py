@@ -14,6 +14,40 @@ router = APIRouter()
 
 
 @router.get(
+    MAIN_URL+"/games",
+    tags=["Game"],
+    summary="Список игр.",
+    status_code=200,
+    responses={
+        200: {
+            "description": "OK",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "database_size": 123,
+                        "offset": 123,
+                        "results": [
+                            {"id": 1, "name": \"?\", \"type\": \"app\", \"source\": \"local\"},
+                            {"id": 2, "name": \"!?\", \"type\": \"game\", \"source\": \"steam\"},
+                        ]
+                    }
+                }
+            }
+        },
+        413: {
+            "description": "Неккоректный диапазон параметров(размеров).",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "incorrect page size",
+                        "error_id": 1
+                    }
+                }
+            }
+        },
+    },
+)
+@router.get(
     MAIN_URL+"/list/games/",
     tags=["Game"],
     summary="Список игр.",
@@ -27,8 +61,8 @@ router = APIRouter()
                         "database_size": 123,
                         "offset": 123,
                         "results": [
-                            {"id": 1, "name": "?", "type": "app", "source": "local"},
-                            {"id": 2, "name": "!?", "type": "game", "source": "steam"},
+                            {"id": 1, "name": \"?\", \"type\": \"app\", \"source\": \"local\"},
+                            {"id": 2, "name": \"!?\", \"type\": \"game\", \"source\": \"steam\"},
                         ]
                     }
                 }
@@ -147,6 +181,67 @@ async def games_list(
 
     session.close()
     return {"database_size": games_count, "offset": offset, "results": output_games}
+
+
+@router.get(
+    MAIN_URL+"/games/{game_id}",
+    tags=["Game"],
+    summary="Информация об игре",
+    status_code=200,
+    responses={
+        200: {"description": "OK"},
+        404: {"description": "Игра не найдена."},
+    },
+)
+async def game_info(
+    game_id: int = Path(description="ID игры"),
+    short_description: bool = Query(False, description="Отправлять ли короткое описание."),
+    description: bool = Query(False, description="Отправлять ли описание."),
+    dates: bool = Query(False, description="Отправлять ли даты (дата создания)."),
+    statistics: bool = Query(False, description="Отправлять ли статистику (количество модов и их общее количество скачиваний)."),
+):
+    session = sessionmaker(bind=catalog.engine)()
+
+    query = session.query(
+        catalog.Game.id,
+        catalog.Game.name,
+        catalog.Game.type,
+        catalog.Game.source,
+        catalog.Game.source_id,
+    )
+    if description:
+        query = query.add_column(catalog.Game.description)
+    if short_description:
+        query = query.add_column(catalog.Game.short_description)
+    if dates:
+        query = query.add_column(catalog.Game.creation_date)
+    if statistics:
+        query = query.add_columns(catalog.Game.mods_count, catalog.Game.mods_downloads)
+
+    row = query.filter(catalog.Game.id == game_id).first()
+    session.close()
+
+    if not row:
+        return PlainTextResponse(status_code=404, content="Game not found.")
+
+    out = {
+        "id": row.id,
+        "name": row.name,
+        "type": row.type,
+        "source": row.source,
+        "source_id": row.source_id,
+    }
+    if description:
+        out["description"] = row.description
+    if short_description:
+        out["short_description"] = row.short_description
+    if dates:
+        out["creation_date"] = row.creation_date
+    if statistics:
+        out["mods_count"] = row.mods_count
+        out["mods_downloads"] = row.mods_downloads
+
+    return out
 
 
 @router.post(

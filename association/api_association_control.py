@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Response, Form
+from fastapi import APIRouter, Request, Response, Form, Path
 from fastapi.responses import JSONResponse
 import tools
 from ow_config import MAIN_URL
@@ -68,6 +68,58 @@ async def association_game_with_genre(
             return JSONResponse(status_code=202, content="Complite")
     else:
         return access_result
+
+
+@router.post(
+    MAIN_URL+"/mods/{mod_id}/dependencies/{dependencie_id}",
+    tags=["Association", "Mod"],
+    summary="Добавление зависимости мода",
+    status_code=202,
+    responses={
+        **ASSOCIATION_RESPONSES,
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+    },
+)
+async def mod_add_dependency(
+    response: Response,
+    request: Request,
+    mod_id: int = Path(description="ID мода"),
+    dependencie_id: int = Path(description="ID зависимости (мода)"),
+):
+    return await association_mod_with_dependencie(
+        response=response,
+        request=request,
+        mod_id=mod_id,
+        mode=True,
+        dependencie=dependencie_id,
+    )
+
+
+@router.delete(
+    MAIN_URL+"/mods/{mod_id}/dependencies/{dependencie_id}",
+    tags=["Association", "Mod"],
+    summary="Удаление зависимости мода",
+    status_code=202,
+    responses={
+        **ASSOCIATION_RESPONSES,
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+    },
+)
+async def mod_delete_dependency(
+    response: Response,
+    request: Request,
+    mod_id: int = Path(description="ID мода"),
+    dependencie_id: int = Path(description="ID зависимости (мода)"),
+):
+    return await association_mod_with_dependencie(
+        response=response,
+        request=request,
+        mod_id=mod_id,
+        mode=False,
+        dependencie=dependencie_id,
+    )
 
 @router.post(
     MAIN_URL+"/association/game/tag", 
@@ -160,6 +212,57 @@ async def association_mod_with_tag(
             return JSONResponse(status_code=202, content="Complite")
     else:
         return access_result
+
+@router.post(
+    MAIN_URL+"/mods/{mod_id}/tags/{tag_id}",
+    tags=["Association", "Mod", "Tag"],
+    summary="Добавление тега модификации",
+    status_code=202,
+    responses={
+        **ASSOCIATION_RESPONSES,
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+    },
+)
+async def mod_add_tag(
+    response: Response,
+    request: Request,
+    mod_id: int = Path(description="ID мода"),
+    tag_id: int = Path(description="ID тега"),
+):
+    return await association_mod_with_tag(
+        response=response,
+        request=request,
+        mod_id=mod_id,
+        mode=True,
+        tag_id=tag_id,
+    )
+
+
+@router.delete(
+    MAIN_URL+"/mods/{mod_id}/tags/{tag_id}",
+    tags=["Association", "Mod", "Tag"],
+    summary="Удаление тега модификации",
+    status_code=202,
+    responses={
+        **ASSOCIATION_RESPONSES,
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+    },
+)
+async def mod_delete_tag(
+    response: Response,
+    request: Request,
+    mod_id: int = Path(description="ID мода"),
+    tag_id: int = Path(description="ID тега"),
+):
+    return await association_mod_with_tag(
+        response=response,
+        request=request,
+        mod_id=mod_id,
+        mode=False,
+        tag_id=tag_id,
+    )
 
 @router.post(
     MAIN_URL+"/association/mod/dependencie", 

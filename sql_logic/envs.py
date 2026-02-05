@@ -1,6 +1,11 @@
-import os
+import ow_config as config
 
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = getattr(config, "url_sql", None)
+DB_USER = getattr(config, "user_sql", None)
+DB_PASSWORD = getattr(config, "password_sql", None)
+DB_PORT = getattr(config, "port_sql", None)
+
+if DB_PORT in (None, ""):
+    DB_PORT = "3306"
+else:
+    DB_PORT = str(DB_PORT)

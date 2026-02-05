@@ -14,6 +14,177 @@ router = APIRouter()
 
 
 @router.get(
+    MAIN_URL+"/resources",
+    tags=["Resource", "Game", "Mod", "Association"],
+    status_code=200,
+    summary="Список ресурсов",
+    responses={
+        200: {"description": "Обычный ответ."},
+        400: {"description": "Не переданы `owner_ids` или `owner_id`."},
+        403: standarts.responses["non-admin"][403],
+        405: {"description": "Неизвестный `owner_type`."},
+        413: {
+            "description": "Неккоректный диапазон параметров *(размеров)*.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "incorrect page size",
+                        "error_id": 2
+                    }
+                }
+            }
+        },
+    },
+)
+async def list_resources_rest(
+    response: Response,
+    request: Request,
+    owner_type: str = Query(..., description="Тип ресурса-владельца.", examples=["mods", "games"], max_length=64),
+    owner_ids = Query(None, description="Список ID-владельцев в формате JSON списка.", example='[1, 2, 3]'),
+    owner_id: int | None = Query(None, description="ID владельца (альтернатива owner_ids)."),
+    resources_list_id = Query([], description="Список ID-ресурсов.", example='[1, 2, 3]'),
+    page_size: int = Query(10, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
+    page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
+    types_resources = Query([], description="Фильтрация по типу ресурсов *(массив типов)*.", example='[\"logo\", \"screenshot\"]'),
+    only_urls: bool = Query(False, description="Возвращать только ссылки или полную информацию."),
+):
+    owner_ids_value = owner_ids
+    if owner_ids_value is None and owner_id is not None:
+        owner_ids_value = f\"[{owner_id}]\"
+
+    if owner_ids_value is None:
+        return PlainTextResponse(status_code=400, content="owner_ids is required")
+
+    return await list_resources(
+        response=response,
+        request=request,
+        owner_type=owner_type,
+        owner_ids=owner_ids_value,
+        resources_list_id=resources_list_id,
+        page_size=page_size,
+        page=page,
+        types_resources=types_resources,
+        only_urls=only_urls,
+    )
+
+
+@router.post(
+    MAIN_URL+"/resources",
+    tags=["Resource"],
+    summary="Добавление ресурса",
+    status_code=202,
+    responses={
+        202: {
+            "description": "Возвращает ID созданного ресурса.",
+            "content": {"application/json": {"example": 1}},
+        },
+        400: {"description": "Не передан файл и при этом передан неккоректны `resource_url`."},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        405: {"description": "Неизвестный тип ресурса-владельца."},
+        500: {"description": "Произошла ошибка на стороне Storage сервера."},
+    },
+)
+async def add_resource_rest(
+    response: Response,
+    request: Request,
+    owner_type: str = Form(..., description="Тип ресурса-владельца.", examples=["mods", "games"], max_length=64),
+    resource_type: str = Form(..., description="Название типа ресурса.", min_length=2, max_length=64),
+    resource_url: str = Form("", description="URL ресурса *(если не передан файл)*.", min_length=0, max_length=256),
+    resource_owner_id: int = Form(..., description="ID ресурса-владельца."),
+    resource_file: UploadFile = File(None, description="Файл ресурса."),
+):
+    return await add_resource(
+        response=response,
+        request=request,
+        owner_type=owner_type,
+        resource_type=resource_type,
+        resource_url=resource_url,
+        resource_owner_id=resource_owner_id,
+        resource_file=resource_file,
+    )
+
+
+@router.patch(
+    MAIN_URL+"/resources/{resource_id}",
+    tags=["Resource"],
+    summary="Редактирование ресурса",
+    status_code=202,
+    responses={
+        202: {"description": "Успешное редактирование"},
+        400: {"description": "Передан неккоректный `resource_url`."},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Ресурс не найден."},
+        418: {"description": "Пустой запрос."},
+        500: {"description": "Произошла ошибка на стороне Storage сервера."},
+    },
+)
+async def edit_resource_rest(
+    response: Response,
+    request: Request,
+    resource_id: int = Path(description="ID ресурса."),
+    resource_type: str = Form(None, description="Тип ресурса.", min_length=2, max_length=64),
+    resource_url: str = Form(None, description="URL ресурса.", min_length=7, max_length=256),
+    resource_file: UploadFile = File(None, description="Файл ресурса *(приоритетней `resource_url`)*."),
+):
+    return await edit_resource(
+        response=response,
+        request=request,
+        resource_id=resource_id,
+        resource_type=resource_type,
+        resource_url=resource_url,
+        resource_file=resource_file,
+    )
+
+
+@router.delete(
+    MAIN_URL+"/resources/{resource_id}",
+    tags=["Resource"],
+    summary="Удаление ресурса",
+    status_code=200,
+    responses={
+        200: {"description": "Успешное удаление"},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Ресурс не найден."},
+        405: {"description": "Неккоректный `owner_type`. Доступные значения: `mods`, `games`."},
+        500: {"description": "Произошла ошибка на стороне Storage сервера."},
+    },
+)
+async def delete_resource_rest(
+    response: Response,
+    request: Request,
+    resource_id: int = Path(description="ID ресурса для удаления."),
+):
+    session = sessionmaker(bind=catalog.engine)()
+    resource = session.query(catalog.Resource).filter_by(id=resource_id).first()
+    session.close()
+
+    if not resource:
+        return PlainTextResponse(status_code=404, content="not found")
+
+    if resource.owner_type not in ["mods", "games"]:
+        return PlainTextResponse(status_code=405, content="unknown owner_type")
+
+    if resource.owner_type == "mods":
+        access_result = await tools.access_mods(
+            response=response,
+            request=request,
+            mods_ids=[resource.owner_id],
+            edit=True,
+        )
+    else:
+        access_result = await tools.access_admin(response=response, request=request)
+
+    if access_result != True:
+        return access_result
+
+    if await tools.delete_resources(owner_type=resource.owner_type, resources_ids=[resource_id]):
+        return PlainTextResponse(status_code=200, content="Complite!")
+    return PlainTextResponse(status_code=500, content="Unknown error")
+
+@router.get(
     MAIN_URL+"/list/resources/{owner_type}/{owner_ids}",
     tags=["Resource", "Game", "Mod", "Association"],
     status_code=200,
@@ -174,8 +345,16 @@ async def add_resource(
         real_url = resource_url
 
         if resource_file:
-            real_file = io.BytesIO(await resource_file.read())
-            real_path = f'{owner_type}/{resource_owner_id}/{resource_file.filename}'
+            raw_bytes = await resource_file.read()
+            converted_bytes, is_image = tools.maybe_image_bytes_to_webp(raw_bytes)
+
+            filename = resource_file.filename or "resource"
+            if is_image:
+                name_stem = filename.rsplit(".", 1)[0] or "resource"
+                filename = f"{name_stem}.webp"
+
+            real_file = io.BytesIO(converted_bytes)
+            real_path = f"{owner_type}/{resource_owner_id}/{filename}"
 
             result_code, result_upload, result_status = await tools.storage_file_upload(type="resource", path=real_path, file=real_file)
             if result_status == False:
@@ -257,8 +436,16 @@ async def edit_resource(
                 return JSONResponse(status_code=500, content="delete old file error")
 
             if resource_file:
-                real_file = io.BytesIO(await resource_file.read())
-                real_path = f'{got_resource.owner_type}/{got_resource.owner_id}/{resource_file.filename}'
+                raw_bytes = await resource_file.read()
+                converted_bytes, is_image = tools.maybe_image_bytes_to_webp(raw_bytes)
+
+                filename = resource_file.filename or "resource"
+                if is_image:
+                    name_stem = filename.rsplit(".", 1)[0] or "resource"
+                    filename = f"{name_stem}.webp"
+
+                real_file = io.BytesIO(converted_bytes)
+                real_path = f"{got_resource.owner_type}/{got_resource.owner_id}/{filename}"
 
                 result_upload_code, result_upload, result_status = await tools.storage_file_upload(type="resource", path=real_path, file=real_file)
                 if result_status == False:

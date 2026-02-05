@@ -5,3 +5,4 @@ bcrypt
 aiohttp
 gunicorn[standard]
 pymysql
+Pillow

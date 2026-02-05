@@ -87,6 +87,27 @@ async def yandex_send_link():
     return 500
 #    return RedirectResponse(url=yandex_oauth.get_authorization_url())
 
+@router.get(
+    MAIN_URL+"/oauth/{service}/link",
+    tags=["Session"],
+    status_code=307,
+    summary="Переадресация на авторизацию через OAuth сервис",
+    responses={
+        307: {"description": "Переадресация на SSO сервис."},
+        400: {"description": "Неизвестный сервис авторизации."},
+    },
+)
+async def oauth_link(
+    request: Request,
+    service: str = Path(description="OAuth сервис", example=["google", "yandex"]),
+):
+    service = service.lower()
+    if service == "google":
+        return await google_send_link(request=request)
+    if service == "yandex":
+        return await yandex_send_link()
+    return PlainTextResponse(status_code=400, content="Unsupported service")
+
 @router.post(
     MAIN_URL+"/session/password",
     tags=["Session"],
@@ -233,11 +254,21 @@ async def google_complite(
                 async with aiohttp.ClientSession() as NETsession:
                     async with NETsession.get(user_data["picture"]) as resp:
                         if resp.status == 200:
-                            # Чтобы узнать расширение файла из ответа сервера: resp.headers['Content-Type']
-                            # может содержать: image/jpeg, image/png, image/gif, image/bmp, image/webp
-                            format_name = resp.headers['Content-Type'].split("/")[1]
+                            raw_bytes = await resp.read()
+                            try:
+                                webp_bytes = tools.image_bytes_to_webp(raw_bytes)
+                                format_name = "webp"
+                                upload_bytes = webp_bytes
+                            except ValueError:
+                                # Fallback to original bytes if conversion failed.
+                                format_name = resp.headers.get("Content-Type", "image/jpeg").split("/")[-1]
+                                upload_bytes = raw_bytes
 
-                            result_upload_code, result_upload, result_response = await tools.storage_file_upload(type="avatar", path=f"{id}.{format_name}", file=BytesIO(await resp.read()))
+                            result_upload_code, result_upload, result_response = await tools.storage_file_upload(
+                                type="avatar",
+                                path=f"{id}.{format_name}",
+                                file=BytesIO(upload_bytes),
+                            )
                             if result_response != False:
                                 # Помечаем в БД пользователя, что у него есть аватар
                                 session.query(account.Account).filter(account.Account.id == id).update({"avatar_url": f"local.{format_name}"})
@@ -372,6 +403,19 @@ async def yandex_complite(
 
 #    return "Если это окно не закрылось автоматически, можете закрыть его сами :)"
 
+@router.delete(
+    MAIN_URL+"/oauth/{service_name}",
+    tags=["Session", "Profile"],
+    status_code=200,
+    summary="Отвязывание OAuth сервиса от аккаунта",
+    responses={
+        200: {"description": "Отвязывание прошло успешно."},
+        400: {"description": "Недопустимое значение `service_name`"},
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Аккаунт не найден."},
+        406: {"description": "Нельзя отсоединить все сервисы от аккаунта."},
+    },
+)
 @router.post(
     MAIN_URL+"/session/{service_name}/disconnect",
     tags=["Session", "Profile"],
@@ -447,6 +491,16 @@ async def refresh(
         content="Запрос обработан"
     )
 
+@router.delete(
+    MAIN_URL+"/sessions/current",
+    tags=["Session"],
+    status_code=200,
+    summary="Выход из системы",
+    responses={
+        200: {"description": "Успешно"},
+        401: standarts.responses[401],
+    },
+)
 @router.post(
     MAIN_URL+"/session/logout",
     tags=["Session"],
