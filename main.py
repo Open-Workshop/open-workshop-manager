@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from ow_config import MAIN_URL
+import ow_config as config
 
 from games.api_game import router as game_router
 from mods.api_mod import router as mod_router
@@ -30,15 +31,20 @@ class CookieDefaultsMiddleware:
             if message["type"] == "http.response.start":
                 headers = message.get("headers", [])
                 new_headers = []
+                cookie_domain = getattr(config, "COOKIE_DOMAIN", None)
+                cookie_samesite = getattr(config, "COOKIE_SAMESITE", None)
+                cookie_secure = bool(getattr(config, "COOKIE_SECURE", False))
                 for name, value in headers:
                     if name.lower() == b"set-cookie":
                         cookie_str = value.decode("latin-1")
                         # Add Domain if not present
-                        if "Domain=" not in cookie_str:
-                            cookie_str += "; Domain=.openworkshop.miskler.ru"
+                        if cookie_domain and "Domain=" not in cookie_str:
+                            cookie_str += f"; Domain={cookie_domain}"
                         # Optionally add SameSite if not present (though Starlette defaults to Lax)
-                        if "SameSite=" not in cookie_str:
-                            cookie_str += "; SameSite=Lax"
+                        if cookie_samesite and "SameSite=" not in cookie_str:
+                            cookie_str += f"; SameSite={cookie_samesite}"
+                        if cookie_secure and "Secure" not in cookie_str:
+                            cookie_str += "; Secure"
                         value = cookie_str.encode("latin-1")
                     new_headers.append((name, value))
                 message["headers"] = new_headers
@@ -69,10 +75,37 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://openworkshop.miskler.ru",
-        "https://api.openworkshop.miskler.ru", # сам API
-    ],
+    allow_origins=(
+        lambda: list(
+            dict.fromkeys(
+                list(
+                    getattr(
+                        config,
+                        "CORS_ORIGINS",
+                        ["https://openworkshop.miskler.ru", "https://api.openworkshop.miskler.ru"],
+                    )
+                )
+                + (
+                    list(
+                        getattr(
+                            config,
+                            "LOCALHOST_CORS_ORIGINS",
+                            [
+                                "http://localhost:3000",
+                                "http://127.0.0.1:3000",
+                                "http://localhost:5173",
+                                "http://127.0.0.1:5173",
+                                "http://localhost:8080",
+                                "http://127.0.0.1:8080",
+                            ],
+                        )
+                    )
+                    if bool(getattr(config, "ALLOW_LOCALHOST_CORS", False))
+                    else []
+                )
+            )
+        )
+    )(),
     allow_credentials=True,  # КРИТИЧЕСКИ ВАЖНО для кук
     allow_methods=["*"],     # Разрешить все методы
     allow_headers=["*"],     # Разрешить все заголовки

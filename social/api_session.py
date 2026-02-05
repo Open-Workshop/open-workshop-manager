@@ -138,16 +138,16 @@ async def password_authorization(
             bcrypt.checkpw(password=password.encode('utf-8'), hashed_password=user.password_hash.encode('utf-8')):
         sessions_data = await account.gen_session(user_id=user.id, session=session, login_method="password")
 
-        response.set_cookie(key='accessToken', value=sessions_data["access"]["token"], httponly=True, secure=True,
+        response.set_cookie(key='accessToken', value=sessions_data["access"]["token"], httponly=True, secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE,
                             max_age=2100)
-        response.set_cookie(key='refreshToken', value=sessions_data["refresh"]["token"], httponly=True, secure=True,
+        response.set_cookie(key='refreshToken', value=sessions_data["refresh"]["token"], httponly=True, secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE,
                             max_age=5184000)
 
         response.set_cookie(key='loginJS', value=sessions_data["refresh"]["end"].strftime(STANDART_STR_TIME),
-                            secure=True, max_age=5184000)
+                            secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE, max_age=5184000)
         response.set_cookie(key='accessJS', value=sessions_data["access"]["end"].strftime(STANDART_STR_TIME),
-                            secure=True, max_age=5184000)
-        response.set_cookie(key='userID', value=user.id, secure=True, max_age=5184000)
+                            secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE, max_age=5184000)
+        response.set_cookie(key='userID', value=user.id, secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE, max_age=5184000)
 
         session.commit()
         session.close()
@@ -285,16 +285,16 @@ async def google_complite(
     session.commit()
     session.close()
 
-    response.set_cookie(key='accessToken', value=sessions_data["access"]["token"], httponly=True, secure=True,
+    response.set_cookie(key='accessToken', value=sessions_data["access"]["token"], httponly=True, secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE,
                         max_age=2100)
-    response.set_cookie(key='refreshToken', value=sessions_data["refresh"]["token"], httponly=True, secure=True,
+    response.set_cookie(key='refreshToken', value=sessions_data["refresh"]["token"], httponly=True, secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE,
                         max_age=5184000)
 
-    response.set_cookie(key='loginJS', value=sessions_data["refresh"]["end"].strftime(STANDART_STR_TIME), secure=True,
+    response.set_cookie(key='loginJS', value=sessions_data["refresh"]["end"].strftime(STANDART_STR_TIME), secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE,
                         max_age=5184000)
-    response.set_cookie(key='accessJS', value=sessions_data["access"]["end"].strftime(STANDART_STR_TIME), secure=True,
+    response.set_cookie(key='accessJS', value=sessions_data["access"]["end"].strftime(STANDART_STR_TIME), secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE,
                         max_age=5184000)
-    response.set_cookie(key='userID', value=id, secure=True, max_age=5184000)
+    response.set_cookie(key='userID', value=id, secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE, max_age=5184000)
 
     return "Если это окно не закрылось автоматически, можете закрыть его сами :)"
 

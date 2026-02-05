@@ -4,6 +4,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from fastapi import Request, Response
 import bcrypt
 import datetime
+import ow_config as config
 from .envs import DB_HOST, DB_PASSWORD, DB_PORT, DB_USER
 
 engine = create_engine(
@@ -224,12 +225,12 @@ async def update_session(response: Response, request: Request, result_row: bool 
         session.commit()
 
         # Обновление данных в куки юзера
-        response.set_cookie(key='accessToken', value=access_token, httponly=True, secure=True, max_age=2100)
-        response.set_cookie(key='refreshToken', value=refresh_token, httponly=True, secure=True, max_age=5184000)
+        response.set_cookie(key='accessToken', value=access_token, httponly=True, secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE, max_age=2100)
+        response.set_cookie(key='refreshToken', value=refresh_token, httponly=True, secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE, max_age=5184000)
 
-        response.set_cookie(key='loginJS', value=end_refresh.strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
-        response.set_cookie(key='accessJS', value=end_access.strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
-        response.set_cookie(key='userID', value=str(res.owner_id), secure=True, max_age=5184000)
+        response.set_cookie(key='loginJS', value=end_refresh.strftime(STANDART_STR_TIME), secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE, max_age=5184000)
+        response.set_cookie(key='accessJS', value=end_access.strftime(STANDART_STR_TIME), secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE, max_age=5184000)
+        response.set_cookie(key='userID', value=str(res.owner_id), secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE, max_age=5184000)
 
         if result_row:
             rr = session.query(Session).filter_by(id=res.id).first().__dict__

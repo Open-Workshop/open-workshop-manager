@@ -26,3 +26,23 @@ access_mods_check_anonymous = ""
 
 storage_upload_token = ""
 storage_delete_token = ""
+
+
+# Cookies / CORS
+
+# For localhost set COOKIE_DOMAIN = "" (or None) and COOKIE_SECURE = False
+COOKIE_DOMAIN = ".openworkshop.miskler.ru"
+COOKIE_SAMESITE = "Lax"  # "Lax" | "Strict" | "None"
+COOKIE_SECURE = True
+
+CORS_ORIGINS = [
+    "https://openworkshop.miskler.ru",
+    "https://api.openworkshop.miskler.ru",
+]
+
+# Allow localhost for dev frontends talking to prod API
+ALLOW_LOCALHOST_CORS = True
+LOCALHOST_CORS_ORIGINS = [
+    "http://localhost:6660",
+    "http://127.0.0.1:6660",
+]
