@@ -925,7 +925,7 @@ async def add_mod(
             session.close()
 
             file_ext = mod_file.filename.split(".")[-1]
-            result_upload_code, result_content, result_upload = await tools.storage_file_upload(type="archive", path=f"mods/{id}/main.{file_ext}", file=real_mod_file)
+            result_upload_code, result_content, result_upload = await tools.storage_file_upload(type="archive", path=f"mods/{rid}/main.{file_ext}", file=real_mod_file)
 
             session = Session()
             if result_upload != False:
