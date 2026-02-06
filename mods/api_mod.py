@@ -338,7 +338,7 @@ async def mod_list(
                             content={"message": "the maximum complexity of filters is 90 elements in sum",
                                      "error_id": 2})
 
-    want_not_public = show_not_public or user > 0
+    want_not_public = show_not_public and user > 0
     if want_not_public:
         if user <= 0:
             return PlainTextResponse(status_code=403, content="Заблокировано!")
