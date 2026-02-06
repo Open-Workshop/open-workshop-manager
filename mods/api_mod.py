@@ -1049,6 +1049,10 @@ async def edit_mod(
             url = f"mods/{mod_id}/main.{mod_file.filename.split('.')[-1]}"
 
             body["date_update_file"] = datetime.now()
+            file_size = mod_file.size
+            if file_size is None:
+                file_size = real_mod_file.getbuffer().nbytes
+            body["size"] = file_size
 
             result_file_update_code, result_file_update, result_file_status = await tools.storage_file_upload(type="archive", path=url, file=real_mod_file)
             if result_file_status == False:
