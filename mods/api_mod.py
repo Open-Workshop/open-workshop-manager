@@ -302,7 +302,7 @@ async def mod_list(
     name: str = Query("", description="Поиск по названию."),
     user: int = Query(0, description="Фильтрация по модам определенного автора, 0 <= не фильтровать."),
     user_owner: int = Query(-1, description="Фильтрация по роли пользователя в разработке модов (работает если активен user параметр). -1 <= не фильтровать, 0 - владелец, 1 - разработчик"),
-    user_catalog: bool = Query(True, description="Включать только публичные моды пользователя*"),
+    show_not_public: bool = Query(False, description="Показывать непубличные моды пользователя *(только при фильтре `user` и если запрашивает этот пользователь или админ).*"),
     short_description: bool = Query(False, description="Включать ли в ответ короткое описание модов."),
     description: bool = Query(False, description="Включать ли в ответ полное описание модов."),
     dates: bool = Query(False, description="Включать ли в ответ даты создания и обновления модов."),
@@ -312,8 +312,8 @@ async def mod_list(
     Возвращает список модов с возможностью многочисленных опциональных фильтров и настрое.
     Не до конца провалидированные моды и не полностью публичные моды* в список не попадают.
 
-    **Если идет фильтрация по пользователю и запрошены не только моды в каталоге, то будут возвращены моды с любой публичностью, но если запрашивающий
-    пользователь не имеет доступа к конкретному моду, вместо словаря с информацией о нем, будет заглушка "Access denied (hide info)"*
+    **Если идет фильтрация по пользователю и включен `show_not_public`, то будут возвращены моды с любой публичностью. `show_not_public` доступен
+    только при фильтре `user` и если запрашивает этот пользователь либо админ. Если доступа нет, будет возвращена ошибка 401/403.**
 
     О сортировке:
     Префикс `i` указывает что сортировка должна быть инвертированной.
@@ -338,6 +338,24 @@ async def mod_list(
                             content={"message": "the maximum complexity of filters is 90 elements in sum",
                                      "error_id": 2})
 
+    want_not_public = show_not_public or user > 0
+    if want_not_public:
+        if user <= 0:
+            return PlainTextResponse(status_code=403, content="Заблокировано!")
+
+        access_result = await account.check_access(request=request, response=response)
+        req_user_id = access_result.get("owner_id", -1) if access_result else -1
+        if req_user_id < 0:
+            return PlainTextResponse(status_code=401, content="Недействительный ключ сессии!")
+
+        if req_user_id != user:
+            session_account = sessionmaker(bind=account.engine)()
+            user_req = session_account.query(account.Account.admin).filter_by(id=req_user_id).first()
+            session_account.close()
+
+            if not user_req or not user_req.admin:
+                return PlainTextResponse(status_code=403, content="Заблокировано!")
+
     # Создание сессии
     session = sessionmaker(bind=catalog.engine)()
 
@@ -354,7 +372,7 @@ async def mod_list(
 
     query = query.order_by(tools.sort_mods(sort))
     query = query.filter(catalog.Mod.condition == 0)
-    only_publics = user_catalog or user == 0
+    only_publics = not want_not_public
     if only_publics:
         query = query.filter(catalog.Mod.public == 0)
 
