@@ -317,6 +317,15 @@ async def edit_profile(
             session.close()
             return PlainTextResponse(status_code=413,
                                 content="Слишком длинный никнейм! (максимальная длина 50 символов)")
+        else:
+            # Ensure username uniqueness
+            existing_username = session.query(account.Account.id).filter(
+                account.Account.username == username,
+                account.Account.id != user_id,
+            ).first()
+            if existing_username:
+                session.close()
+                return PlainTextResponse(status_code=409, content="Этот никнейм уже занят!")
 
         query_update["username"] = username
         query_update["last_username_reset"] = today
