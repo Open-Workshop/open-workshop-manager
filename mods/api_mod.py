@@ -859,7 +859,7 @@ async def add_mod(
             return PlainTextResponse(status_code=413, content="Короткое описание слишком длинное!")
         elif len(re.sub(r'\s+', ' ', mod_description)) > 10000:
             return PlainTextResponse(status_code=413, content="Описание слишком длинное!")
-        elif len(mod_name) > 60:
+        elif len(mod_name) > 128:
             return PlainTextResponse(status_code=413, content="Название слишком длинное!")
         elif len(mod_name) < 1:
             return PlainTextResponse(status_code=411, content="Название слишком короткое!")
