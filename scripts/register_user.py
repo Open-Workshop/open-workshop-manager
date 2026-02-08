@@ -23,12 +23,7 @@ import bcrypt
 from sqlalchemy.orm import sessionmaker
 
 from sql_logic import sql_account as account
-
-
-MIN_USERNAME_LEN = 2
-MAX_USERNAME_LEN = 128
-MIN_PASSWORD_LEN = 6
-MAX_PASSWORD_LEN = 100
+from limits import LIMITS
 
 
 def parse_args() -> argparse.Namespace:
@@ -62,17 +57,17 @@ def prompt_password() -> str:
 
 
 def validate_username(username: str) -> None:
-    if len(username) < MIN_USERNAME_LEN:
-        raise ValueError(f"Username must be at least {MIN_USERNAME_LEN} characters.")
-    if len(username) > MAX_USERNAME_LEN:
-        raise ValueError(f"Username must be at most {MAX_USERNAME_LEN} characters.")
+    if len(username) < LIMITS.profile.username_min:
+        raise ValueError(f"Username must be at least {LIMITS.profile.username_min} characters.")
+    if len(username) > LIMITS.profile.username_max:
+        raise ValueError(f"Username must be at most {LIMITS.profile.username_max} characters.")
 
 
 def validate_password(password: str) -> None:
-    if len(password) < MIN_PASSWORD_LEN:
-        raise ValueError(f"Password must be at least {MIN_PASSWORD_LEN} characters.")
-    if len(password) > MAX_PASSWORD_LEN:
-        raise ValueError(f"Password must be at most {MAX_PASSWORD_LEN} characters.")
+    if len(password) < LIMITS.profile.password_min:
+        raise ValueError(f"Password must be at least {LIMITS.profile.password_min} characters.")
+    if len(password) > LIMITS.profile.password_max:
+        raise ValueError(f"Password must be at most {LIMITS.profile.password_max} characters.")
 
 
 def main() -> int:

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, Response, Form, Query, Path
 from fastapi.responses import JSONResponse, PlainTextResponse
 import tools
 from ow_config import MAIN_URL
+from limits import LIMITS
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import insert, delete
 from sql_logic import sql_catalog as catalog
@@ -82,7 +83,7 @@ router = APIRouter()
     }
 )
 async def games_list(
-    page_size: int = Query(10, description="Размер 1 страницы. Диапазон - 1...50 элементов."), 
+    page_size: int = Query(LIMITS.page.default, description="Размер 1 страницы. Диапазон - 1...50 элементов."), 
     page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."), 
     sort: str = Query("MODS_DOWNLOADS", description="Сортировка. Префикс `i` указывает что сортировка должна быть инвертированной."),
     name: str = Query("", description="Фильтр по заголовку/названию."),
@@ -112,9 +113,9 @@ async def games_list(
     allowed_ids = tools.str_to_list(allowed_ids)
     allowed_sources_ids = tools.str_to_list(allowed_sources_ids)
 
-    if page_size > 50 or page_size < 1:
+    if page_size > LIMITS.page.max or page_size < LIMITS.page.min:
         return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 1})
-    elif (len(type_app) + len(genres) + len(primary_sources) + len(allowed_ids) + len(allowed_sources_ids)) > 80:
+    elif (len(type_app) + len(genres) + len(primary_sources) + len(allowed_ids) + len(allowed_sources_ids)) > LIMITS.game.filters_max:
         return JSONResponse(status_code=413,
                             content={"message": "the maximum complexity of filters is 80 elements in sum",
                                      "error_id": 2})
@@ -258,10 +259,10 @@ async def game_info(
 async def add_game(
     response: Response,  # Ответ HTTP
     request: Request,  # Запрос HTTP
-    game_name: str = Form(..., description="Название игры", max_length=128),  # Название игры
-    game_short_desc: str = Form(..., description="Краткое описание игры", max_length=256),  # Краткое описание игры
-    game_desc: str = Form(..., description="Полное описание игры", max_length=10000),  # Описание игры
-    game_type: str = Form("game", description="Тип игры", max_length=32),  # Тип игры (по умолчанию "game")
+    game_name: str = Form(..., description="Название игры", max_length=LIMITS.game.name_max),  # Название игры
+    game_short_desc: str = Form(..., description="Краткое описание игры", max_length=LIMITS.game.short_desc_max),  # Краткое описание игры
+    game_desc: str = Form(..., description="Полное описание игры", max_length=LIMITS.game.desc_max),  # Описание игры
+    game_type: str = Form("game", description="Тип игры", max_length=LIMITS.game.type_max),  # Тип игры (по умолчанию "game")
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
@@ -307,11 +308,11 @@ async def edit_game(
     response: Response,  # Ответ HTTP
     request: Request,  # Запрос HTTP
     game_id: int = Form(..., description="ID игры для редактирования"),  # ID игры для редактирования
-    game_name: str = Form(None, description="Название игры", max_length=128),  # Название игры
-    game_short_desc: str = Form(None, description="Краткое описание игры", max_length=256),  # Краткое описание игры
-    game_desc: str = Form(None, description="Полное описание игры", max_length=10000),  # Описание игры
-    game_type: str = Form(None, description="Тип игры", max_length=32),  # Тип игры
-    game_source: str = Form(None, description="Источник игры. Так же обязательно передавать и `game_source_id`!", max_length=64),  # Источник игры
+    game_name: str = Form(None, description="Название игры", max_length=LIMITS.game.name_max),  # Название игры
+    game_short_desc: str = Form(None, description="Краткое описание игры", max_length=LIMITS.game.short_desc_max),  # Краткое описание игры
+    game_desc: str = Form(None, description="Полное описание игры", max_length=LIMITS.game.desc_max),  # Описание игры
+    game_type: str = Form(None, description="Тип игры", max_length=LIMITS.game.type_max),  # Тип игры
+    game_source: str = Form(None, description="Источник игры. Так же обязательно передавать и `game_source_id`!", max_length=LIMITS.game.source_max),  # Источник игры
     game_source_id: int = Form(None, description="ID игры в первоисточнике"),  # ID источника игры
 ) -> JSONResponse:
     """

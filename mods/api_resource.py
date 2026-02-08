@@ -6,6 +6,7 @@ from sql_logic import sql_catalog as catalog
 from sqlalchemy import insert
 from sqlalchemy.orm import sessionmaker
 from ow_config import MAIN_URL
+from limits import LIMITS
 from datetime import datetime
 import standarts
 
@@ -39,11 +40,11 @@ router = APIRouter()
 async def list_resources_rest(
     response: Response,
     request: Request,
-    owner_type: str = Query(..., description="Тип ресурса-владельца.", examples=["mods", "games"], max_length=64),
+    owner_type: str = Query(..., description="Тип ресурса-владельца.", examples=["mods", "games"], max_length=LIMITS.resource.owner_type_max),
     owner_ids = Query(None, description="Список ID-владельцев в формате JSON списка.", example='[1, 2, 3]'),
     owner_id: int | None = Query(None, description="ID владельца (альтернатива owner_ids)."),
     resources_list_id = Query([], description="Список ID-ресурсов.", example='[1, 2, 3]'),
-    page_size: int = Query(10, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
+    page_size: int = Query(LIMITS.page.default, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
     page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
     types_resources = Query([], description="Фильтрация по типу ресурсов *(массив типов)*.", example='[\"logo\", \"screenshot\"]'),
     only_urls: bool = Query(False, description="Возвращать только ссылки или полную информацию."),
@@ -88,9 +89,9 @@ async def list_resources_rest(
 async def add_resource_rest(
     response: Response,
     request: Request,
-    owner_type: str = Form(..., description="Тип ресурса-владельца.", examples=["mods", "games"], max_length=64),
-    resource_type: str = Form(..., description="Название типа ресурса.", min_length=2, max_length=64),
-    resource_url: str = Form("", description="URL ресурса *(если не передан файл)*.", min_length=0, max_length=256),
+    owner_type: str = Form(..., description="Тип ресурса-владельца.", examples=["mods", "games"], max_length=LIMITS.resource.owner_type_max),
+    resource_type: str = Form(..., description="Название типа ресурса.", min_length=LIMITS.resource.type_min, max_length=LIMITS.resource.type_max),
+    resource_url: str = Form("", description="URL ресурса *(если не передан файл)*.", min_length=LIMITS.resource.url_min_create, max_length=LIMITS.resource.url_max),
     resource_owner_id: int = Form(..., description="ID ресурса-владельца."),
     resource_file: UploadFile = File(None, description="Файл ресурса."),
 ):
@@ -124,8 +125,8 @@ async def edit_resource_rest(
     response: Response,
     request: Request,
     resource_id: int = Path(description="ID ресурса."),
-    resource_type: str = Form(None, description="Тип ресурса.", min_length=2, max_length=64),
-    resource_url: str = Form(None, description="URL ресурса.", min_length=7, max_length=256),
+    resource_type: str = Form(None, description="Тип ресурса.", min_length=LIMITS.resource.type_min, max_length=LIMITS.resource.type_max),
+    resource_url: str = Form(None, description="URL ресурса.", min_length=LIMITS.resource.url_min, max_length=LIMITS.resource.url_max),
     resource_file: UploadFile = File(None, description="Файл ресурса *(приоритетней `resource_url`)*."),
 ):
     return await edit_resource(
@@ -237,10 +238,10 @@ async def delete_resource_rest(
 async def list_resources(
     response: Response,
     request: Request,
-    owner_type: str = Path(description="Тип ресурса-владельца.", examples=["mods", "games"], max_length=64),
+    owner_type: str = Path(description="Тип ресурса-владельца.", examples=["mods", "games"], max_length=LIMITS.resource.owner_type_max),
     owner_ids = Path(description="Список ID-владельцев.", example='[1, 2, 3]'),
     resources_list_id = Query([], description="Список ID-ресурсов.", example='[1, 2, 3]'),
-    page_size: int = Query(10, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
+    page_size: int = Query(LIMITS.page.default, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
     page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
     types_resources = Query([], description="Фильтрация по типу ресурсов *(массив типов)*.", example='["logo", "screenshot"]'),
     only_urls: bool = Query(False, description="Возвращать только ссылки или полную информацию."),
@@ -257,9 +258,9 @@ async def list_resources(
     if owner_type not in ['mods', 'games']:
         return PlainTextResponse(status_code=405, content="unknown owner_type")
 
-    if len(types_resources) + len(resources_list_id) + len(owner_ids) > 120:
+    if len(types_resources) + len(resources_list_id) + len(owner_ids) > LIMITS.resource.filters_max:
         return JSONResponse(status_code=413, content={"message": "the maximum complexity of filters is 120 elements in sum", "error_id": 1})
-    elif page_size > 50 or page_size < 1:
+    elif page_size > LIMITS.page.max or page_size < LIMITS.page.min:
         return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 2})
     elif page < 0:
         return JSONResponse(status_code=413, content={"message": "incorrect page", "error_id": 3})
@@ -324,9 +325,9 @@ async def list_resources(
 async def add_resource(
     response: Response,
     request: Request,
-    owner_type: str = Path(description="Тип ресурса-владельца.", examples=["mods", "games"], max_length=64),
-    resource_type: str = Form(..., description="Название типа ресурса.", min_length=2, max_length=64),
-    resource_url: str = Form("", description="URL ресурса *(если не передан файл)*.", min_length=0, max_length=256),
+    owner_type: str = Path(description="Тип ресурса-владельца.", examples=["mods", "games"], max_length=LIMITS.resource.owner_type_max),
+    resource_type: str = Form(..., description="Название типа ресурса.", min_length=LIMITS.resource.type_min, max_length=LIMITS.resource.type_max),
+    resource_url: str = Form("", description="URL ресурса *(если не передан файл)*.", min_length=LIMITS.resource.url_min_create, max_length=LIMITS.resource.url_max),
     resource_owner_id: int = Form(..., description="ID ресурса-владельца."),
     resource_file: UploadFile = File(None, description="Файл ресурса.")
 ):
@@ -361,7 +362,7 @@ async def add_resource(
                 return PlainTextResponse(status_code=result_code, content=f'Upload error ({result_upload})')
             else:
                 real_url = f'local/{result_upload}'
-        elif len(resource_url) > 256 or not resource_url.startswith('http'):
+        elif len(resource_url) > LIMITS.resource.url_max or not resource_url.startswith('http'):
             return PlainTextResponse(status_code=400, content='Incorrect URL')
 
         session = sessionmaker(bind=catalog.engine)()
@@ -403,8 +404,8 @@ async def edit_resource(
     response: Response,
     request: Request,
     resource_id: int = Form(..., description="ID ресурса."),
-    resource_type: str = Form(None, description="Тип ресурса.", min_length=2, max_length=64),
-    resource_url: str = Form(None, description="URL ресурса.", min_length=7, max_length=256),
+    resource_type: str = Form(None, description="Тип ресурса.", min_length=LIMITS.resource.type_min, max_length=LIMITS.resource.type_max),
+    resource_url: str = Form(None, description="URL ресурса.", min_length=LIMITS.resource.url_min, max_length=LIMITS.resource.url_max),
     resource_file: UploadFile = File(None, description="Файл ресурса *(приоритетней `resource_url`)*.")
 ):
     session = sessionmaker(bind=catalog.engine)()
@@ -428,7 +429,7 @@ async def edit_resource(
 
         if resource_file or resource_url:
             if not resource_file and resource_url:
-                if len(resource_url) <= 6 or len(resource_url) > 256 or not resource_url.startswith('http'):
+                if len(resource_url) < LIMITS.resource.url_min or len(resource_url) > LIMITS.resource.url_max or not resource_url.startswith('http'):
                     return PlainTextResponse(status_code=400, content='Incorrect URL')
 
             if got_resource.url.startswith("local/") and \
@@ -488,7 +489,7 @@ async def edit_resource(
 async def delete_resource(
     response: Response,
     request: Request,
-    owner_type: str = Path(description="Тип ресурса.", examples=["mods", "games"], max_length=64),
+    owner_type: str = Path(description="Тип ресурса.", examples=["mods", "games"], max_length=LIMITS.resource.owner_type_max),
     resource_id: int = Form(..., description="ID ресурса для удаления."),
 ):
     if owner_type not in ['mods', 'games']:

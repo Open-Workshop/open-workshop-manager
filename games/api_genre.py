@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, Response, Form, Query
 from fastapi.responses import JSONResponse
 import tools
 from ow_config import MAIN_URL
+from limits import LIMITS
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import insert, delete
 from sql_logic import sql_catalog as catalog
@@ -46,11 +47,11 @@ router = APIRouter()
     }
 )
 async def list_genres(
-    page_size: int = Query(10, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
+    page_size: int = Query(LIMITS.page.default, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
     page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
-    name: str = Query("", description="Поиск по названию.", max_length=128),
+    name: str = Query("", description="Поиск по названию.", max_length=LIMITS.genre.name_max),
 ):
-    if page_size > 50 or page_size < 1:
+    if page_size > LIMITS.page.max or page_size < LIMITS.page.min:
         return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 1})
 
     # Создание сессии
@@ -82,7 +83,7 @@ async def list_genres(
 async def add_genre(
     response: Response, 
     request: Request, 
-    genre_name: str = Form(..., description="Название добавляемого жанра", max_length=128),
+    genre_name: str = Form(..., description="Название добавляемого жанра", max_length=LIMITS.genre.name_max),
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
@@ -120,7 +121,7 @@ async def edit_genre(
     response: Response, 
     request: Request, 
     genre_id: int = Form(..., description="ID жанра для редактирования"),
-    genre_name: str = Form(None, description="Название жанра", max_length=128),
+    genre_name: str = Form(None, description="Название жанра", max_length=LIMITS.genre.name_max),
 ):
     access_result = await tools.access_admin(response=response, request=request)
 

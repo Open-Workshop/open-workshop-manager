@@ -6,6 +6,7 @@ from sql_logic import sql_catalog as catalog
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import insert, delete
 from ow_config import MAIN_URL
+from limits import LIMITS
 import standarts
 
 
@@ -33,7 +34,7 @@ router = APIRouter()
 async def add_tag(
     response: Response,
     request: Request,
-    tag_name: str = Form(..., description="Название тега", max_length=128),
+    tag_name: str = Form(..., description="Название тега", max_length=LIMITS.tag.name_max),
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
@@ -92,7 +93,7 @@ async def edit_tag(
     response: Response,
     request: Request,
     tag_id: int = Form(..., description="ID тега для редактирования"),
-    tag_name: str = Form(..., description="Название тега", max_length=128),
+    tag_name: str = Form(..., description="Название тега", max_length=LIMITS.tag.name_max),
 ):
     access_result = await tools.access_admin(response=response, request=request)
 

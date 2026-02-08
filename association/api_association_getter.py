@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, Response, Query, Path
 from fastapi.responses import JSONResponse
 import tools
 from ow_config import MAIN_URL
+from limits import LIMITS
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import insert
 from sql_logic import sql_catalog as catalog
@@ -80,15 +81,15 @@ router = APIRouter()
 )
 async def list_tags(
     game_id: int = Query(-1, description="ID игры *(для активации фильтра значение `>0`)*."),
-    page_size: int = Query(10, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
+    page_size: int = Query(LIMITS.page.default, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
     page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
-    name: str = Query("", description="Поиск по названию.", max_length=128),
+    name: str = Query("", description="Поиск по названию.", max_length=LIMITS.tag.name_max),
     tags_ids = Query([], description="Фильтрация по id тегов *(массив id)*.", example="[1, 2, 3]"),
 ):
     """
     Возвращает список тегов. Они могут быть отфильтрованны по закрепленности за конкретной игрой.
     """
-    if page_size > 50 or page_size < 1:
+    if page_size > LIMITS.page.max or page_size < LIMITS.page.min:
         return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 1})
 
     tags_ids = tools.str_to_list(tags_ids)
@@ -146,7 +147,7 @@ async def list_tags_for_mods(
     mods_ids_list = tools.str_to_list(mods_ids_list)
     tags = tools.str_to_list(tags)
 
-    if (len(mods_ids_list) + len(tags)) > 80:
+    if (len(mods_ids_list) + len(tags)) > LIMITS.association.filters_max:
         return JSONResponse(status_code=413,
                             content={"message": "the maximum complexity of filters is 80 elements in sum",
                                      "error_id": 1})
@@ -215,7 +216,7 @@ async def list_genres_for_games(
     games_ids_list = tools.str_to_list(games_ids_list)
     genres = tools.str_to_list(genres)
 
-    if (len(games_ids_list) + len(genres)) > 80:
+    if (len(games_ids_list) + len(genres)) > LIMITS.association.filters_max:
         return JSONResponse(status_code=413,
                             content={"message": "the maximum complexity of filters is 80 elements in sum",
                                      "error_id": 2})

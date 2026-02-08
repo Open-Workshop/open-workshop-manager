@@ -6,6 +6,7 @@ import tools
 from ow_config import MAIN_URL
 import datetime
 import ow_config as config
+from limits import LIMITS
 from sqlalchemy import insert
 from sqlalchemy.orm import sessionmaker
 from sql_logic import sql_account as account
@@ -209,13 +210,13 @@ async def edit_profile(
     response: Response,
     request: Request,
     user_id: int = Path(description="ID профиля."),
-    username: str = Form(None, description="Новое имя пользователя.", min_length=3, max_length=128),
-    about: str = Form(None, description="Новое описание профиля.", max_length=512),
+    username: str = Form(None, description="Новое имя пользователя.", min_length=LIMITS.profile.username_min_form, max_length=LIMITS.profile.username_max),
+    about: str = Form(None, description="Новое описание профиля.", max_length=LIMITS.profile.about_max),
     avatar: UploadFile = File(None, description="Новый аватар профиля *(ограничение 2097152 байт т.е. 2 мегабайта)*."),
     empty_avatar: bool = Form(None, description="Удалить аватар профиля *(приоритетней установки аватара)*."),
-    grade: str = Form(None, description="Новое звание пользователя *(назначается только админами)*.", min_length=3, max_length=128),
+    grade: str = Form(None, description="Новое звание пользователя *(назначается только админами)*.", min_length=LIMITS.profile.grade_min_form, max_length=LIMITS.profile.grade_max),
     off_password: bool = Form(None, description="Отключить пароль *(приоритетней установки пароля)*."),
-    new_password: str = Form(None, description="Новый пароль.", min_length=6, max_length=100),
+    new_password: str = Form(None, description="Новый пароль.", min_length=LIMITS.profile.password_min, max_length=LIMITS.profile.password_max),
     mute: datetime.datetime = Form(None, description="Время мута *(может быть назначен только админом и не самому себе)*, *(время не должно быть прошедшим)*."),
 ):
     """
@@ -309,11 +310,11 @@ async def edit_profile(
     query_update = {}
 
     if username:
-        if len(username) < 2:
+        if len(username) < LIMITS.profile.username_min:
             session.close()
             return PlainTextResponse(status_code=411,
                                 content="Слишком короткий никнейм! (минимальная длина 2 символа)")
-        elif len(username) > 128:
+        elif len(username) > LIMITS.profile.username_max:
             session.close()
             return PlainTextResponse(status_code=413,
                                 content="Слишком длинный никнейм! (максимальная длина 50 символов)")
@@ -331,7 +332,7 @@ async def edit_profile(
         query_update["last_username_reset"] = today
 
     if about:
-        if len(about) > 512:
+        if len(about) > LIMITS.profile.about_max:
             session.close()
             return PlainTextResponse(status_code=413,
                                 content="Слишком длинное поле \"обо мне\"! (максимальная длина 512 символов)")
@@ -339,11 +340,11 @@ async def edit_profile(
         query_update["about"] = about
 
     if grade:
-        if len(grade) < 2:
+        if len(grade) < LIMITS.profile.grade_min:
             session.close()
             return PlainTextResponse(status_code=411,
                                 content="Слишком короткий грейд! (минимальная длина 2 символа)")
-        elif len(grade) > 128:
+        elif len(grade) > LIMITS.profile.grade_max:
             session.close()
             return PlainTextResponse(status_code=413,
                                 content="Слишком длинный грейд! (максимальная длина 100 символов)")
@@ -354,11 +355,11 @@ async def edit_profile(
         query_update["password_hash"] = None
         query_update["last_password_reset"] = today
     elif new_password:
-        if len(new_password) < 6:
+        if len(new_password) < LIMITS.profile.password_min:
             session.close()
             return PlainTextResponse(status_code=411,
                                 content="Слишком короткий пароль! (минимальная длина 6 символа)")
-        elif len(new_password) > 100:
+        elif len(new_password) > LIMITS.profile.password_max:
             session.close()
             return PlainTextResponse(status_code=413,
                                 content="Слишком длинный пароль! (максимальная длина 100 символов)")
@@ -386,7 +387,7 @@ async def edit_profile(
                 return PlainTextResponse(status_code=523,
                                     content="Что-то пошло не так при удалении аватара из системы.")
     elif avatar is not None:  # Проверка на аватар в самом конце, т.к. он приводит к изменениям в файловой системе
-        if avatar.size >= 2097152:
+        if avatar.size >= LIMITS.profile.avatar_max_bytes:
             session.close()
             return PlainTextResponse(status_code=413, content="Вес аватара не должен превышать 2 МБ.")
 

@@ -11,6 +11,7 @@ from sql_logic import sql_catalog as catalog
 from sql_logic import sql_statistics as statistics
 from ow_config import MAIN_URL
 import ow_config as config
+from limits import LIMITS
 import standarts
 
 
@@ -191,7 +192,7 @@ async def public_mods(
 ):
     ids_array = tools.str_to_list(ids_array)
 
-    if len(ids_array) < 1 or len(ids_array) > 50:
+    if len(ids_array) < LIMITS.mod.public_ids_min or len(ids_array) > LIMITS.mod.public_ids_max:
         return PlainTextResponse(status_code=413, content="the size of the array is not correct")
 
     output = []
@@ -290,7 +291,7 @@ async def public_mods(
 async def mod_list(
     response: Response, 
     request: Request, 
-    page_size: int = Query(10, description="Размер 1 страницы. Диапазон - 1...50 элементов."), 
+    page_size: int = Query(LIMITS.page.default, description="Размер 1 страницы. Диапазон - 1...50 элементов."), 
     page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
     sort: str = Query("DOWNLOADS", description="Сортировка. Подробнее в полном описании функции."),
     tags = Query([], description="Массив ID тегов", examples={"example": {"value": "[1, 2, 3]"}}),
@@ -331,9 +332,9 @@ async def mod_list(
     allowed_ids = tools.str_to_list(allowed_ids)
     allowed_sources_ids = tools.str_to_list(allowed_sources_ids)
 
-    if page_size > 50 or page_size < 1:
+    if page_size > LIMITS.page.max or page_size < LIMITS.page.min:
         return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 1})
-    elif (len(tags) + len(primary_sources) + len(allowed_ids) + len(allowed_sources_ids)) > 90:
+    elif (len(tags) + len(primary_sources) + len(allowed_ids) + len(allowed_sources_ids)) > LIMITS.mod.filters_max:
         return JSONResponse(status_code=413,
                             content={"message": "the maximum complexity of filters is 90 elements in sum",
                                      "error_id": 2})
@@ -674,7 +675,7 @@ async def mod_resources(
     request: Request,
     mod_id: int = Path(description="ID мода"),
     resources_list_id = Query([], description="Список ID-ресурсов.", examples={"example": {"value": "[1, 2, 3]"}}),
-    page_size: int = Query(10, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
+    page_size: int = Query(LIMITS.page.default, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
     page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
     types_resources = Query([], description="Фильтрация по типу ресурсов *(массив типов)*.", examples={"example": {"value": "[\"logo\", \"screenshot\"]"}}),
     only_urls: bool = Query(False, description="Возвращать только ссылки или полную информацию."),
@@ -682,9 +683,9 @@ async def mod_resources(
     resources_list_id = tools.str_to_list(resources_list_id)
     types_resources = tools.str_to_list(types_resources)
 
-    if len(types_resources) + len(resources_list_id) > 120:
+    if len(types_resources) + len(resources_list_id) > LIMITS.resource.filters_max:
         return JSONResponse(status_code=413, content={"message": "the maximum complexity of filters is 120 elements in sum", "error_id": 1})
-    elif page_size > 50 or page_size < 1:
+    elif page_size > LIMITS.page.max or page_size < LIMITS.page.min:
         return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 2})
     elif page < 0:
         return JSONResponse(status_code=413, content={"message": "incorrect page", "error_id": 3})
@@ -839,10 +840,10 @@ async def add_mod(
     response: Response, 
     request: Request, 
     without_author: bool = Form(False, description="Указывать ли авторство мода. Для выбора должны быть админ права."),
-    mod_name: str = Form(..., description="Название мода", max_length=128),
-    mod_short_description: str = Form('', description="Короткое описание мода.", max_length=256),
-    mod_description: str = Form('', description="Полное описание мода.", max_length=10000),
-    mod_source: str = Form('local', description="Источник мода.", max_length=64),
+    mod_name: str = Form(..., description="Название мода", max_length=LIMITS.mod.name_max),
+    mod_short_description: str = Form('', description="Короткое описание мода.", max_length=LIMITS.mod.short_desc_max),
+    mod_description: str = Form('', description="Полное описание мода.", max_length=LIMITS.mod.desc_max),
+    mod_source: str = Form('local', description="Источник мода.", max_length=LIMITS.mod.source_max),
     mod_source_id: int = Form(-1, description="ID мода в первоисточнике."),
     mod_game: int = Form(..., description="ID игры-владельца."),
     mod_public: int = Form(..., description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."),
@@ -855,13 +856,13 @@ async def add_mod(
 
     if access_result and user_id >= 0:
         print(mod_short_description)
-        if len(re.sub(r'\s+', ' ', mod_short_description)) > 256:
+        if len(re.sub(r'\s+', ' ', mod_short_description)) > LIMITS.mod.short_desc_max:
             return PlainTextResponse(status_code=413, content="Короткое описание слишком длинное!")
-        elif len(re.sub(r'\s+', ' ', mod_description)) > 10000:
+        elif len(re.sub(r'\s+', ' ', mod_description)) > LIMITS.mod.desc_max:
             return PlainTextResponse(status_code=413, content="Описание слишком длинное!")
-        elif len(mod_name) > 128:
+        elif len(mod_name) > LIMITS.mod.name_max:
             return PlainTextResponse(status_code=413, content="Название слишком длинное!")
-        elif len(mod_name) < 1:
+        elif len(mod_name) < LIMITS.mod.name_min:
             return PlainTextResponse(status_code=411, content="Название слишком короткое!")
         elif not await tools.check_game_exists(mod_game):
             return PlainTextResponse(status_code=412, content="Такой игры не существует!")
@@ -885,7 +886,7 @@ async def add_mod(
         if await mini():
             session.close()
 
-            if mod_file.size >= 838860800:
+            if mod_file.size >= LIMITS.mod.file_max_bytes:
                 return JSONResponse(status_code=413, content="The file is too large.")
 
             real_mod_file = io.BytesIO(await mod_file.read())
@@ -991,10 +992,10 @@ async def edit_mod(
     response: Response,
     request: Request,
     mod_id: int = Form(..., description="ID мода для редактирования."),
-    mod_name: str = Form(None, description="Название мода.", max_length=128),
-    mod_short_description: str = Form(None, description="Краткое описание мода.", max_length=256),
-    mod_description: str = Form(None, description="Полное описание мода.", max_length=10000),
-    mod_source: str = Form(None, description="Источник мода. Так же обязательно передать и `mod_source_id`, даже если его данные не изменились!", max_length=64),
+    mod_name: str = Form(None, description="Название мода.", max_length=LIMITS.mod.name_max),
+    mod_short_description: str = Form(None, description="Краткое описание мода.", max_length=LIMITS.mod.short_desc_max),
+    mod_description: str = Form(None, description="Полное описание мода.", max_length=LIMITS.mod.desc_max),
+    mod_source: str = Form(None, description="Источник мода. Так же обязательно передать и `mod_source_id`, даже если его данные не изменились!", max_length=LIMITS.mod.source_max),
     mod_source_id: int = Form(None, description="ID мода в первоисточнике."),
     mod_game: int = Form(None, description="ID игры-владельца."),
     mod_public: int = Form(None, description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."),
@@ -1004,17 +1005,17 @@ async def edit_mod(
     if access_result == True:
         body = {}
         if mod_name is not None:
-            if len(mod_name) > 60:
+            if len(mod_name) > LIMITS.mod.name_edit_max:
                 return PlainTextResponse(status_code=413, content="Название слишком длинное!")
-            elif len(mod_name) < 1:
+            elif len(mod_name) < LIMITS.mod.name_min:
                 return PlainTextResponse(status_code=411, content="Название слишком короткое!")
             body["name"] = mod_name
         if mod_short_description is not None:
-            if len(re.sub(r'\s+', ' ', mod_short_description)) > 256:
+            if len(re.sub(r'\s+', ' ', mod_short_description)) > LIMITS.mod.short_desc_max:
                 return PlainTextResponse(status_code=413, content="Короткое описание слишком длинное!")
             body["short_description"] = mod_short_description
         if mod_description is not None:
-            if len(re.sub(r'\s+', ' ', mod_description)) > 10000:
+            if len(re.sub(r'\s+', ' ', mod_description)) > LIMITS.mod.desc_max:
                 return PlainTextResponse(status_code=413, content="Описание слишком длинное!")
             body["description"] = mod_description
         if mod_source is not None:
@@ -1085,10 +1086,10 @@ async def edit_mod_rest(
     response: Response,
     request: Request,
     mod_id: int = Path(description="ID мода для редактирования."),
-    mod_name: str = Form(None, description="Название мода.", max_length=128),
-    mod_short_description: str = Form(None, description="Краткое описание мода.", max_length=256),
-    mod_description: str = Form(None, description="Полное описание мода.", max_length=10000),
-    mod_source: str = Form(None, description="Источник мода. Так же обязательно передать и `mod_source_id`, даже если его данные не изменились!", max_length=64),
+    mod_name: str = Form(None, description="Название мода.", max_length=LIMITS.mod.name_max),
+    mod_short_description: str = Form(None, description="Краткое описание мода.", max_length=LIMITS.mod.short_desc_max),
+    mod_description: str = Form(None, description="Полное описание мода.", max_length=LIMITS.mod.desc_max),
+    mod_source: str = Form(None, description="Источник мода. Так же обязательно передать и `mod_source_id`, даже если его данные не изменились!", max_length=LIMITS.mod.source_max),
     mod_source_id: int = Form(None, description="ID мода в первоисточнике."),
     mod_game: int = Form(None, description="ID игры-владельца."),
     mod_public: int = Form(None, description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."),

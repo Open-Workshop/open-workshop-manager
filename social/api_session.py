@@ -12,6 +12,7 @@ import string
 import tools
 from io import BytesIO
 from ow_config import MAIN_URL
+from limits import LIMITS
 import ow_config as config
 import aiohttp
 from sqlalchemy import insert
@@ -120,8 +121,8 @@ async def oauth_link(
 )
 async def password_authorization(
     response: Response,
-    login: str = Form(..., description="Логин *(имя пользователя)*", max_length=128),
-    password: str = Form(..., description="Пароль", min_length=6, max_length=100)
+    login: str = Form(..., description="Логин *(имя пользователя)*", max_length=LIMITS.session.login_max),
+    password: str = Form(..., description="Пароль", min_length=LIMITS.session.password_min, max_length=LIMITS.session.password_max)
 ):
     """
     Рекомендую использовать внешние SSO сервисы авторизации.
