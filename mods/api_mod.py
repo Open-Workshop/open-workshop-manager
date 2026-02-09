@@ -1,4 +1,14 @@
-from fastapi import APIRouter, Request, Response, Form, Path, Query, File, UploadFile
+from fastapi import (
+    APIRouter,
+    Request,
+    Response,
+    Form,
+    Path,
+    Query,
+    Header,
+    File,
+    UploadFile,
+)
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from sql_logic import sql_account as account
 import tools
@@ -118,8 +128,9 @@ async def access_to_mods(
     ids_array=Path(description="Массив ID модов"),
     edit: bool = Query(False, description="Фильтр на edit доступ"),
     user: int = Query(-1, description="ID пользователя"),
-    token: str = Query(
+    token: str = Header(
         "none",
+        alias="x-token",
         description="Токен для проверки прав других пользователей, аналог токена - админские права просящего",
     ),
 ):
