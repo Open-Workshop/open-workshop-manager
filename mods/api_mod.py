@@ -24,6 +24,10 @@ import ow_config as config
 from limits import LIMITS
 import standarts
 
+ALLOWED_FILENAME_CHARS = set(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+)
+
 routers_edit_mod_response = {
     411: {
         "description": "Не достингнут минимальный размер (название мода).",
@@ -101,9 +105,21 @@ async def download_mod(
 
         statistics.update("mod", mod_id, "download")
 
-    return RedirectResponse(
-        url=f"{config.STORAGE_URL}/download/archive/mods/{mod_id}/main.zip"
+    raw_name = mod.name or ""
+    safe_name_chars = []
+    for ch in raw_name:
+        if ch in ALLOWED_FILENAME_CHARS:
+            safe_name_chars.append(ch)
+        elif ch.isspace():
+            safe_name_chars.append("_")
+    safe_name = "".join(safe_name_chars) or f"mod_{mod_id}"
+
+    redirect_url = (
+        f"{config.STORAGE_URL}/download/archive/mods/{mod_id}/main.zip"
+        f"?filename={safe_name}"
     )
+
+    return RedirectResponse(url=redirect_url)
 
 
 @router.get(
