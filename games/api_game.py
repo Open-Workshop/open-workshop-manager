@@ -327,7 +327,7 @@ async def add_game(
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result:
+    if access_result is True:
         session = sessionmaker(bind=catalog.engine)()
 
         insert_statement = insert(catalog.Game).values(
@@ -400,7 +400,7 @@ async def edit_game(
     """
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result:
+    if access_result is True:
         session = sessionmaker(bind=catalog.engine)()
 
         game = session.query(catalog.Game).filter_by(id=game_id)
@@ -466,7 +466,7 @@ async def delete_game(
     """
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result:
+    if access_result is True:
         await tools.delete_resources(owner_type="games", owner_id=game_id)
 
         session = sessionmaker(bind=catalog.engine)()

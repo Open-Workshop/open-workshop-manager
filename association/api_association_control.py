@@ -46,7 +46,7 @@ async def association_game_with_genre(
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result:
+    if access_result is True:
         session = sessionmaker(bind=catalog.engine)()
 
         if mode:
@@ -158,7 +158,7 @@ async def association_game_with_tag(
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result:
+    if access_result is True:
         session = sessionmaker(bind=catalog.engine)()
 
         if mode:
@@ -220,7 +220,7 @@ async def association_mod_with_tag(
         response=response, request=request, mods_ids=mod_id
     )
 
-    if access_result:
+    if access_result is True:
         session = sessionmaker(bind=catalog.engine)()
 
         if mode:
@@ -337,7 +337,7 @@ async def association_mod_with_dependencie(
         response=response, request=request, mods_ids=mod_id
     )
 
-    if access_result:
+    if access_result is True:
         session = sessionmaker(bind=catalog.engine)()
 
         if mode:

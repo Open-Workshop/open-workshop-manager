@@ -95,7 +95,7 @@ async def add_genre(
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result:
+    if access_result is True:
         session = sessionmaker(bind=catalog.engine)()
 
         insert_statement = insert(catalog.Genre).values(name=genre_name)
@@ -136,7 +136,7 @@ async def edit_genre(
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result:
+    if access_result is True:
         session = sessionmaker(bind=catalog.engine)()
 
         genre = session.query(catalog.Genre).filter_by(id=genre_id)
@@ -179,7 +179,7 @@ async def delete_genre(
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result:
+    if access_result is True:
         session = sessionmaker(bind=catalog.engine)()
 
         delete_game = delete(catalog.Genre).where(catalog.Genre.id == genre_id)

@@ -34,7 +34,7 @@ async def add_tag(
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result:
+    if access_result is True:
         session = sessionmaker(bind=catalog.engine)()
 
         insert_statement = insert(catalog.Tag).values(name=tag_name)
@@ -82,7 +82,7 @@ async def edit_tag(
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result:
+    if access_result is True:
         session = sessionmaker(bind=catalog.engine)()
 
         tag = session.query(catalog.Tag).filter_by(id=tag_id)
@@ -129,7 +129,7 @@ async def delete_tag(
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result:
+    if access_result is True:
         session = sessionmaker(bind=catalog.engine)()
 
         delete_game = delete(catalog.Tag).where(catalog.Tag.id == tag_id)

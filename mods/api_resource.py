@@ -225,7 +225,7 @@ async def delete_resource_rest(
     else:
         access_result = await tools.access_admin(response=response, request=request)
 
-    if not access_result:
+    if access_result is not True:
         return access_result
 
     if await tools.delete_resources(
@@ -436,7 +436,7 @@ async def add_resource(
     else:
         access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result:
+    if access_result is True:
         real_url = resource_url
 
         if resource_file:
@@ -538,7 +538,7 @@ async def edit_resource(
     else:
         access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result:
+    if access_result is True:
         # Подготавливаем данные
         data_edit: dict[str, object] = {}
         if resource_type:
@@ -648,7 +648,7 @@ async def delete_resource(
     else:
         access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result:
+    if access_result is True:
         if await tools.delete_resources(
             owner_type=owner_type, resources_ids=[resource_id]
         ):

@@ -808,7 +808,7 @@ async def mod_resources(
     access_result = await tools.access_mods(
         response=response, request=request, mods_ids=[mod_id]
     )
-    if not access_result:
+    if access_result is not True:
         return access_result
 
     session = sessionmaker(bind=catalog.engine)()
@@ -861,7 +861,7 @@ async def mod_tags(
     access_result = await tools.access_mods(
         response=response, request=request, mods_ids=[mod_id]
     )
-    if not access_result:
+    if access_result is not True:
         return access_result
 
     session = sessionmaker(bind=catalog.engine)()
@@ -901,7 +901,7 @@ async def mod_dependencies(
     access_result = await tools.access_mods(
         response=response, request=request, mods_ids=[mod_id]
     )
-    if not access_result:
+    if access_result is not True:
         return access_result
 
     session = sessionmaker(bind=catalog.engine)()
@@ -1185,7 +1185,7 @@ async def edit_mod(
     access_result = await tools.access_mods(
         response=response, request=request, mods_ids=mod_id, edit=True
     )
-    if access_result:
+    if access_result is True:
         body: dict[str, object] = {}
         if mod_name is not None:
             if len(mod_name) > LIMITS.mod.name_edit_max:
