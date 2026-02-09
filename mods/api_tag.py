@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Request, Response, Form, Query, Path
+from fastapi import APIRouter, Request, Response, Form
 from fastapi.responses import JSONResponse, PlainTextResponse
 import tools
-from sql_logic import sql_account as account
 from sql_logic import sql_catalog as catalog
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import insert, delete
@@ -9,41 +8,36 @@ from ow_config import MAIN_URL
 from limits import LIMITS
 import standarts
 
-
 router = APIRouter()
 
 
 @router.post(
-    MAIN_URL+"/add/tag",
+    MAIN_URL + "/add/tag",
     tags=["Tag"],
     summary="Добавление тега",
     status_code=202,
     responses={
         202: {
             "description": "Возвращает ID добавленного тега",
-            "content": {
-                "application/json": {
-                    "example": 1
-                }
-            }
+            "content": {"application/json": {"example": 1}},
         },
         401: standarts.responses[401],
         403: standarts.responses["admin"][403],
-    }
+    },
 )
 async def add_tag(
     response: Response,
     request: Request,
-    tag_name: str = Form(..., description="Название тега", max_length=LIMITS.tag.name_max),
+    tag_name: str = Form(
+        ..., description="Название тега", max_length=LIMITS.tag.name_max
+    ),
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result == True:
+    if access_result:
         session = sessionmaker(bind=catalog.engine)()
 
-        insert_statement = insert(catalog.Tag).values(
-            name=tag_name
-        )
+        insert_statement = insert(catalog.Tag).values(name=tag_name)
 
         result = session.execute(insert_statement)
         id = result.lastrowid  # Получаем ID последней вставленной строки
@@ -55,54 +49,47 @@ async def add_tag(
     else:
         return access_result
 
+
 @router.post(
-    MAIN_URL+"/edit/tag",
+    MAIN_URL + "/edit/tag",
     tags=["Tag"],
     summary="Редактирование тега",
     status_code=202,
     responses={
         202: {
             "description": "Успешно изменено.",
-            "content": {
-                "application/json": {
-                    "example": "Complite"
-                }
-            }
+            "content": {"application/json": {"example": "Complite"}},
         },
         401: standarts.responses[401],
         403: standarts.responses["admin"][403],
         404: {
             "description": "Тег не найден.",
-            "content": {
-                "text/plain": {
-                    "example": "The element does not exist."
-                }
-            }
+            "content": {"text/plain": {"example": "The element does not exist."}},
         },
         418: {
             "description": "Пустой запрос *(нужно запросить что-то отредактировать)*.",
-            "content": {
-                "text/plain": {
-                    "example": "The request is empty"
-                }
-            }
-        }
-    }
+            "content": {"text/plain": {"example": "The request is empty"}},
+        },
+    },
 )
 async def edit_tag(
     response: Response,
     request: Request,
     tag_id: int = Form(..., description="ID тега для редактирования"),
-    tag_name: str = Form(..., description="Название тега", max_length=LIMITS.tag.name_max),
+    tag_name: str = Form(
+        ..., description="Название тега", max_length=LIMITS.tag.name_max
+    ),
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result == True:
+    if access_result:
         session = sessionmaker(bind=catalog.engine)()
 
         tag = session.query(catalog.Tag).filter_by(id=tag_id)
         if not tag.first():
-            return PlainTextResponse(status_code=404, content="The element does not exist.")
+            return PlainTextResponse(
+                status_code=404, content="The element does not exist."
+            )
 
         # Подготавливаем данные
         data_edit = {}
@@ -120,23 +107,20 @@ async def edit_tag(
     else:
         return access_result
 
+
 @router.delete(
-    MAIN_URL+"/delete/tag",
+    MAIN_URL + "/delete/tag",
     tags=["Tag"],
     summary="Удаление тега",
     status_code=202,
     responses={
         202: {
             "description": "Успешно удалено.",
-            "content": {
-                "text/plain": {
-                    "example": "Complite"
-                }
-            }
+            "content": {"text/plain": {"example": "Complite"}},
         },
         401: standarts.responses[401],
-        403: standarts.responses["admin"][403]
-    }
+        403: standarts.responses["admin"][403],
+    },
 )
 async def delete_tag(
     response: Response,
@@ -145,13 +129,17 @@ async def delete_tag(
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result == True:
+    if access_result:
         session = sessionmaker(bind=catalog.engine)()
 
         delete_game = delete(catalog.Tag).where(catalog.Tag.id == tag_id)
 
-        delete_mods_tags_association = catalog.mods_tags.delete().where(catalog.mods_tags.c.tag_id == tag_id)
-        delete_game_tags_association = catalog.allowed_mods_tags.delete().where(catalog.allowed_mods_tags.c.tag_id == tag_id)
+        delete_mods_tags_association = catalog.mods_tags.delete().where(
+            catalog.mods_tags.c.tag_id == tag_id
+        )
+        delete_game_tags_association = catalog.allowed_mods_tags.delete().where(
+            catalog.allowed_mods_tags.c.tag_id == tag_id
+        )
 
         # Выполнение операции DELETE
         session.execute(delete_game)

@@ -19,11 +19,11 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import bcrypt
-from sqlalchemy.orm import sessionmaker
+import bcrypt  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
 
-from sql_logic import sql_account as account
-from limits import LIMITS
+from sql_logic import sql_account as account  # noqa: E402
+from limits import LIMITS  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -58,16 +58,24 @@ def prompt_password() -> str:
 
 def validate_username(username: str) -> None:
     if len(username) < LIMITS.profile.username_min:
-        raise ValueError(f"Username must be at least {LIMITS.profile.username_min} characters.")
+        raise ValueError(
+            f"Username must be at least {LIMITS.profile.username_min} characters."
+        )
     if len(username) > LIMITS.profile.username_max:
-        raise ValueError(f"Username must be at most {LIMITS.profile.username_max} characters.")
+        raise ValueError(
+            f"Username must be at most {LIMITS.profile.username_max} characters."
+        )
 
 
 def validate_password(password: str) -> None:
     if len(password) < LIMITS.profile.password_min:
-        raise ValueError(f"Password must be at least {LIMITS.profile.password_min} characters.")
+        raise ValueError(
+            f"Password must be at least {LIMITS.profile.password_min} characters."
+        )
     if len(password) > LIMITS.profile.password_max:
-        raise ValueError(f"Password must be at most {LIMITS.profile.password_max} characters.")
+        raise ValueError(
+            f"Password must be at most {LIMITS.profile.password_max} characters."
+        )
 
 
 def main() -> int:
@@ -90,7 +98,9 @@ def main() -> int:
     Session = sessionmaker(bind=account.engine)
     session = Session()
     try:
-        existing = session.query(account.Account.id).filter_by(username=username).first()
+        existing = (
+            session.query(account.Account.id).filter_by(username=username).first()
+        )
         if existing:
             print(
                 f"Username already exists (id={existing.id}). Choose another username.",
@@ -99,9 +109,9 @@ def main() -> int:
             return 1
 
         now = dt.datetime.now()
-        password_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(9)).decode(
-            "utf-8"
-        )
+        password_hash = bcrypt.hashpw(
+            password.encode("utf-8"), bcrypt.gensalt(9)
+        ).decode("utf-8")
 
         new_user = account.Account(
             username=username,

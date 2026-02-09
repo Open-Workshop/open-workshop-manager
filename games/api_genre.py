@@ -8,12 +8,11 @@ from sqlalchemy import insert, delete
 from sql_logic import sql_catalog as catalog
 import standarts
 
-
 router = APIRouter()
 
 
 @router.get(
-    MAIN_URL+"/list/genres",
+    MAIN_URL + "/list/genres",
     tags=["Genre"],
     summary="Список жанров игр",
     status_code=200,
@@ -28,31 +27,35 @@ router = APIRouter()
                         "results": [
                             {"id": 1, "name": "?"},
                             {"id": 2, "name": "!"},
-                        ]
+                        ],
                     }
                 }
-            }
+            },
         },
         413: {
             "description": "Неккоректный диапазон параметров(размеров).",
             "content": {
                 "application/json": {
-                    "example": {
-                        "message": "incorrect page size",
-                        "error_id": 1
-                    }
+                    "example": {"message": "incorrect page size", "error_id": 1}
                 }
-            }
-        }
-    }
+            },
+        },
+    },
 )
 async def list_genres(
-    page_size: int = Query(LIMITS.page.default, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
+    page_size: int = Query(
+        LIMITS.page.default,
+        description="Размер 1 страницы. Диапазон - 1...50 элементов.",
+    ),
     page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
-    name: str = Query("", description="Поиск по названию.", max_length=LIMITS.genre.name_max),
+    name: str = Query(
+        "", description="Поиск по названию.", max_length=LIMITS.genre.name_max
+    ),
 ):
     if page_size > LIMITS.page.max or page_size < LIMITS.page.min:
-        return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 1})
+        return JSONResponse(
+            status_code=413, content={"message": "incorrect page size", "error_id": 1}
+        )
 
     # Создание сессии
     Session = sessionmaker(bind=catalog.engine)
@@ -60,7 +63,7 @@ async def list_genres(
     # Выполнение запроса
     query = session.query(catalog.Genre)
     if len(name) > 0:
-        query = query.filter(catalog.Genre.name.ilike(f'%{name}%'))
+        query = query.filter(catalog.Genre.name.ilike(f"%{name}%"))
 
     genres_count = query.count()
     offset = page_size * page
@@ -69,30 +72,33 @@ async def list_genres(
     session.close()
     return {"database_size": genres_count, "offset": offset, "results": genres}
 
+
 @router.post(
-    MAIN_URL+"/add/genre", 
+    MAIN_URL + "/add/genre",
     tags=["Genre"],
     summary="Добавляет жанр",
     status_code=202,
     responses={
-        202: {"description": "Возвращает ID добавленного жанра.",}, 
+        202: {
+            "description": "Возвращает ID добавленного жанра.",
+        },
         401: standarts.responses[401],
         403: standarts.responses["admin"][403],
-    }
+    },
 )
 async def add_genre(
-    response: Response, 
-    request: Request, 
-    genre_name: str = Form(..., description="Название добавляемого жанра", max_length=LIMITS.genre.name_max),
+    response: Response,
+    request: Request,
+    genre_name: str = Form(
+        ..., description="Название добавляемого жанра", max_length=LIMITS.genre.name_max
+    ),
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result == True:
+    if access_result:
         session = sessionmaker(bind=catalog.engine)()
 
-        insert_statement = insert(catalog.Genre).values(
-            name=genre_name
-        )
+        insert_statement = insert(catalog.Genre).values(name=genre_name)
 
         result = session.execute(insert_statement)
         id = result.lastrowid  # Получаем ID последней вставленной строки
@@ -104,8 +110,9 @@ async def add_genre(
     else:
         return access_result
 
+
 @router.post(
-    MAIN_URL+"/edit/genre", 
+    MAIN_URL + "/edit/genre",
     tags=["Genre"],
     summary="Редактирует жанр",
     status_code=202,
@@ -114,18 +121,22 @@ async def add_genre(
         401: standarts.responses[401],
         403: standarts.responses["admin"][403],
         404: {"description": "Жанр не найден."},
-        418: {"description": "Пустой запрос. Возникает если не передан ни один из параметров-свойств."},
-    }
+        418: {
+            "description": "Пустой запрос. Возникает если не передан ни один из параметров-свойств."
+        },
+    },
 )
 async def edit_genre(
-    response: Response, 
-    request: Request, 
+    response: Response,
+    request: Request,
     genre_id: int = Form(..., description="ID жанра для редактирования"),
-    genre_name: str = Form(None, description="Название жанра", max_length=LIMITS.genre.name_max),
+    genre_name: str = Form(
+        None, description="Название жанра", max_length=LIMITS.genre.name_max
+    ),
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result == True:
+    if access_result:
         session = sessionmaker(bind=catalog.engine)()
 
         genre = session.query(catalog.Genre).filter_by(id=genre_id)
@@ -149,8 +160,9 @@ async def edit_genre(
     else:
         return access_result
 
+
 @router.delete(
-    MAIN_URL+"/delete/genre", 
+    MAIN_URL + "/delete/genre",
     tags=["Genre"],
     summary="Удаляет жанр",
     status_code=202,
@@ -158,21 +170,23 @@ async def edit_genre(
         202: {"description": "Удалено успешно."},
         401: standarts.responses[401],
         403: standarts.responses["admin"][403],
-    }
+    },
 )
 async def delete_genre(
-    response: Response, 
-    request: Request, 
+    response: Response,
+    request: Request,
     genre_id: int = Form(..., description="ID жанра для удаления"),
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result == True:
+    if access_result:
         session = sessionmaker(bind=catalog.engine)()
 
         delete_game = delete(catalog.Genre).where(catalog.Genre.id == genre_id)
 
-        delete_genres_association = catalog.game_genres.delete().where(catalog.game_genres.c.genre_id == genre_id)
+        delete_genres_association = catalog.game_genres.delete().where(
+            catalog.game_genres.c.genre_id == genre_id
+        )
 
         # Выполнение операции DELETE
         session.execute(delete_game)

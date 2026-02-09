@@ -26,16 +26,17 @@ async def check_token(token_name: str, token: str) -> bool:
     """
     # Получаем значение хеша токена из config по имени token_name
     stored_token_hash = getattr(config, token_name, None)
-    
+
     if stored_token_hash is None:
         print(f"Токен `{token_name}` не найден в config!")
         return False
-    
+
     # Хеш из config должен быть строкой, конвертируем в байты
     stored_token_hash = stored_token_hash.encode()
-    
+
     # Хешируем переданный токен с использованием bcrypt и проверяем соответствие
     return bcrypt.checkpw(token.encode(), stored_token_hash)
+
 
 async def access_admin(response: Response, request: Request) -> JSONResponse | bool:
     """
@@ -55,7 +56,9 @@ async def access_admin(response: Response, request: Request) -> JSONResponse | b
     if access_result and access_result.get("owner_id", -1) >= 0:
         # Выполнение запроса
         session = sessionmaker(bind=account.engine)()
-        row = session.query(account.Account.admin).filter_by(id=access_result.get("owner_id", -1))
+        row = session.query(account.Account.admin).filter_by(
+            id=access_result.get("owner_id", -1)
+        )
         row_result = row.first()
 
         if row_result.admin:
@@ -76,13 +79,14 @@ def str_to_list(string: str | list) -> list:
     Returns:
         list: The converted list. If the conversion fails, an empty list is returned.
     """
+    if isinstance(string, list):
+        return string
     try:
-        string = json.loads(string)
-        if type(string) is not list:
-            string = []
-    except:
-        string = []
-    return string
+        parsed = json.loads(string)
+    except (TypeError, json.JSONDecodeError):
+        return []
+
+    return parsed if isinstance(parsed, list) else []
 
 
 def image_bytes_to_webp(data: bytes, quality: int = 80) -> bytes:
@@ -92,7 +96,9 @@ def image_bytes_to_webp(data: bytes, quality: int = 80) -> bytes:
     try:
         with Image.open(BytesIO(data)) as img:
             img.load()
-            if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+            if img.mode in ("RGBA", "LA") or (
+                img.mode == "P" and "transparency" in img.info
+            ):
                 img = img.convert("RGBA")
             else:
                 img = img.convert("RGB")
@@ -115,14 +121,16 @@ def maybe_image_bytes_to_webp(data: bytes, quality: int = 80) -> tuple[bytes, bo
         return data, False
 
 
-async def resources_serialize(resources:list[catalog.Resource], only_urls:bool = False) -> list[dict] | list[str]:
+async def resources_serialize(
+    resources: list[catalog.Resource], only_urls: bool = False
+) -> list[dict] | list[str]:
     """
     Serializes a list of `catalog.Resource` objects into a list of dictionaries or a list of strings.
-    
+
     Args:
         resources (list[catalog.Resource]): A list of `catalog.Resource` objects to be serialized.
         only_urls (bool, optional): If set to `True`, only the `real_url` attribute of each resource will be included in the serialized list. Defaults to `False`.
-    
+
     Returns:
         list[dict] | list[str]: A list of dictionaries containing the serialized resource information, or a list of strings if `only_urls` is `True`.
     """
@@ -131,18 +139,25 @@ async def resources_serialize(resources:list[catalog.Resource], only_urls:bool =
         if only_urls:
             real_resources.append(resource.real_url)
         else:
-            real_resources.append({
-                "id": resource.id,
-                "type": resource.type,
-                "url": resource.real_url,
-                "owner_id": resource.owner_id,
-                "owner_type": resource.owner_type,
-                "date_event": resource.date_event
-            })
+            real_resources.append(
+                {
+                    "id": resource.id,
+                    "type": resource.type,
+                    "url": resource.real_url,
+                    "owner_id": resource.owner_id,
+                    "owner_type": resource.owner_type,
+                    "date_event": resource.date_event,
+                }
+            )
     return real_resources
 
 
-async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = False, check_mode: bool = False) -> bool | list[int]:
+async def anonymous_access_mods(
+    user_id: int,
+    mods_ids: list[int] | int,
+    edit: bool = False,
+    check_mode: bool = False,
+) -> bool | list[int]:
     """
     Asynchronously checks if the given user has access to modify the specified mods.
 
@@ -155,7 +170,8 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
     Returns:
         bool or list[int]: If check_mode is True, returns a list of mod IDs that the user has access to. Otherwise, returns True if the user has access, False otherwise.
     """
-    if isinstance(mods_ids, int): mods_ids = [mods_ids]
+    if isinstance(mods_ids, int):
+        mods_ids = [mods_ids]
 
     # Создание сессии
     session = sessionmaker(bind=account.engine)()
@@ -167,11 +183,17 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
         if user_req.admin:
             return mods_ids
         else:
-            if edit and (user_req.mute_until and user_req.mute_until > datetime.datetime.now()):
+            if edit and (
+                user_req.mute_until and user_req.mute_until > datetime.datetime.now()
+            ):
                 return []
 
-            mods_to_user = session.query(account.mod_and_author).filter_by(user_id=user_id)
-            mods_to_user = mods_to_user.filter(account.mod_and_author.c.mod_id.in_(mods_ids))
+            mods_to_user = session.query(account.mod_and_author).filter_by(
+                user_id=user_id
+            )
+            mods_to_user = mods_to_user.filter(
+                account.mod_and_author.c.mod_id.in_(mods_ids)
+            )
 
             mods_to_user = {mod.mod_id: mod.owner for mod in mods_to_user.all()}
 
@@ -179,14 +201,17 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
             mods = session_catalog.query(catalog.Mod.id, catalog.Mod.public)
             mods = mods.filter(catalog.Mod.id.in_(mods_ids)).all()
 
-            output_check = []
+            output_check: list[int] = []
 
             if len(mods) == 0:
                 return output_check
 
             for mod in mods:
                 if mod.id in mods_to_user:
-                    if edit and(not user_req.change_self_mods or not mods_to_user.get(mod.id, False)):
+                    if edit and (
+                        not user_req.change_self_mods
+                        or not mods_to_user.get(mod.id, False)
+                    ):
                         continue
                 elif mod.public > 1 or (edit and not user_req.change_mods):
                     continue
@@ -194,6 +219,7 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
                 output_check.append(mod.id)
             else:
                 return output_check
+
     # АДМИН
     # или
     # ВЛАДЕЛЕЦ МОДА и НЕ В МУТЕ и ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ СВОИХ МОДОВ
@@ -202,32 +228,44 @@ async def anonymous_access_mods(user_id: int, mods_ids: list[int], edit: bool = 
     # или
     # НЕ В МУТЕ И ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ ЧУЖИХ МОДОВ
 
-    #т.е.:
-    #АДМИН или (НЕ В МУТЕ и ((в числе участников И имеет право на редактирование своих модов И (владелец ИЛИ действие не запрещено участникам)) ИЛИ не участник И имеет право на редактирование чужих модов))
+    # т.е.:
+    # АДМИН или (НЕ В МУТЕ и ((в числе участников И имеет право на редактирование своих модов И (владелец ИЛИ действие не запрещено участникам)) ИЛИ не участник И имеет право на редактирование чужих модов))
 
     if user_id > 0 and user_req:
-        mini_result = await mini(session=session, user_req=user_req, mods_ids=mods_ids, edit=edit)
+        mini_result = await mini(
+            session=session, user_req=user_req, mods_ids=mods_ids, edit=edit
+        )
         session.close()
         return mini_result if check_mode else len(mini_result) == len(mods_ids)
     else:
         session.close()
-        
-        if edit: return [] if check_mode else False
+
+        if edit:
+            return [] if check_mode else False
 
         session_catalog = sessionmaker(bind=catalog.engine)()
-        mods = session_catalog.query(catalog.Mod.id).filter(catalog.Mod.id.in_(mods_ids))
+        mods = session_catalog.query(catalog.Mod.id).filter(
+            catalog.Mod.id.in_(mods_ids)
+        )
         mods = mods.filter(catalog.Mod.public <= 1)
         if check_mode:
             mods = mods.all()
-            
-            if len(mods) == 0: return []
+
+            if len(mods) == 0:
+                return []
 
             return [mod.id for mod in mods]
         else:
             return len(mods_ids) == mods.count()
 
 
-async def access_mods(response: Response, request: Request, mods_ids: list[int] | int, edit: bool = False, check_mode: bool = False) -> PlainTextResponse | list[int]:
+async def access_mods(
+    response: Response,
+    request: Request,
+    mods_ids: list[int] | int,
+    edit: bool = False,
+    check_mode: bool = False,
+) -> PlainTextResponse | list[int]:
     """
     Asynchronously checks the access permissions for a set of mods.
 
@@ -248,24 +286,32 @@ async def access_mods(response: Response, request: Request, mods_ids: list[int] 
             - If access is denied: Returns a JSONResponse object with status code 403 and content "Заблокировано!".
             - If the session key is invalid: Returns a JSONResponse object with status code 401 and content "Недействительный ключ сессии!".
     """
-    if isinstance(mods_ids, int): mods_ids = [mods_ids]
+    if isinstance(mods_ids, int):
+        mods_ids = [mods_ids]
 
     access_result = await account.check_access(request=request, response=response)
-    
+
     uid = access_result.get("owner_id", -1) if access_result else -1
 
     if not edit or (access_result and uid >= 0):
-        mini_result = await anonymous_access_mods(user_id=uid, mods_ids=mods_ids, edit=edit, check_mode=check_mode)
+        mini_result = await anonymous_access_mods(
+            user_id=uid, mods_ids=mods_ids, edit=edit, check_mode=check_mode
+        )
 
-        if mini_result != False:
+        if mini_result is not False:
             return mini_result
         else:
             return PlainTextResponse(status_code=403, content="Заблокировано!")
     else:
-        if check_mode: return []
-        else: return PlainTextResponse(status_code=401, content="Недействительный ключ сессии!")
+        if check_mode:
+            return []
+        else:
+            return PlainTextResponse(
+                status_code=401, content="Недействительный ключ сессии!"
+            )
 
-async def check_game_exists(game_id:int) -> bool:
+
+async def check_game_exists(game_id: int) -> bool:
     """
     Asynchronously checks if a game with the given ID exists in the catalog.
 
@@ -282,7 +328,10 @@ async def check_game_exists(game_id:int) -> bool:
     session.close()
     return bool(result)
 
-async def storage_file_upload(type: str, path: str, file: BytesIO) -> tuple[int, str, bool]:
+
+async def storage_file_upload(
+    type: str, path: str, file: BytesIO
+) -> tuple[int, str, bool]:
     """
     Uploads a file to the storage service.
 
@@ -295,17 +344,16 @@ async def storage_file_upload(type: str, path: str, file: BytesIO) -> tuple[int,
         bool | str: False if the file upload failed.
                     If the file was uploaded successfully, the response body is returned as a path to the uploaded file.
     """
-    
-    real_url = f'{config.STORAGE_URL}/upload?token={config.storage_upload_token}'
+
+    real_url = f"{config.STORAGE_URL}/upload?token={config.storage_upload_token}"
 
     async with aiohttp.ClientSession() as session:
-        async with session.post(real_url, data={
-                                            'file': file,
-                                            'type': type,
-                                            'path': path}
-                               ) as resp:
+        async with session.post(
+            real_url, data={"file": file, "type": type, "path": path}
+        ) as resp:
             return resp.status, str(await resp.text()), resp.status == 201
-            
+
+
 async def storage_file_delete(type: str, path: str) -> bool:
     """
     Deletes a file from the storage.
@@ -318,14 +366,16 @@ async def storage_file_delete(type: str, path: str) -> bool:
         bool: True if the file was successfully deleted, False otherwise.
     """
 
-    real_url = f'{config.STORAGE_URL}/delete?token={config.storage_delete_token}'
+    real_url = f"{config.STORAGE_URL}/delete?token={config.storage_delete_token}"
 
     async with aiohttp.ClientSession() as session:
-        async with session.delete(real_url, data={'type': type, 'path': path}) as resp:
+        async with session.delete(real_url, data={"type": type, "path": path}) as resp:
             return resp.status in [404, 200]
 
 
-async def delete_resources(owner_type:str, resources_ids:list[int] = [], owner_id: int = -1) -> bool:
+async def delete_resources(
+    owner_type: str, resources_ids: list[int] = [], owner_id: int = -1
+) -> bool:
     """
     Deletes resources based on the owner type and resource IDs or owner ID.
     If resources_ids is not empty, the resources with the specified IDs will be deleted. If owner_id is not -1, the resources of the specified owner will be deleted.
@@ -339,9 +389,9 @@ async def delete_resources(owner_type:str, resources_ids:list[int] = [], owner_i
     Returns:
         bool: True if the resources are successfully deleted, False otherwise.
     """
-    #Нужно обязательно передать либо resources_ids либо owner_id (сами фильтры не противоречат друг другу, но не рекомендую использовать одновременно).
-    #Если resources_ids будут удаляться конкретные ресурсы, а если owner_id, то ресурсы овнера (если без переданного списка, то все).
-    
+    # Нужно обязательно передать либо resources_ids либо owner_id (сами фильтры не противоречат друг другу, но не рекомендую использовать одновременно).
+    # Если resources_ids будут удаляться конкретные ресурсы, а если owner_id, то ресурсы овнера (если без переданного списка, то все).
+
     if len(resources_ids) <= 0 and owner_id <= 0:
         return False
 
@@ -350,26 +400,34 @@ async def delete_resources(owner_type:str, resources_ids:list[int] = [], owner_i
     session = Session()
     query = session.query(catalog.Resource).filter_by(owner_type=owner_type)
 
-    if owner_id > 0: query = query.filter_by(owner_id=owner_id)
-    if len(resources_ids) > 0: query = query.filter(catalog.Resource.id.in_(resources_ids))
+    if owner_id > 0:
+        query = query.filter_by(owner_id=owner_id)
+    if len(resources_ids) > 0:
+        query = query.filter(catalog.Resource.id.in_(resources_ids))
 
-    resources = { i.id: i.url for i in query.all() }
+    resources = {i.id: i.url for i in query.all()}
     session.close()
 
     deleted = []
     for resource in resources.keys():
         url = resources[resource]
         if url.startswith("local/"):
-            delete_result = await storage_file_delete(type="resource", path=url.replace("local/", ""))
+            delete_result = await storage_file_delete(
+                type="resource", path=url.replace("local/", "")
+            )
 
-            if delete_result: deleted.append(resource)
-            else: print(f"Delete Resources: Error: resource not deleted ({resource})")
+            if delete_result:
+                deleted.append(resource)
+            else:
+                print(f"Delete Resources: Error: resource not deleted ({resource})")
         else:
             deleted.append(resource)
 
     if len(deleted) > 0:
         session = Session()
-        session.query(catalog.Resource).filter(catalog.Resource.id.in_(deleted)).delete(synchronize_session=False)
+        session.query(catalog.Resource).filter(catalog.Resource.id.in_(deleted)).delete(
+            synchronize_session=False
+        )
         session.commit()
         session.close()
     else:
@@ -378,33 +436,33 @@ async def delete_resources(owner_type:str, resources_ids:list[int] = [], owner_i
     return True
 
 
-def sort_mods(sort_by: str): 
+def sort_mods(sort_by: str):
     match sort_by:
-        case 'NAME':
+        case "NAME":
             return catalog.Mod.name
-        case 'iNAME':
+        case "iNAME":
             return desc(catalog.Mod.name)
-        case 'SIZE':
+        case "SIZE":
             return catalog.Mod.size
-        case 'iSIZE':
+        case "iSIZE":
             return desc(catalog.Mod.size)
-        case 'CREATION_DATE':
+        case "CREATION_DATE":
             return catalog.Mod.date_creation
-        case 'iCREATION_DATE':
+        case "iCREATION_DATE":
             return desc(catalog.Mod.date_creation)
-        case 'UPDATE_DATE':
+        case "UPDATE_DATE":
             return catalog.Mod.date_update
-        case 'iUPDATE_DATE':
+        case "iUPDATE_DATE":
             return desc(catalog.Mod.date_update)
-        case 'REQUEST_DATE':
+        case "REQUEST_DATE":
             return catalog.Mod.date_request
-        case 'iREQUEST_DATE':
+        case "iREQUEST_DATE":
             return desc(catalog.Mod.date_request)
-        case 'SOURCE':
+        case "SOURCE":
             return catalog.Mod.source
-        case 'iSOURCE':
+        case "iSOURCE":
             return desc(catalog.Mod.source)
-        case 'iMOD_DOWNLOADS':
+        case "iMOD_DOWNLOADS":
             return desc(catalog.Mod.downloads)
         case _:
             return catalog.Mod.downloads  # По умолчанию сортируем по загрузкам
@@ -412,27 +470,27 @@ def sort_mods(sort_by: str):
 
 def sort_games(sort_by: str):
     match sort_by:
-        case 'NAME':
+        case "NAME":
             return catalog.Game.name
-        case 'iNAME':
+        case "iNAME":
             return desc(catalog.Game.name)
-        case 'TYPE':
+        case "TYPE":
             return catalog.Game.type
-        case 'iTYPE':
+        case "iTYPE":
             return desc(catalog.Game.type)
-        case 'CREATION_DATE':
+        case "CREATION_DATE":
             return catalog.Game.creation_date
-        case 'iCREATION_DATE':
+        case "iCREATION_DATE":
             return desc(catalog.Game.creation_date)
-        case 'SOURCE':
+        case "SOURCE":
             return catalog.Game.source
-        case 'iSOURCE':
+        case "iSOURCE":
             return desc(catalog.Game.source)
-        case 'MODS_COUNT':
+        case "MODS_COUNT":
             return catalog.Game.mods_count
-        case 'iMODS_COUNT':
+        case "iMODS_COUNT":
             return desc(catalog.Game.mods_count)
-        case 'MOD_DOWNLOADS':
+        case "MOD_DOWNLOADS":
             return catalog.Game.mods_downloads
         case _:
             return desc(catalog.Game.mods_downloads)

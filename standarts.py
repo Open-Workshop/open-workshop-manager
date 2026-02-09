@@ -1,12 +1,9 @@
+from typing import Any
 
-responses = {
+responses: dict[str | int, Any] = {
     401: {
         "description": "Недействительный ключ сессии (не авторизован).",
-        "content": {
-            "text/plain": {
-                "example": "Недействительный ключ сессии!"
-            }
-        }
+        "content": {"text/plain": {"example": "Недействительный ключ сессии!"}},
     },
     "admin": {
         403: {"description": "Вы не админ!"},
@@ -14,11 +11,7 @@ responses = {
     "non-admin": {
         403: {
             "description": "Нехватка прав.",
-            "content": {
-                "text/plain": {
-                    "example": "Заблокировано!"
-                }
-            },
+            "content": {"text/plain": {"example": "Заблокировано!"}},
         },
-    }
+    },
 }

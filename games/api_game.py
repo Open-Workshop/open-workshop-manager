@@ -9,13 +9,11 @@ from sql_logic import sql_catalog as catalog
 from datetime import datetime
 import standarts
 
-
 router = APIRouter()
 
 
-
 @router.get(
-    MAIN_URL+"/games",
+    MAIN_URL + "/games",
     tags=["Game"],
     summary="Список игр.",
     status_code=200,
@@ -30,26 +28,23 @@ router = APIRouter()
                         "results": [
                             {"id": 1, "name": "?", "type": "app", "source": "local"},
                             {"id": 2, "name": "!?", "type": "game", "source": "steam"},
-                        ]
+                        ],
                     }
                 }
-            }
+            },
         },
         413: {
             "description": "Неккоректный диапазон параметров(размеров).",
             "content": {
                 "application/json": {
-                    "example": {
-                        "message": "incorrect page size",
-                        "error_id": 1
-                    }
+                    "example": {"message": "incorrect page size", "error_id": 1}
                 }
-            }
+            },
         },
     },
 )
 @router.get(
-    MAIN_URL+"/list/games/",
+    MAIN_URL + "/list/games/",
     tags=["Game"],
     summary="Список игр.",
     status_code=200,
@@ -64,38 +59,64 @@ router = APIRouter()
                         "results": [
                             {"id": 1, "name": "?", "type": "app", "source": "local"},
                             {"id": 2, "name": "!?", "type": "game", "source": "steam"},
-                        ]
+                        ],
                     }
                 }
-            }
+            },
         },
         413: {
             "description": "Неккоректный диапазон параметров(размеров).",
             "content": {
                 "application/json": {
-                    "example": {
-                        "message": "incorrect page size",
-                        "error_id": 1
-                    }
+                    "example": {"message": "incorrect page size", "error_id": 1}
                 }
-            }
+            },
         },
-    }
+    },
 )
 async def games_list(
-    page_size: int = Query(LIMITS.page.default, description="Размер 1 страницы. Диапазон - 1...50 элементов."), 
-    page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."), 
-    sort: str = Query("MODS_DOWNLOADS", description="Сортировка. Префикс `i` указывает что сортировка должна быть инвертированной."),
+    page_size: int = Query(
+        LIMITS.page.default,
+        description="Размер 1 страницы. Диапазон - 1...50 элементов.",
+    ),
+    page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
+    sort: str = Query(
+        "MODS_DOWNLOADS",
+        description="Сортировка. Префикс `i` указывает что сортировка должна быть инвертированной.",
+    ),
     name: str = Query("", description="Фильтр по заголовку/названию."),
-    type_app = Query([], description="Фильтр по типу *(`game` и/или `app`)*.", example="['game','app']"),
-    genres=Query([], description="Фильтр по жанрам. Передать id интересующих жанров.", example="[1,2]"),
-    primary_sources=Query([], description="Фильтр по источникам. Передать названия источников.", example="['local','steam']"), 
-    allowed_sources_ids=Query([], description="Фильтр по source_id. Передать id в источниках (не работает если не передан `primary_sources`).", example="[1,2]"),
-    allowed_ids=Query([], description="Фильтр по id. Передать id игр.", example="[1,2]"),
-    short_description: bool = Query(False, description="Отправлять ли короткое описание."),
+    type_app=Query(
+        [],
+        description="Фильтр по типу *(`game` и/или `app`)*.",
+        example="['game','app']",
+    ),
+    genres=Query(
+        [],
+        description="Фильтр по жанрам. Передать id интересующих жанров.",
+        example="[1,2]",
+    ),
+    primary_sources=Query(
+        [],
+        description="Фильтр по источникам. Передать названия источников.",
+        example="['local','steam']",
+    ),
+    allowed_sources_ids=Query(
+        [],
+        description="Фильтр по source_id. Передать id в источниках (не работает если не передан `primary_sources`).",
+        example="[1,2]",
+    ),
+    allowed_ids=Query(
+        [], description="Фильтр по id. Передать id игр.", example="[1,2]"
+    ),
+    short_description: bool = Query(
+        False, description="Отправлять ли короткое описание."
+    ),
     description: bool = Query(False, description="Отправлять ли описание."),
     dates: bool = Query(False, description="Отправлять ли даты (дата создания)."),
-    statistics: bool = Query(False, description="Отправлять ли статистику (количество модов и их общее количество скачиваний).")
+    statistics: bool = Query(
+        False,
+        description="Отправлять ли статистику (количество модов и их общее количество скачиваний).",
+    ),
 ):
     """
     О сортировке:
@@ -114,17 +135,35 @@ async def games_list(
     allowed_sources_ids = tools.str_to_list(allowed_sources_ids)
 
     if page_size > LIMITS.page.max or page_size < LIMITS.page.min:
-        return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 1})
-    elif (len(type_app) + len(genres) + len(primary_sources) + len(allowed_ids) + len(allowed_sources_ids)) > LIMITS.game.filters_max:
-        return JSONResponse(status_code=413,
-                            content={"message": "the maximum complexity of filters is 80 elements in sum",
-                                     "error_id": 2})
+        return JSONResponse(
+            status_code=413, content={"message": "incorrect page size", "error_id": 1}
+        )
+    elif (
+        len(type_app)
+        + len(genres)
+        + len(primary_sources)
+        + len(allowed_ids)
+        + len(allowed_sources_ids)
+    ) > LIMITS.game.filters_max:
+        return JSONResponse(
+            status_code=413,
+            content={
+                "message": "the maximum complexity of filters is 80 elements in sum",
+                "error_id": 2,
+            },
+        )
 
     # Создание сессии
     session = sessionmaker(bind=catalog.engine)()
 
     # Выполнение запроса
-    query = session.query(catalog.Game.id, catalog.Game.name, catalog.Game.type, catalog.Game.source, catalog.Game.source_id)
+    query = session.query(
+        catalog.Game.id,
+        catalog.Game.name,
+        catalog.Game.type,
+        catalog.Game.source,
+        catalog.Game.source_id,
+    )
     if description:
         query = query.add_column(catalog.Game.description)
     if short_description:
@@ -160,7 +199,7 @@ async def games_list(
 
     # Фильтрация по имени
     if len(name) > 0:
-        query = query.filter(catalog.Game.name.ilike(f'%{name}%'))
+        query = query.filter(catalog.Game.name.ilike(f"%{name}%"))
 
     games_count = query.count()
     offset = page_size * page
@@ -168,7 +207,13 @@ async def games_list(
 
     output_games = []
     for game in games:
-        out = {"id": game.id, "name": game.name, "type": game.type, "source": game.source, "source_id": game.source_id}
+        out = {
+            "id": game.id,
+            "name": game.name,
+            "type": game.type,
+            "source": game.source,
+            "source_id": game.source_id,
+        }
         if description:
             out["description"] = game.description
         if short_description:
@@ -185,7 +230,7 @@ async def games_list(
 
 
 @router.get(
-    MAIN_URL+"/games/{game_id}",
+    MAIN_URL + "/games/{game_id}",
     tags=["Game"],
     summary="Информация об игре",
     status_code=200,
@@ -196,10 +241,15 @@ async def games_list(
 )
 async def game_info(
     game_id: int = Path(description="ID игры"),
-    short_description: bool = Query(False, description="Отправлять ли короткое описание."),
+    short_description: bool = Query(
+        False, description="Отправлять ли короткое описание."
+    ),
     description: bool = Query(False, description="Отправлять ли описание."),
     dates: bool = Query(False, description="Отправлять ли даты (дата создания)."),
-    statistics: bool = Query(False, description="Отправлять ли статистику (количество модов и их общее количество скачиваний)."),
+    statistics: bool = Query(
+        False,
+        description="Отправлять ли статистику (количество модов и их общее количество скачиваний).",
+    ),
 ):
     session = sessionmaker(bind=catalog.engine)()
 
@@ -246,27 +296,38 @@ async def game_info(
 
 
 @router.post(
-    MAIN_URL+"/add/game", 
+    MAIN_URL + "/add/game",
     tags=["Game"],
     summary="Добавление игры",
     status_code=202,
     responses={
-        202: {"description": "Возвращает ID созданной игры", "content": {"application/json": {"example": 123}}},
+        202: {
+            "description": "Возвращает ID созданной игры",
+            "content": {"application/json": {"example": 123}},
+        },
         401: standarts.responses[401],
         403: standarts.responses["admin"][403],
-    }
+    },
 )
 async def add_game(
     response: Response,  # Ответ HTTP
     request: Request,  # Запрос HTTP
-    game_name: str = Form(..., description="Название игры", max_length=LIMITS.game.name_max),  # Название игры
-    game_short_desc: str = Form(..., description="Краткое описание игры", max_length=LIMITS.game.short_desc_max),  # Краткое описание игры
-    game_desc: str = Form(..., description="Полное описание игры", max_length=LIMITS.game.desc_max),  # Описание игры
-    game_type: str = Form("game", description="Тип игры", max_length=LIMITS.game.type_max),  # Тип игры (по умолчанию "game")
+    game_name: str = Form(
+        ..., description="Название игры", max_length=LIMITS.game.name_max
+    ),  # Название игры
+    game_short_desc: str = Form(
+        ..., description="Краткое описание игры", max_length=LIMITS.game.short_desc_max
+    ),  # Краткое описание игры
+    game_desc: str = Form(
+        ..., description="Полное описание игры", max_length=LIMITS.game.desc_max
+    ),  # Описание игры
+    game_type: str = Form(
+        "game", description="Тип игры", max_length=LIMITS.game.type_max
+    ),  # Тип игры (по умолчанию "game")
 ):
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result == True:
+    if access_result:
         session = sessionmaker(bind=catalog.engine)()
 
         insert_statement = insert(catalog.Game).values(
@@ -277,7 +338,7 @@ async def add_game(
             mods_downloads=0,
             mods_count=0,
             creation_date=datetime.now(),
-            source='local'
+            source="local",
         )
 
         result = session.execute(insert_statement)
@@ -290,8 +351,9 @@ async def add_game(
     else:
         return access_result
 
+
 @router.post(
-    MAIN_URL+"/edit/game",
+    MAIN_URL + "/edit/game",
     tags=["Game"],
     summary="Редактирование игры",
     status_code=202,
@@ -301,26 +363,44 @@ async def add_game(
         403: standarts.responses["admin"][403],
         404: {"description": "Игра не найдена."},
         412: {"description": "Такая source-связка уже существует."},
-        418: {"description": "Пустой запрос. Возникает если не передан ни один из параметров-свойств."},
-    }
+        418: {
+            "description": "Пустой запрос. Возникает если не передан ни один из параметров-свойств."
+        },
+    },
 )
 async def edit_game(
     response: Response,  # Ответ HTTP
     request: Request,  # Запрос HTTP
-    game_id: int = Form(..., description="ID игры для редактирования"),  # ID игры для редактирования
-    game_name: str = Form(None, description="Название игры", max_length=LIMITS.game.name_max),  # Название игры
-    game_short_desc: str = Form(None, description="Краткое описание игры", max_length=LIMITS.game.short_desc_max),  # Краткое описание игры
-    game_desc: str = Form(None, description="Полное описание игры", max_length=LIMITS.game.desc_max),  # Описание игры
-    game_type: str = Form(None, description="Тип игры", max_length=LIMITS.game.type_max),  # Тип игры
-    game_source: str = Form(None, description="Источник игры. Так же обязательно передавать и `game_source_id`!", max_length=LIMITS.game.source_max),  # Источник игры
-    game_source_id: int = Form(None, description="ID игры в первоисточнике"),  # ID источника игры
+    game_id: int = Form(
+        ..., description="ID игры для редактирования"
+    ),  # ID игры для редактирования
+    game_name: str = Form(
+        None, description="Название игры", max_length=LIMITS.game.name_max
+    ),  # Название игры
+    game_short_desc: str = Form(
+        None, description="Краткое описание игры", max_length=LIMITS.game.short_desc_max
+    ),  # Краткое описание игры
+    game_desc: str = Form(
+        None, description="Полное описание игры", max_length=LIMITS.game.desc_max
+    ),  # Описание игры
+    game_type: str = Form(
+        None, description="Тип игры", max_length=LIMITS.game.type_max
+    ),  # Тип игры
+    game_source: str = Form(
+        None,
+        description="Источник игры. Так же обязательно передавать и `game_source_id`!",
+        max_length=LIMITS.game.source_max,
+    ),  # Источник игры
+    game_source_id: int = Form(
+        None, description="ID игры в первоисточнике"
+    ),  # ID источника игры
 ) -> JSONResponse:
     """
     Возвращает код состояния и сообщение о результате.
     """
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result == True:
+    if access_result:
         session = sessionmaker(bind=catalog.engine)()
 
         game = session.query(catalog.Game).filter_by(id=game_id)
@@ -328,7 +408,7 @@ async def edit_game(
             return JSONResponse(status_code=404, content="The element does not exist.")
 
         # Подготавливаем данные
-        data_edit = {}
+        data_edit: dict[str, object] = {}
         if game_name:
             data_edit["name"] = game_name
         if game_short_desc:
@@ -341,8 +421,14 @@ async def edit_game(
             data_edit["source"] = game_source
             data_edit["source_id"] = game_source_id
 
-            if session.query(catalog.Game).filter_by(source=game_source, source_id=game_source_id).first():
-                return PlainTextResponse(status_code=412, content="The element already exists")
+            if (
+                session.query(catalog.Game)
+                .filter_by(source=game_source, source_id=game_source_id)
+                .first()
+            ):
+                return PlainTextResponse(
+                    status_code=412, content="The element already exists"
+                )
 
         if len(data_edit) <= 0:
             return PlainTextResponse(status_code=418, content="The request is empty")
@@ -355,8 +441,9 @@ async def edit_game(
     else:
         return access_result
 
+
 @router.delete(
-    MAIN_URL+"/delete/game",
+    MAIN_URL + "/delete/game",
     tags=["Game"],
     summary="Удаление игры",
     status_code=202,
@@ -368,25 +455,29 @@ async def edit_game(
 )
 async def delete_game(
     response: Response,
-    request: Request, 
-    game_id: int = Form(..., description="ID игры для удаления")
+    request: Request,
+    game_id: int = Form(..., description="ID игры для удаления"),
 ):
     """
-    Удаляет игру, все её ассоциации и ресурсы. 
+    Удаляет игру, все её ассоциации и ресурсы.
 
     Для относительной безопасности(возможность вручную восстановить игру), удаление никак не затрагивает моды игры, в том числе у них не изменяется game_id.
     Т.е. чтобы удалить все моды игры, нужно пройтись парсингом по каждому моду.
     """
     access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result == True:
-        await tools.delete_resources(owner_type='games', owner_id=game_id)
+    if access_result:
+        await tools.delete_resources(owner_type="games", owner_id=game_id)
 
         session = sessionmaker(bind=catalog.engine)()
 
         delete_game = delete(catalog.Game).where(catalog.Game.id == game_id)
-        delete_genres_association = catalog.game_genres.delete().where(catalog.game_genres.c.game_id == game_id)
-        delete_tags_association = catalog.allowed_mods_tags.delete().where(catalog.allowed_mods_tags.c.game_id == game_id)
+        delete_genres_association = catalog.game_genres.delete().where(
+            catalog.game_genres.c.game_id == game_id
+        )
+        delete_tags_association = catalog.allowed_mods_tags.delete().where(
+            catalog.allowed_mods_tags.c.game_id == game_id
+        )
 
         # Выполнение операции DELETE
         session.execute(delete_game)

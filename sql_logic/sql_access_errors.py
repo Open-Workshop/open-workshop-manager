@@ -3,14 +3,14 @@ from sqlalchemy.ext.declarative import declarative_base
 from .envs import DB_HOST, DB_PASSWORD, DB_PORT, DB_USER
 
 engine = create_engine(
-    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}"
-    f"@{DB_HOST}:{DB_PORT}/access",
+    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}" f"@{DB_HOST}:{DB_PORT}/access",
     pool_pre_ping=True,
 )
 base = declarative_base()
 
+
 class AccessError(base):
-    __tablename__ = 'access_errors'
+    __tablename__ = "access_errors"
     id = Column(Integer, primary_key=True)
 
     func_name = Column(String(64))

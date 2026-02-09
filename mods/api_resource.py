@@ -10,12 +10,11 @@ from limits import LIMITS
 from datetime import datetime
 import standarts
 
-
 router = APIRouter()
 
 
 @router.get(
-    MAIN_URL+"/resources",
+    MAIN_URL + "/resources",
     tags=["Resource", "Game", "Mod", "Association"],
     status_code=200,
     summary="Список ресурсов",
@@ -28,26 +27,43 @@ router = APIRouter()
             "description": "Неккоректный диапазон параметров *(размеров)*.",
             "content": {
                 "application/json": {
-                    "example": {
-                        "message": "incorrect page size",
-                        "error_id": 2
-                    }
+                    "example": {"message": "incorrect page size", "error_id": 2}
                 }
-            }
+            },
         },
     },
 )
 async def list_resources_rest(
     response: Response,
     request: Request,
-    owner_type: str = Query(..., description="Тип ресурса-владельца.", examples=["mods", "games"], max_length=LIMITS.resource.owner_type_max),
-    owner_ids = Query(None, description="Список ID-владельцев в формате JSON списка.", example='[1, 2, 3]'),
-    owner_id: int | None = Query(None, description="ID владельца (альтернатива owner_ids)."),
-    resources_list_id = Query([], description="Список ID-ресурсов.", example='[1, 2, 3]'),
-    page_size: int = Query(LIMITS.page.default, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
+    owner_type: str = Query(
+        ...,
+        description="Тип ресурса-владельца.",
+        examples=["mods", "games"],
+        max_length=LIMITS.resource.owner_type_max,
+    ),
+    owner_ids=Query(
+        None,
+        description="Список ID-владельцев в формате JSON списка.",
+        example="[1, 2, 3]",
+    ),
+    owner_id: int | None = Query(
+        None, description="ID владельца (альтернатива owner_ids)."
+    ),
+    resources_list_id=Query([], description="Список ID-ресурсов.", example="[1, 2, 3]"),
+    page_size: int = Query(
+        LIMITS.page.default,
+        description="Размер 1 страницы. Диапазон - 1...50 элементов.",
+    ),
     page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
-    types_resources = Query([], description="Фильтрация по типу ресурсов *(массив типов)*.", example='[\"logo\", \"screenshot\"]'),
-    only_urls: bool = Query(False, description="Возвращать только ссылки или полную информацию."),
+    types_resources=Query(
+        [],
+        description="Фильтрация по типу ресурсов *(массив типов)*.",
+        example='["logo", "screenshot"]',
+    ),
+    only_urls: bool = Query(
+        False, description="Возвращать только ссылки или полную информацию."
+    ),
 ):
     owner_ids_value = owner_ids
     if owner_ids_value is None and owner_id is not None:
@@ -70,7 +86,7 @@ async def list_resources_rest(
 
 
 @router.post(
-    MAIN_URL+"/resources",
+    MAIN_URL + "/resources",
     tags=["Resource"],
     summary="Добавление ресурса",
     status_code=202,
@@ -79,7 +95,9 @@ async def list_resources_rest(
             "description": "Возвращает ID созданного ресурса.",
             "content": {"application/json": {"example": 1}},
         },
-        400: {"description": "Не передан файл и при этом передан неккоректны `resource_url`."},
+        400: {
+            "description": "Не передан файл и при этом передан неккоректны `resource_url`."
+        },
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
         405: {"description": "Неизвестный тип ресурса-владельца."},
@@ -89,9 +107,24 @@ async def list_resources_rest(
 async def add_resource_rest(
     response: Response,
     request: Request,
-    owner_type: str = Form(..., description="Тип ресурса-владельца.", examples=["mods", "games"], max_length=LIMITS.resource.owner_type_max),
-    resource_type: str = Form(..., description="Название типа ресурса.", min_length=LIMITS.resource.type_min, max_length=LIMITS.resource.type_max),
-    resource_url: str = Form("", description="URL ресурса *(если не передан файл)*.", min_length=LIMITS.resource.url_min_create, max_length=LIMITS.resource.url_max),
+    owner_type: str = Form(
+        ...,
+        description="Тип ресурса-владельца.",
+        examples=["mods", "games"],
+        max_length=LIMITS.resource.owner_type_max,
+    ),
+    resource_type: str = Form(
+        ...,
+        description="Название типа ресурса.",
+        min_length=LIMITS.resource.type_min,
+        max_length=LIMITS.resource.type_max,
+    ),
+    resource_url: str = Form(
+        "",
+        description="URL ресурса *(если не передан файл)*.",
+        min_length=LIMITS.resource.url_min_create,
+        max_length=LIMITS.resource.url_max,
+    ),
     resource_owner_id: int = Form(..., description="ID ресурса-владельца."),
     resource_file: UploadFile = File(None, description="Файл ресурса."),
 ):
@@ -107,7 +140,7 @@ async def add_resource_rest(
 
 
 @router.patch(
-    MAIN_URL+"/resources/{resource_id}",
+    MAIN_URL + "/resources/{resource_id}",
     tags=["Resource"],
     summary="Редактирование ресурса",
     status_code=202,
@@ -125,9 +158,21 @@ async def edit_resource_rest(
     response: Response,
     request: Request,
     resource_id: int = Path(description="ID ресурса."),
-    resource_type: str = Form(None, description="Тип ресурса.", min_length=LIMITS.resource.type_min, max_length=LIMITS.resource.type_max),
-    resource_url: str = Form(None, description="URL ресурса.", min_length=LIMITS.resource.url_min, max_length=LIMITS.resource.url_max),
-    resource_file: UploadFile = File(None, description="Файл ресурса *(приоритетней `resource_url`)*."),
+    resource_type: str = Form(
+        None,
+        description="Тип ресурса.",
+        min_length=LIMITS.resource.type_min,
+        max_length=LIMITS.resource.type_max,
+    ),
+    resource_url: str = Form(
+        None,
+        description="URL ресурса.",
+        min_length=LIMITS.resource.url_min,
+        max_length=LIMITS.resource.url_max,
+    ),
+    resource_file: UploadFile = File(
+        None, description="Файл ресурса *(приоритетней `resource_url`)*."
+    ),
 ):
     return await edit_resource(
         response=response,
@@ -140,7 +185,7 @@ async def edit_resource_rest(
 
 
 @router.delete(
-    MAIN_URL+"/resources/{resource_id}",
+    MAIN_URL + "/resources/{resource_id}",
     tags=["Resource"],
     summary="Удаление ресурса",
     status_code=200,
@@ -149,7 +194,9 @@ async def edit_resource_rest(
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
         404: {"description": "Ресурс не найден."},
-        405: {"description": "Неккоректный `owner_type`. Доступные значения: `mods`, `games`."},
+        405: {
+            "description": "Неккоректный `owner_type`. Доступные значения: `mods`, `games`."
+        },
         500: {"description": "Произошла ошибка на стороне Storage сервера."},
     },
 )
@@ -178,15 +225,18 @@ async def delete_resource_rest(
     else:
         access_result = await tools.access_admin(response=response, request=request)
 
-    if access_result != True:
+    if not access_result:
         return access_result
 
-    if await tools.delete_resources(owner_type=resource.owner_type, resources_ids=[resource_id]):
+    if await tools.delete_resources(
+        owner_type=resource.owner_type, resources_ids=[resource_id]
+    ):
         return PlainTextResponse(status_code=200, content="Complite!")
     return PlainTextResponse(status_code=500, content="Unknown error")
 
+
 @router.get(
-    MAIN_URL+"/list/resources/{owner_type}/{owner_ids}",
+    MAIN_URL + "/list/resources/{owner_type}/{owner_ids}",
     tags=["Resource", "Game", "Mod", "Association"],
     status_code=200,
     summary="Список ресурсов",
@@ -205,7 +255,7 @@ async def delete_resource_rest(
                                 "url": "https://example.com/logo.png",
                                 "owner_id": 1,
                                 "owner_type": "games",
-                                "date_event": "2022-01-01 10:22:42"
+                                "date_event": "2022-01-01 10:22:42",
                             },
                             {
                                 "id": 2,
@@ -213,12 +263,12 @@ async def delete_resource_rest(
                                 "url": "https://example.com/screenshot.jpg",
                                 "owner_id": 1,
                                 "owner_type": "games",
-                                "date_event": "2022-02-01 11:41:28"
-                            }
-                        ]
+                                "date_event": "2022-02-01 11:41:28",
+                            },
+                        ],
                     }
                 }
-            }
+            },
         },
         403: standarts.responses["non-admin"][403],
         405: {"description": "Неизвестный `owner_type`."},
@@ -226,25 +276,35 @@ async def delete_resource_rest(
             "description": "Неккоректный диапазон параметров *(размеров)*. Либо суммарно списковые фильтры > 120 элементов, либо неккоректный диапазон `page_size`/`page`",
             "content": {
                 "application/json": {
-                    "example": {
-                        "message": "incorrect page size",
-                        "error_id": 2
-                    }
+                    "example": {"message": "incorrect page size", "error_id": 2}
                 }
-            }
+            },
         },
-    }
+    },
 )
 async def list_resources(
     response: Response,
     request: Request,
-    owner_type: str = Path(description="Тип ресурса-владельца.", examples=["mods", "games"], max_length=LIMITS.resource.owner_type_max),
-    owner_ids = Path(description="Список ID-владельцев.", example='[1, 2, 3]'),
-    resources_list_id = Query([], description="Список ID-ресурсов.", example='[1, 2, 3]'),
-    page_size: int = Query(LIMITS.page.default, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
+    owner_type: str = Path(
+        description="Тип ресурса-владельца.",
+        examples=["mods", "games"],
+        max_length=LIMITS.resource.owner_type_max,
+    ),
+    owner_ids=Path(description="Список ID-владельцев.", example="[1, 2, 3]"),
+    resources_list_id=Query([], description="Список ID-ресурсов.", example="[1, 2, 3]"),
+    page_size: int = Query(
+        LIMITS.page.default,
+        description="Размер 1 страницы. Диапазон - 1...50 элементов.",
+    ),
     page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
-    types_resources = Query([], description="Фильтрация по типу ресурсов *(массив типов)*.", example='["logo", "screenshot"]'),
-    only_urls: bool = Query(False, description="Возвращать только ссылки или полную информацию."),
+    types_resources=Query(
+        [],
+        description="Фильтрация по типу ресурсов *(массив типов)*.",
+        example='["logo", "screenshot"]',
+    ),
+    only_urls: bool = Query(
+        False, description="Возвращать только ссылки или полную информацию."
+    ),
 ):
     """
     Возвращает список ресурсов. Фильтрационные списки не должны быть суммарно > 120 элементов.
@@ -255,15 +315,28 @@ async def list_resources(
     types_resources = tools.str_to_list(types_resources)
     owner_ids = tools.str_to_list(owner_ids)
 
-    if owner_type not in ['mods', 'games']:
+    if owner_type not in ["mods", "games"]:
         return PlainTextResponse(status_code=405, content="unknown owner_type")
 
-    if len(types_resources) + len(resources_list_id) + len(owner_ids) > LIMITS.resource.filters_max:
-        return JSONResponse(status_code=413, content={"message": "the maximum complexity of filters is 120 elements in sum", "error_id": 1})
+    if (
+        len(types_resources) + len(resources_list_id) + len(owner_ids)
+        > LIMITS.resource.filters_max
+    ):
+        return JSONResponse(
+            status_code=413,
+            content={
+                "message": "the maximum complexity of filters is 120 elements in sum",
+                "error_id": 1,
+            },
+        )
     elif page_size > LIMITS.page.max or page_size < LIMITS.page.min:
-        return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 2})
+        return JSONResponse(
+            status_code=413, content={"message": "incorrect page size", "error_id": 2}
+        )
     elif page < 0:
-        return JSONResponse(status_code=413, content={"message": "incorrect page", "error_id": 3})
+        return JSONResponse(
+            status_code=413, content={"message": "incorrect page", "error_id": 3}
+        )
 
     # Создание сессии
     session = sessionmaker(bind=catalog.engine)()
@@ -283,66 +356,87 @@ async def list_resources(
 
     # Проверка правомерности
     if resources_count > 0:
-        mods_ids_check = [ i.owner_id for i in resources ]
+        mods_ids_check = [i.owner_id for i in resources]
 
         query = session.query(catalog.Mod.id)
         query = query.filter(catalog.Mod.id.in_(mods_ids_check))
         ids_mods = [mod.id for mod in query.all()]
 
         if len(ids_mods) > 0:
-            if not await tools.access_mods(response=response, request=request, mods_ids=ids_mods, check_mode=True):
+            if not await tools.access_mods(
+                response=response, request=request, mods_ids=ids_mods, check_mode=True
+            ):
                 session.close()
                 return PlainTextResponse(status_code=403, content="Access denied.")
 
-    real_resources = await tools.resources_serialize(resources=resources, only_urls=only_urls)
+    real_resources = await tools.resources_serialize(
+        resources=resources, only_urls=only_urls
+    )
 
     # Возврат успешного результата
     session.close()
-    return {"database_size": resources_count, "offset": offset, "results": real_resources}
+    return {
+        "database_size": resources_count,
+        "offset": offset,
+        "results": real_resources,
+    }
 
 
 @router.post(
-    MAIN_URL+"/add/resource/{owner_type}",
+    MAIN_URL + "/add/resource/{owner_type}",
     tags=["Resource"],
     summary="Добавление ресурса",
     status_code=202,
     responses={
         202: {
             "description": "Возвращает ID созданного ресурса.",
-            "content": {
-                "application/json": {
-                    "example": 1
-                }
-            }
+            "content": {"application/json": {"example": 1}},
         },
-        400: {"description": "Не передан файл и при этом передан неккоректны `resource_url`."},
+        400: {
+            "description": "Не передан файл и при этом передан неккоректны `resource_url`."
+        },
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
         405: {"description": "Неизвестный тип ресурса-владельца."},
         500: {"description": "Произошла ошибка на стороне Storage сервера."},
-    }
+    },
 )
 async def add_resource(
     response: Response,
     request: Request,
-    owner_type: str = Path(description="Тип ресурса-владельца.", examples=["mods", "games"], max_length=LIMITS.resource.owner_type_max),
-    resource_type: str = Form(..., description="Название типа ресурса.", min_length=LIMITS.resource.type_min, max_length=LIMITS.resource.type_max),
-    resource_url: str = Form("", description="URL ресурса *(если не передан файл)*.", min_length=LIMITS.resource.url_min_create, max_length=LIMITS.resource.url_max),
+    owner_type: str = Path(
+        description="Тип ресурса-владельца.",
+        examples=["mods", "games"],
+        max_length=LIMITS.resource.owner_type_max,
+    ),
+    resource_type: str = Form(
+        ...,
+        description="Название типа ресурса.",
+        min_length=LIMITS.resource.type_min,
+        max_length=LIMITS.resource.type_max,
+    ),
+    resource_url: str = Form(
+        "",
+        description="URL ресурса *(если не передан файл)*.",
+        min_length=LIMITS.resource.url_min_create,
+        max_length=LIMITS.resource.url_max,
+    ),
     resource_owner_id: int = Form(..., description="ID ресурса-владельца."),
-    resource_file: UploadFile = File(None, description="Файл ресурса.")
+    resource_file: UploadFile = File(None, description="Файл ресурса."),
 ):
     """
     `resource_url` не учитывается если передан `resource_file`
     """
-    if owner_type not in ['mods', 'games']:
+    if owner_type not in ["mods", "games"]:
         return PlainTextResponse(status_code=405, content="unknown owner_type")
-    elif owner_type == 'mods':
-        access_result = await tools.access_mods(response=response, request=request, mods_ids=[resource_owner_id], edit=True)
+    elif owner_type == "mods":
+        access_result = await tools.access_mods(
+            response=response, request=request, mods_ids=[resource_owner_id], edit=True
+        )
     else:
         access_result = await tools.access_admin(response=response, request=request)
 
-
-    if access_result == True:
+    if access_result:
         real_url = resource_url
 
         if resource_file:
@@ -357,13 +451,19 @@ async def add_resource(
             real_file = io.BytesIO(converted_bytes)
             real_path = f"{owner_type}/{resource_owner_id}/{filename}"
 
-            result_code, result_upload, result_status = await tools.storage_file_upload(type="resource", path=real_path, file=real_file)
-            if result_status == False:
-                return PlainTextResponse(status_code=result_code, content=f'Upload error ({result_upload})')
+            result_code, result_upload, result_status = await tools.storage_file_upload(
+                type="resource", path=real_path, file=real_file
+            )
+            if not result_status:
+                return PlainTextResponse(
+                    status_code=result_code, content=f"Upload error ({result_upload})"
+                )
             else:
-                real_url = f'local/{result_upload}'
-        elif len(resource_url) > LIMITS.resource.url_max or not resource_url.startswith('http'):
-            return PlainTextResponse(status_code=400, content='Incorrect URL')
+                real_url = f"local/{result_upload}"
+        elif len(resource_url) > LIMITS.resource.url_max or not resource_url.startswith(
+            "http"
+        ):
+            return PlainTextResponse(status_code=400, content="Incorrect URL")
 
         session = sessionmaker(bind=catalog.engine)()
 
@@ -372,7 +472,7 @@ async def add_resource(
             url=real_url,
             date_event=datetime.now(),
             owner_type=owner_type,
-            owner_id=resource_owner_id
+            owner_id=resource_owner_id,
         )
 
         result = session.execute(insert_statement)
@@ -385,8 +485,9 @@ async def add_resource(
     else:
         return access_result
 
+
 @router.post(
-    MAIN_URL+"/edit/resource",
+    MAIN_URL + "/edit/resource",
     tags=["Resource"],
     summary="Редактирование ресурса",
     status_code=202,
@@ -398,15 +499,27 @@ async def add_resource(
         404: {"description": "Ресурс не найден."},
         418: {"description": "Пустой запрос."},
         500: {"description": "Произошла ошибка на стороне Storage сервера."},
-    }
+    },
 )
 async def edit_resource(
     response: Response,
     request: Request,
     resource_id: int = Form(..., description="ID ресурса."),
-    resource_type: str = Form(None, description="Тип ресурса.", min_length=LIMITS.resource.type_min, max_length=LIMITS.resource.type_max),
-    resource_url: str = Form(None, description="URL ресурса.", min_length=LIMITS.resource.url_min, max_length=LIMITS.resource.url_max),
-    resource_file: UploadFile = File(None, description="Файл ресурса *(приоритетней `resource_url`)*.")
+    resource_type: str = Form(
+        None,
+        description="Тип ресурса.",
+        min_length=LIMITS.resource.type_min,
+        max_length=LIMITS.resource.type_max,
+    ),
+    resource_url: str = Form(
+        None,
+        description="URL ресурса.",
+        min_length=LIMITS.resource.url_min,
+        max_length=LIMITS.resource.url_max,
+    ),
+    resource_file: UploadFile = File(
+        None, description="Файл ресурса *(приоритетней `resource_url`)*."
+    ),
 ):
     session = sessionmaker(bind=catalog.engine)()
 
@@ -416,24 +529,35 @@ async def edit_resource(
         return JSONResponse(status_code=404, content="The element does not exist.")
 
     if got_resource.owner_type == "mods":
-        access_result = await tools.access_mods(response=response, request=request, mods_ids=[got_resource.owner_id], edit=True)
+        access_result = await tools.access_mods(
+            response=response,
+            request=request,
+            mods_ids=[got_resource.owner_id],
+            edit=True,
+        )
     else:
         access_result = await tools.access_admin(response=response, request=request)
 
-
-    if access_result == True:
+    if access_result:
         # Подготавливаем данные
-        data_edit = {}
+        data_edit: dict[str, object] = {}
         if resource_type:
             data_edit["type"] = resource_type
 
         if resource_file or resource_url:
             if not resource_file and resource_url:
-                if len(resource_url) < LIMITS.resource.url_min or len(resource_url) > LIMITS.resource.url_max or not resource_url.startswith('http'):
-                    return PlainTextResponse(status_code=400, content='Incorrect URL')
+                if (
+                    len(resource_url) < LIMITS.resource.url_min
+                    or len(resource_url) > LIMITS.resource.url_max
+                    or not resource_url.startswith("http")
+                ):
+                    return PlainTextResponse(status_code=400, content="Incorrect URL")
 
-            if got_resource.url.startswith("local/") and \
-                    not await tools.storage_file_delete(type="resource", path=got_resource.url.replace("local/", "")):
+            if got_resource.url.startswith(
+                "local/"
+            ) and not await tools.storage_file_delete(
+                type="resource", path=got_resource.url.replace("local/", "")
+            ):
                 return JSONResponse(status_code=500, content="delete old file error")
 
             if resource_file:
@@ -446,16 +570,24 @@ async def edit_resource(
                     filename = f"{name_stem}.webp"
 
                 real_file = io.BytesIO(converted_bytes)
-                real_path = f"{got_resource.owner_type}/{got_resource.owner_id}/{filename}"
+                real_path = (
+                    f"{got_resource.owner_type}/{got_resource.owner_id}/{filename}"
+                )
 
-                result_upload_code, result_upload, result_status = await tools.storage_file_upload(type="resource", path=real_path, file=real_file)
-                if result_status == False:
-                    return JSONResponse(status_code=result_upload_code, content=f'Upload error ({result_upload})')
+                result_upload_code, result_upload, result_status = (
+                    await tools.storage_file_upload(
+                        type="resource", path=real_path, file=real_file
+                    )
+                )
+                if not result_status:
+                    return JSONResponse(
+                        status_code=result_upload_code,
+                        content=f"Upload error ({result_upload})",
+                    )
                 else:
-                    data_edit["url"] = f'local/{result_upload}'
+                    data_edit["url"] = f"local/{result_upload}"
             else:
                 data_edit["url"] = resource_url
-
 
         if len(data_edit) <= 0:
             return JSONResponse(status_code=418, content="The request is empty")
@@ -472,8 +604,9 @@ async def edit_resource(
         session.close()
         return access_result
 
+
 @router.delete(
-    MAIN_URL+"/delete/resource/{owner_type}",
+    MAIN_URL + "/delete/resource/{owner_type}",
     tags=["Resource"],
     summary="Удаление ресурса",
     status_code=200,
@@ -482,34 +615,43 @@ async def edit_resource(
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
         404: {"description": "Ресурс не найден."},
-        405: {"description": "Неккоректный `owner_type`. Доступные значения: `mods`, `games`."},
-        500: {"description": "Произошла ошибка на стороне Storage сервера."}
-    }   
+        405: {
+            "description": "Неккоректный `owner_type`. Доступные значения: `mods`, `games`."
+        },
+        500: {"description": "Произошла ошибка на стороне Storage сервера."},
+    },
 )
 async def delete_resource(
     response: Response,
     request: Request,
-    owner_type: str = Path(description="Тип ресурса.", examples=["mods", "games"], max_length=LIMITS.resource.owner_type_max),
+    owner_type: str = Path(
+        description="Тип ресурса.",
+        examples=["mods", "games"],
+        max_length=LIMITS.resource.owner_type_max,
+    ),
     resource_id: int = Form(..., description="ID ресурса для удаления."),
 ):
-    if owner_type not in ['mods', 'games']:
+    if owner_type not in ["mods", "games"]:
         return PlainTextResponse(status_code=405, content="unknown owner_type")
-    elif owner_type == 'mods':
+    elif owner_type == "mods":
         session = sessionmaker(bind=catalog.engine)()
         query = session.query(catalog.Resource)
         query = query.filter_by(owner_type=owner_type, owner_id=resource_id).first()
         session.close()
 
         if query:
-            access_result = await tools.access_mods(response=response, request=request, mods_ids=[query.owner_id], edit=True)
+            access_result = await tools.access_mods(
+                response=response, request=request, mods_ids=[query.owner_id], edit=True
+            )
         else:
             return PlainTextResponse(status_code=404, content="not found")
     else:
         access_result = await tools.access_admin(response=response, request=request)
 
-
-    if access_result == True:
-        if await tools.delete_resources(owner_type=owner_type, resources_ids=[resource_id]):
+    if access_result:
+        if await tools.delete_resources(
+            owner_type=owner_type, resources_ids=[resource_id]
+        ):
             return PlainTextResponse(status_code=200, content="Complite!")
         else:
             return PlainTextResponse(status_code=500, content="Unknown error")

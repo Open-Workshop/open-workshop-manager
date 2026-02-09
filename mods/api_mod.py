@@ -14,35 +14,23 @@ import ow_config as config
 from limits import LIMITS
 import standarts
 
-
 routers_edit_mod_response = {
     411: {
         "description": "Не достингнут минимальный размер (название мода).",
-        "content": {
-            "text/plain": {
-                "example": "Название слишком короткое!"
-            }
-        }
+        "content": {"text/plain": {"example": "Название слишком короткое!"}},
     },
     413: {
         "description": "Слишком длинное значение параметра(ов): короткое/полное описание, название, размер файла.",
         "content": {
             "application/json": {
-                "example": {
-                    "message": "... слишком длинное!",
-                    "error_id": 1
-                }
+                "example": {"message": "... слишком длинное!", "error_id": 1}
             }
-        }
+        },
     },
     500: {
         "description": "Во время передачи файла на Storage сервер произошла ошибка.",
-        "content": {
-            "text/plain": {
-                "example": "Не удалось загрузить файл!"
-            }
-        }
-    }
+        "content": {"text/plain": {"example": "Не удалось загрузить файл!"}},
+    },
 }
 
 
@@ -50,7 +38,7 @@ router = APIRouter()
 
 
 @router.get(
-    MAIN_URL+"/mods/{mod_id}/download",
+    MAIN_URL + "/mods/{mod_id}/download",
     tags=["Mod"],
     summary="Скачивание мода",
     status_code=307,
@@ -64,7 +52,7 @@ router = APIRouter()
     },
 )
 @router.get(
-    MAIN_URL+"/download/{mod_id}",
+    MAIN_URL + "/download/{mod_id}",
     tags=["Mod"],
     summary="Скачивание мода",
     status_code=307,
@@ -74,8 +62,8 @@ router = APIRouter()
         },
         404: {
             "description": "Мод не найден",
-        }
-    }
+        },
+    },
 )
 async def download_mod(
     mod_id: int = Path(description="ID мода"),
@@ -94,46 +82,46 @@ async def download_mod(
         return PlainTextResponse(status_code=404, content="Not found")
     else:
         mod_query.update({catalog.Mod.downloads: catalog.Mod.downloads + 1})
-        session.query(catalog.Game).filter(catalog.Game.id == mod.game).update({catalog.Game.mods_downloads: catalog.Game.mods_downloads + 1})
+        session.query(catalog.Game).filter(catalog.Game.id == mod.game).update(
+            {catalog.Game.mods_downloads: catalog.Game.mods_downloads + 1}
+        )
         session.commit()
 
         session.close()
 
         statistics.update("mod", mod_id, "download")
 
-    return RedirectResponse(url=F'{config.STORAGE_URL}/download/archive/mods/{mod_id}/main.zip')
+    return RedirectResponse(
+        url=f"{config.STORAGE_URL}/download/archive/mods/{mod_id}/main.zip"
+    )
+
 
 @router.get(
-    MAIN_URL+"/list/mods/access/{ids_array}",
+    MAIN_URL + "/list/mods/access/{ids_array}",
     tags=["Mod"],
     summary="Проверка прав доступа к модам",
     status_code=200,
     responses={
         200: {
             "description": "Массив ID модов",
-            "content": {
-                "application/json": {
-                    "example": [1, 2, 3]
-                }
-            }
+            "content": {"application/json": {"example": [1, 2, 3]}},
         },
         403: {
             "description": "Нет доступа (не админ И не передан правильный токен)",
-            "content": {
-                "text/plain": {
-                    "example": "Access denied"
-                }
-            }
-        }
-    }
+            "content": {"text/plain": {"example": "Access denied"}},
+        },
+    },
 )
 async def access_to_mods(
-    response: Response, 
-    request: Request, 
-    ids_array = Path(description="Массив ID модов"), 
+    response: Response,
+    request: Request,
+    ids_array=Path(description="Массив ID модов"),
     edit: bool = Query(False, description="Фильтр на edit доступ"),
     user: int = Query(-1, description="ID пользователя"),
-    token: str = Query("none", description="Токен для проверки прав других пользователей, аналог токена - админские права просящего")
+    token: str = Query(
+        "none",
+        description="Токен для проверки прав других пользователей, аналог токена - админские права просящего",
+    ),
 ):
     """
     Принимает массив ID модов, возвращает этот же массив в котором ID модов к которым есть read (или выше) доступ.
@@ -143,57 +131,74 @@ async def access_to_mods(
     ids_array = tools.str_to_list(ids_array)
     if user >= 0:
         if user <= 0:  # Проверка неавторизованного доступа
-            if edit: return [] # Неавторизованные пользователи не имеют edit прав, нет нужды обращаться к базе
-            
+            if edit:
+                return (
+                    []
+                )  # Неавторизованные пользователи не имеют edit прав, нет нужды обращаться к базе
+
             session = sessionmaker(bind=catalog.engine)()
 
             # Выполнение запроса
-            mods = session.query(catalog.Mod.id, catalog.Mod.public).filter(catalog.Mod.id.in_(ids_array))
+            mods = session.query(catalog.Mod.id, catalog.Mod.public).filter(
+                catalog.Mod.id.in_(ids_array)
+            )
             mods = mods.filter(catalog.Mod.public <= 1).all()
 
-            mods_ids = [ i.id for i in mods ]
+            mods_ids = [i.id for i in mods]
 
             session.close()
             return mods_ids
-        elif await tools.check_token(token_name="access_mods_check_anonymous", token=token) or await tools.access_admin(response=response, request=request):
-            return await tools.anonymous_access_mods(user_id=user, mods_ids=ids_array, edit=edit, check_mode=True)
+        elif await tools.check_token(
+            token_name="access_mods_check_anonymous", token=token
+        ) or await tools.access_admin(response=response, request=request):
+            return await tools.anonymous_access_mods(
+                user_id=user, mods_ids=ids_array, edit=edit, check_mode=True
+            )
         else:
             return PlainTextResponse(status_code=403, content="Access denied")
     else:
-        return await tools.access_mods(response=response, request=request, mods_ids=ids_array, edit=edit, check_mode=True)
+        return await tools.access_mods(
+            response=response,
+            request=request,
+            mods_ids=ids_array,
+            edit=edit,
+            check_mode=True,
+        )
+
 
 @router.get(
-    MAIN_URL+"/list/mods/public/{ids_array}",
+    MAIN_URL + "/list/mods/public/{ids_array}",
     tags=["Mod"],
     summary="Список публичных модов",
     status_code=200,
     responses={
         200: {
             "description": "Массив ID модов",
-            "content": {
-                "application/json": {
-                    "example": [1, 2, 3]
-                }
-            }
+            "content": {"application/json": {"example": [1, 2, 3]}},
         },
         413: {
             "description": "Слишком большой массив ID модов",
             "content": {
-                "text/plain": {
-                    "example": "the size of the array is not correct"
-                }
-            }
-        }
-    }
+                "text/plain": {"example": "the size of the array is not correct"}
+            },
+        },
+    },
 )
 async def public_mods(
-    ids_array = Path(description="Массив ID модов (максимум 50 штук)"),
-    in_catalog:bool = Query(False, description="Возвращает только полностью публичные моды")
+    ids_array=Path(description="Массив ID модов (максимум 50 штук)"),
+    in_catalog: bool = Query(
+        False, description="Возвращает только полностью публичные моды"
+    ),
 ):
     ids_array = tools.str_to_list(ids_array)
 
-    if len(ids_array) < LIMITS.mod.public_ids_min or len(ids_array) > LIMITS.mod.public_ids_max:
-        return PlainTextResponse(status_code=413, content="the size of the array is not correct")
+    if (
+        len(ids_array) < LIMITS.mod.public_ids_min
+        or len(ids_array) > LIMITS.mod.public_ids_max
+    ):
+        return PlainTextResponse(
+            status_code=413, content="the size of the array is not correct"
+        )
 
     output = []
 
@@ -214,8 +219,9 @@ async def public_mods(
     session.close()
     return output
 
+
 @router.get(
-    MAIN_URL+"/mods",
+    MAIN_URL + "/mods",
     tags=["Mod"],
     summary="Список модов",
     status_code=200,
@@ -232,19 +238,19 @@ async def public_mods(
                                 "id": 1,
                                 "name": "name",
                                 "date_creation": "1984-01-01 00:00:00",
-                                "date_update": "1984-01-01 00:00:00"
+                                "date_update": "1984-01-01 00:00:00",
                             },
                             "Access denied (hide info)",
                             {
                                 "id": 3,
                                 "name": "name",
                                 "date_creation": "1984-01-01 00:00:00",
-                                "date_update": "1984-01-01 00:00:00"
-                            }
-                        ]
+                                "date_update": "1984-01-01 00:00:00",
+                            },
+                        ],
                     }
                 }
-            }
+            },
         },
         413: {
             "description": "Слишком сложный запрос ИЛИ page_size вне диапазона.",
@@ -252,7 +258,7 @@ async def public_mods(
     },
 )
 @router.get(
-    MAIN_URL+"/list/mods/",
+    MAIN_URL + "/list/mods/",
     tags=["Mod"],
     summary="Список модов",
     status_code=200,
@@ -262,52 +268,90 @@ async def public_mods(
             "content": {
                 "application/json": {
                     "example": {
-                        "database_size": 123, 
-                        "offset": 123, 
+                        "database_size": 123,
+                        "offset": 123,
                         "results": [
                             {
                                 "id": 1,
                                 "name": "name",
                                 "date_creation": "1984-01-01 00:00:00",
-                                "date_update": "1984-01-01 00:00:00"
+                                "date_update": "1984-01-01 00:00:00",
                             },
                             "Access denied (hide info)",
                             {
                                 "id": 3,
                                 "name": "name",
                                 "date_creation": "1984-01-01 00:00:00",
-                                "date_update": "1984-01-01 00:00:00"
-                            }
-                        ]
+                                "date_update": "1984-01-01 00:00:00",
+                            },
+                        ],
                     }
                 }
-            }
+            },
         },
         413: {
             "description": "Слишком сложный запрос ИЛИ page_size вне диапазона.",
-        }
-    }
+        },
+    },
 )
 async def mod_list(
-    response: Response, 
-    request: Request, 
-    page_size: int = Query(LIMITS.page.default, description="Размер 1 страницы. Диапазон - 1...50 элементов."), 
+    response: Response,
+    request: Request,
+    page_size: int = Query(
+        LIMITS.page.default,
+        description="Размер 1 страницы. Диапазон - 1...50 элементов.",
+    ),
     page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
-    sort: str = Query("DOWNLOADS", description="Сортировка. Подробнее в полном описании функции."),
-    tags = Query([], description="Массив ID тегов", examples={"example": {"value": "[1, 2, 3]"}}),
+    sort: str = Query(
+        "DOWNLOADS", description="Сортировка. Подробнее в полном описании функции."
+    ),
+    tags=Query(
+        [], description="Массив ID тегов", examples={"example": {"value": "[1, 2, 3]"}}
+    ),
     game: int = Query(-1, description="ID игры."),
-    allowed_ids = Query([], description="Массив ID разрешенных модов.", examples={"example": {"value": "[1, 2, 3]"}}),
-    independents: bool = Query(False, description="Не передавать моды с зависимостями."),
-    primary_sources = Query([], description="Массив разрешенных источников.", examples={"example": {"value": "['local', 'steam']"}}),
-    allowed_sources_ids = Query([], description="Массив ID модов в разрешенных источниках. Обязательно передать `primary_sources`.", examples={"example": {"value": "[1, 2, 3]"}}),
+    allowed_ids=Query(
+        [],
+        description="Массив ID разрешенных модов.",
+        examples={"example": {"value": "[1, 2, 3]"}},
+    ),
+    independents: bool = Query(
+        False, description="Не передавать моды с зависимостями."
+    ),
+    primary_sources=Query(
+        [],
+        description="Массив разрешенных источников.",
+        examples={"example": {"value": "['local', 'steam']"}},
+    ),
+    allowed_sources_ids=Query(
+        [],
+        description="Массив ID модов в разрешенных источниках. Обязательно передать `primary_sources`.",
+        examples={"example": {"value": "[1, 2, 3]"}},
+    ),
     name: str = Query("", description="Поиск по названию."),
-    user: int = Query(0, description="Фильтрация по модам определенного автора, 0 <= не фильтровать."),
-    user_owner: int = Query(-1, description="Фильтрация по роли пользователя в разработке модов (работает если активен user параметр). -1 <= не фильтровать, 0 - владелец, 1 - разработчик"),
-    show_not_public: bool = Query(False, description="Показывать непубличные моды пользователя *(только при фильтре `user` и если запрашивает этот пользователь или админ).*"),
-    short_description: bool = Query(False, description="Включать ли в ответ короткое описание модов."),
-    description: bool = Query(False, description="Включать ли в ответ полное описание модов."),
-    dates: bool = Query(False, description="Включать ли в ответ даты создания и обновления модов."),
-    general: bool = Query(True, description="Включать ли в ответ общую информацию о моде (название, размер, источник, кол-во скачиваний).")
+    user: int = Query(
+        0, description="Фильтрация по модам определенного автора, 0 <= не фильтровать."
+    ),
+    user_owner: int = Query(
+        -1,
+        description="Фильтрация по роли пользователя в разработке модов (работает если активен user параметр). -1 <= не фильтровать, 0 - владелец, 1 - разработчик",
+    ),
+    show_not_public: bool = Query(
+        False,
+        description="Показывать непубличные моды пользователя *(только при фильтре `user` и если запрашивает этот пользователь или админ).*",
+    ),
+    short_description: bool = Query(
+        False, description="Включать ли в ответ короткое описание модов."
+    ),
+    description: bool = Query(
+        False, description="Включать ли в ответ полное описание модов."
+    ),
+    dates: bool = Query(
+        False, description="Включать ли в ответ даты создания и обновления модов."
+    ),
+    general: bool = Query(
+        True,
+        description="Включать ли в ответ общую информацию о моде (название, размер, источник, кол-во скачиваний).",
+    ),
 ):
     """
     Возвращает список модов с возможностью многочисленных опциональных фильтров и настрое.
@@ -333,11 +377,19 @@ async def mod_list(
     allowed_sources_ids = tools.str_to_list(allowed_sources_ids)
 
     if page_size > LIMITS.page.max or page_size < LIMITS.page.min:
-        return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 1})
-    elif (len(tags) + len(primary_sources) + len(allowed_ids) + len(allowed_sources_ids)) > LIMITS.mod.filters_max:
-        return JSONResponse(status_code=413,
-                            content={"message": "the maximum complexity of filters is 90 elements in sum",
-                                     "error_id": 2})
+        return JSONResponse(
+            status_code=413, content={"message": "incorrect page size", "error_id": 1}
+        )
+    elif (
+        len(tags) + len(primary_sources) + len(allowed_ids) + len(allowed_sources_ids)
+    ) > LIMITS.mod.filters_max:
+        return JSONResponse(
+            status_code=413,
+            content={
+                "message": "the maximum complexity of filters is 90 elements in sum",
+                "error_id": 2,
+            },
+        )
 
     want_not_public = show_not_public and user > 0
     if want_not_public:
@@ -347,11 +399,17 @@ async def mod_list(
         access_result = await account.check_access(request=request, response=response)
         req_user_id = access_result.get("owner_id", -1) if access_result else -1
         if req_user_id < 0:
-            return PlainTextResponse(status_code=401, content="Недействительный ключ сессии!")
+            return PlainTextResponse(
+                status_code=401, content="Недействительный ключ сессии!"
+            )
 
         if req_user_id != user:
             session_account = sessionmaker(bind=account.engine)()
-            user_req = session_account.query(account.Account.admin).filter_by(id=req_user_id).first()
+            user_req = (
+                session_account.query(account.Account.admin)
+                .filter_by(id=req_user_id)
+                .first()
+            )
             session_account.close()
 
             if not user_req or not user_req.admin:
@@ -367,9 +425,17 @@ async def mod_list(
     if short_description:
         query = query.add_column(catalog.Mod.short_description)
     if dates:
-        query = query.add_columns(catalog.Mod.date_update_file, catalog.Mod.date_creation)
+        query = query.add_columns(
+            catalog.Mod.date_update_file, catalog.Mod.date_creation
+        )
     if general:
-        query = query.add_columns(catalog.Mod.name, catalog.Mod.size, catalog.Mod.source, catalog.Mod.source_id, catalog.Mod.downloads)
+        query = query.add_columns(
+            catalog.Mod.name,
+            catalog.Mod.size,
+            catalog.Mod.source,
+            catalog.Mod.source_id,
+            catalog.Mod.downloads,
+        )
 
     query = query.order_by(tools.sort_mods(sort))
     query = query.filter(catalog.Mod.condition == 0)
@@ -392,13 +458,15 @@ async def mod_list(
             query = query.filter(catalog.Mod.source_id.in_(allowed_sources_ids))
 
     if independents:
-        query = query.outerjoin(catalog.mods_dependencies, catalog.Mod.id == catalog.mods_dependencies.c.mod_id).filter(
-            catalog.mods_dependencies.c.mod_id == None)
+        query = query.outerjoin(
+            catalog.mods_dependencies,
+            catalog.Mod.id == catalog.mods_dependencies.c.mod_id,
+        ).filter(catalog.mods_dependencies.c.mod_id.is_(None))
 
     # Фильтрация по имени
     if len(name) > 0:
         print(len(name))
-        query = query.filter(catalog.Mod.name.ilike(f'%{name}%'))
+        query = query.filter(catalog.Mod.name.ilike(f"%{name}%"))
 
     # Фильтрация по тегам
     if len(tags) > 0:
@@ -407,12 +475,13 @@ async def mod_list(
 
     # Сортировка по пользователю
     if user > 0:
-        query = query.join(account.mod_and_author, account.mod_and_author.c.mod_id == catalog.Mod.id)
+        query = query.join(
+            account.mod_and_author, account.mod_and_author.c.mod_id == catalog.Mod.id
+        )
         query = query.filter(account.mod_and_author.c.user_id == user)
 
         if user_owner in [0, 1]:
             query = query.filter(account.mod_and_author.c.owner == (user_owner == 0))
-
 
     mods_count = query.count()
 
@@ -421,12 +490,18 @@ async def mod_list(
 
     session.close()
 
-    result_access_mods = []
+    result_access_mods: list[int] = []
     if not only_publics:
-        result_access_mods = await tools.access_mods(response=response, request=request, mods_ids=[mod.id for mod in mods], check_mode=True)
+        result_access_mods = await tools.access_mods(
+            response=response,
+            request=request,
+            mods_ids=[mod.id for mod in mods],
+            check_mode=True,
+        )
 
     output_mods = []
     for mod in mods:
+
         def append_mod():
             out = {"id": mod.id}
             if description:
@@ -459,7 +534,7 @@ async def mod_list(
 
 
 @router.get(
-    MAIN_URL+"/mods/{mod_id}",
+    MAIN_URL + "/mods/{mod_id}",
     tags=["Mod"],
     summary="Информация о моде",
     status_code=200,
@@ -471,10 +546,7 @@ async def mod_list(
                     "example": {
                         "dependencies": [1, 2, 3],
                         "dependencies_count": 3,
-                        "authors": {
-                            1: {"owner": True},
-                            2: {"owner": False}
-                        },
+                        "authors": {1: {"owner": True}, 2: {"owner": False}},
                         "result": {
                             "condition": 0,
                             "description": "Some description",
@@ -488,26 +560,22 @@ async def mod_list(
                             "source_id": None,
                             "downloads": 42,
                             "public": 0,
-                            "game": {"id": 1, "name": "game"}
-                        }
+                            "game": {"id": 1, "name": "game"},
+                        },
                     }
                 }
-            }
+            },
         },
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
         404: {
             "description": "Not found",
-            "content": {
-                "text/plain": {
-                    "example": "Mod not found."
-                }
-            }
+            "content": {"text/plain": {"example": "Mod not found."}},
         },
     },
 )
 @router.get(
-    MAIN_URL+"/info/mod/{mod_id}", 
+    MAIN_URL + "/info/mod/{mod_id}",
     tags=["Mod"],
     summary="Информация о моде",
     status_code=200,
@@ -519,10 +587,7 @@ async def mod_list(
                     "example": {
                         "dependencies": [1, 2, 3],
                         "dependencies_count": 3,
-                        "authors": {
-                            1: {"owner": True},
-                            2: {"owner": False}
-                        },
+                        "authors": {1: {"owner": True}, 2: {"owner": False}},
                         "result": {
                             "condition": 0,
                             "description": "Some description",
@@ -536,32 +601,32 @@ async def mod_list(
                             "source_id": None,
                             "downloads": 42,
                             "public": 0,
-                            "game": {"id": 1, "name": "game"}
-                        }
+                            "game": {"id": 1, "name": "game"},
+                        },
                     }
                 }
-            }
+            },
         },
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
         404: {
             "description": "Not found",
-            "content": {
-                "text/plain": {
-                    "example": "Mod not found."
-                }
-            }
-        }
-    }
+            "content": {"text/plain": {"example": "Mod not found."}},
+        },
+    },
 )
 async def info_mod(
-    response: Response, 
-    request: Request, 
-    mod_id: int = Path(description="ID мода"), 
+    response: Response,
+    request: Request,
+    mod_id: int = Path(description="ID мода"),
     dependencies: bool = Query(False, description="Передать ли список зависимостей."),
-    short_description: bool = Query(False, description="Передать ли краткое описание мода."),
+    short_description: bool = Query(
+        False, description="Передать ли краткое описание мода."
+    ),
     description: bool = Query(False, description="Передать ли описание мода."),
-    dates: bool = Query(False, description="Передать ли дату обновления и создания мода."),
+    dates: bool = Query(
+        False, description="Передать ли дату обновления и создания мода."
+    ),
     general: bool = Query(True, description="Передать ли основные данные о моде."),
     game: bool = Query(False, description="Передать ли информацию о игре мода."),
     authors: bool = Query(False, description="Передать ли список авторов мода."),
@@ -578,9 +643,19 @@ async def info_mod(
     if short_description:
         query = query.add_column(catalog.Mod.short_description)
     if dates:
-        query = query.add_columns(catalog.Mod.date_update_file, catalog.Mod.date_creation, catalog.Mod.date_edit)
+        query = query.add_columns(
+            catalog.Mod.date_update_file,
+            catalog.Mod.date_creation,
+            catalog.Mod.date_edit,
+        )
     if general:
-        query = query.add_columns(catalog.Mod.name, catalog.Mod.size, catalog.Mod.source, catalog.Mod.source_id, catalog.Mod.downloads)
+        query = query.add_columns(
+            catalog.Mod.name,
+            catalog.Mod.size,
+            catalog.Mod.source,
+            catalog.Mod.source_id,
+            catalog.Mod.downloads,
+        )
     if game:
         query = query.add_columns(catalog.Mod.game)
 
@@ -592,8 +667,10 @@ async def info_mod(
         return PlainTextResponse(status_code=404, content="Mod not found.")
 
     if output["pre_result"].public >= 2:
-        result_access = await tools.access_mods(response=response, request=request, mods_ids=mod_id, edit=False)
-        if result_access != True:
+        result_access = await tools.access_mods(
+            response=response, request=request, mods_ids=mod_id, edit=False
+        )
+        if not result_access:
             return result_access
 
     if dependencies:
@@ -606,7 +683,11 @@ async def info_mod(
         output["dependencies_count"] = count
 
     if game:
-        result = session.query(catalog.Game.name).filter_by(id=output["pre_result"].game).first()
+        result = (
+            session.query(catalog.Game.name)
+            .filter_by(id=output["pre_result"].game)
+            .first()
+        )
 
         output["game"] = {"id": output["pre_result"].game, "name": result.name}
 
@@ -620,10 +701,16 @@ async def info_mod(
         output["result"]["short_description"] = output["pre_result"].short_description
     if dates:
         strformattime = "%Y-%m-%dT%H:%M:%S"
-        
-        output["result"]["date_update_file"] = output["pre_result"].date_update_file.strftime(strformattime)
-        output["result"]["date_edit"] = output["pre_result"].date_edit.strftime(strformattime)
-        output["result"]["date_creation"] = output["pre_result"].date_creation.strftime(strformattime)
+
+        output["result"]["date_update_file"] = output[
+            "pre_result"
+        ].date_update_file.strftime(strformattime)
+        output["result"]["date_edit"] = output["pre_result"].date_edit.strftime(
+            strformattime
+        )
+        output["result"]["date_creation"] = output["pre_result"].date_creation.strftime(
+            strformattime
+        )
     if general:
         output["result"]["name"] = output["pre_result"].name
         output["result"]["size"] = output["pre_result"].size
@@ -635,7 +722,6 @@ async def info_mod(
         output["result"]["game"] = output["game"]
         del output["game"]
     del output["pre_result"]
-
 
     if authors:
         # Создание сессии
@@ -658,7 +744,7 @@ async def info_mod(
 
 
 @router.get(
-    MAIN_URL+"/mods/{mod_id}/resources",
+    MAIN_URL + "/mods/{mod_id}/resources",
     tags=["Mod", "Resource"],
     summary="Ресурсы мода",
     status_code=200,
@@ -674,21 +760,44 @@ async def mod_resources(
     response: Response,
     request: Request,
     mod_id: int = Path(description="ID мода"),
-    resources_list_id = Query([], description="Список ID-ресурсов.", examples={"example": {"value": "[1, 2, 3]"}}),
-    page_size: int = Query(LIMITS.page.default, description="Размер 1 страницы. Диапазон - 1...50 элементов."),
+    resources_list_id=Query(
+        [],
+        description="Список ID-ресурсов.",
+        examples={"example": {"value": "[1, 2, 3]"}},
+    ),
+    page_size: int = Query(
+        LIMITS.page.default,
+        description="Размер 1 страницы. Диапазон - 1...50 элементов.",
+    ),
     page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
-    types_resources = Query([], description="Фильтрация по типу ресурсов *(массив типов)*.", examples={"example": {"value": "[\"logo\", \"screenshot\"]"}}),
-    only_urls: bool = Query(False, description="Возвращать только ссылки или полную информацию."),
+    types_resources=Query(
+        [],
+        description="Фильтрация по типу ресурсов *(массив типов)*.",
+        examples={"example": {"value": '["logo", "screenshot"]'}},
+    ),
+    only_urls: bool = Query(
+        False, description="Возвращать только ссылки или полную информацию."
+    ),
 ):
     resources_list_id = tools.str_to_list(resources_list_id)
     types_resources = tools.str_to_list(types_resources)
 
     if len(types_resources) + len(resources_list_id) > LIMITS.resource.filters_max:
-        return JSONResponse(status_code=413, content={"message": "the maximum complexity of filters is 120 elements in sum", "error_id": 1})
+        return JSONResponse(
+            status_code=413,
+            content={
+                "message": "the maximum complexity of filters is 120 elements in sum",
+                "error_id": 1,
+            },
+        )
     elif page_size > LIMITS.page.max or page_size < LIMITS.page.min:
-        return JSONResponse(status_code=413, content={"message": "incorrect page size", "error_id": 2})
+        return JSONResponse(
+            status_code=413, content={"message": "incorrect page size", "error_id": 2}
+        )
     elif page < 0:
-        return JSONResponse(status_code=413, content={"message": "incorrect page", "error_id": 3})
+        return JSONResponse(
+            status_code=413, content={"message": "incorrect page", "error_id": 3}
+        )
 
     session = sessionmaker(bind=catalog.engine)()
     mod_exists = session.query(catalog.Mod.id).filter_by(id=mod_id).first()
@@ -696,8 +805,10 @@ async def mod_resources(
     if not mod_exists:
         return PlainTextResponse(status_code=404, content="Mod not found.")
 
-    access_result = await tools.access_mods(response=response, request=request, mods_ids=[mod_id])
-    if access_result != True:
+    access_result = await tools.access_mods(
+        response=response, request=request, mods_ids=[mod_id]
+    )
+    if not access_result:
         return access_result
 
     session = sessionmaker(bind=catalog.engine)()
@@ -713,12 +824,18 @@ async def mod_resources(
     resources = query.offset(offset).limit(page_size).all()
     session.close()
 
-    real_resources = await tools.resources_serialize(resources=resources, only_urls=only_urls)
-    return {"database_size": resources_count, "offset": offset, "results": real_resources}
+    real_resources = await tools.resources_serialize(
+        resources=resources, only_urls=only_urls
+    )
+    return {
+        "database_size": resources_count,
+        "offset": offset,
+        "results": real_resources,
+    }
 
 
 @router.get(
-    MAIN_URL+"/mods/{mod_id}/tags",
+    MAIN_URL + "/mods/{mod_id}/tags",
     tags=["Mod", "Tag"],
     summary="Теги мода",
     status_code=200,
@@ -741,8 +858,10 @@ async def mod_tags(
     if not mod_exists:
         return PlainTextResponse(status_code=404, content="Mod not found.")
 
-    access_result = await tools.access_mods(response=response, request=request, mods_ids=[mod_id])
-    if access_result != True:
+    access_result = await tools.access_mods(
+        response=response, request=request, mods_ids=[mod_id]
+    )
+    if not access_result:
         return access_result
 
     session = sessionmaker(bind=catalog.engine)()
@@ -757,7 +876,7 @@ async def mod_tags(
 
 
 @router.get(
-    MAIN_URL+"/mods/{mod_id}/dependencies",
+    MAIN_URL + "/mods/{mod_id}/dependencies",
     tags=["Mod"],
     summary="Зависимости мода",
     status_code=200,
@@ -779,8 +898,10 @@ async def mod_dependencies(
     if not mod_exists:
         return PlainTextResponse(status_code=404, content="Mod not found.")
 
-    access_result = await tools.access_mods(response=response, request=request, mods_ids=[mod_id])
-    if access_result != True:
+    access_result = await tools.access_mods(
+        response=response, request=request, mods_ids=[mod_id]
+    )
+    if not access_result:
         return access_result
 
     session = sessionmaker(bind=catalog.engine)()
@@ -793,61 +914,74 @@ async def mod_dependencies(
 
 
 @router.post(
-    MAIN_URL+"/mods",
+    MAIN_URL + "/mods",
     tags=["Mod"],
     summary="Добавление мода",
     status_code=201,
     responses={
-        201: {"description": "Возвращает ID созданного мода", "content": {"application/json": {"example": 123}}},
+        201: {
+            "description": "Возвращает ID созданного мода",
+            "content": {"application/json": {"example": 123}},
+        },
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
         411: routers_edit_mod_response[411],
         412: {
             "description": "Неккоректный ID выбранной игры ИЛИ выбранный ID мода уже занят ИЛИ source-связка уже занята.",
-            "content": {
-                "text/plain": {
-                    "example": "Такой игры не существует!"
-                }
-            }
+            "content": {"text/plain": {"example": "Такой игры не существует!"}},
         },
         413: routers_edit_mod_response[413],
         500: routers_edit_mod_response[500],
     },
 )
 @router.post(
-    MAIN_URL+"/add/mod", 
+    MAIN_URL + "/add/mod",
     tags=["Mod"],
     summary="Добавление мода",
     status_code=201,
     responses={
-        201: {"description": "Возвращает ID созданного мода", "content": {"application/json": {"example": 123}}},
+        201: {
+            "description": "Возвращает ID созданного мода",
+            "content": {"application/json": {"example": 123}},
+        },
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
         411: routers_edit_mod_response[411],
         412: {
             "description": "Неккоректный ID выбранной игры ИЛИ выбранный ID мода уже занят ИЛИ source-связка уже занята.",
-            "content": {
-                "text/plain": {
-                    "example": "Такой игры не существует!"
-                }
-            }
+            "content": {"text/plain": {"example": "Такой игры не существует!"}},
         },
         413: routers_edit_mod_response[413],
         500: routers_edit_mod_response[500],
-    }
+    },
 )
 async def add_mod(
-    response: Response, 
-    request: Request, 
-    without_author: bool = Form(False, description="Указывать ли авторство мода. Для выбора должны быть админ права."),
-    mod_name: str = Form(..., description="Название мода", max_length=LIMITS.mod.name_max),
-    mod_short_description: str = Form('', description="Короткое описание мода.", max_length=LIMITS.mod.short_desc_max),
-    mod_description: str = Form('', description="Полное описание мода.", max_length=LIMITS.mod.desc_max),
-    mod_source: str = Form('local', description="Источник мода.", max_length=LIMITS.mod.source_max),
+    response: Response,
+    request: Request,
+    without_author: bool = Form(
+        False,
+        description="Указывать ли авторство мода. Для выбора должны быть админ права.",
+    ),
+    mod_name: str = Form(
+        ..., description="Название мода", max_length=LIMITS.mod.name_max
+    ),
+    mod_short_description: str = Form(
+        "", description="Короткое описание мода.", max_length=LIMITS.mod.short_desc_max
+    ),
+    mod_description: str = Form(
+        "", description="Полное описание мода.", max_length=LIMITS.mod.desc_max
+    ),
+    mod_source: str = Form(
+        "local", description="Источник мода.", max_length=LIMITS.mod.source_max
+    ),
     mod_source_id: int = Form(-1, description="ID мода в первоисточнике."),
     mod_game: int = Form(..., description="ID игры-владельца."),
-    mod_public: int = Form(..., description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."),
-    mod_file: UploadFile = File(..., description="Файл мода. Максимальный размер 838860800 байт (800 мб)."),
+    mod_public: int = Form(
+        ..., description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."
+    ),
+    mod_file: UploadFile = File(
+        ..., description="Файл мода. Максимальный размер 838860800 байт (800 мб)."
+    ),
 ):
     access_result = await account.check_access(request=request, response=response)
     if isinstance(access_result, bool):
@@ -856,16 +990,26 @@ async def add_mod(
 
     if access_result and user_id >= 0:
         print(mod_short_description)
-        if len(re.sub(r'\s+', ' ', mod_short_description)) > LIMITS.mod.short_desc_max:
-            return PlainTextResponse(status_code=413, content="Короткое описание слишком длинное!")
-        elif len(re.sub(r'\s+', ' ', mod_description)) > LIMITS.mod.desc_max:
-            return PlainTextResponse(status_code=413, content="Описание слишком длинное!")
+        if len(re.sub(r"\s+", " ", mod_short_description)) > LIMITS.mod.short_desc_max:
+            return PlainTextResponse(
+                status_code=413, content="Короткое описание слишком длинное!"
+            )
+        elif len(re.sub(r"\s+", " ", mod_description)) > LIMITS.mod.desc_max:
+            return PlainTextResponse(
+                status_code=413, content="Описание слишком длинное!"
+            )
         elif len(mod_name) > LIMITS.mod.name_max:
-            return PlainTextResponse(status_code=413, content="Название слишком длинное!")
+            return PlainTextResponse(
+                status_code=413, content="Название слишком длинное!"
+            )
         elif len(mod_name) < LIMITS.mod.name_min:
-            return PlainTextResponse(status_code=411, content="Название слишком короткое!")
+            return PlainTextResponse(
+                status_code=411, content="Название слишком короткое!"
+            )
         elif not await tools.check_game_exists(mod_game):
-            return PlainTextResponse(status_code=412, content="Такой игры не существует!")
+            return PlainTextResponse(
+                status_code=412, content="Такой игры не существует!"
+            )
 
         # Выполнение запроса
         session = sessionmaker(bind=account.engine)()
@@ -911,18 +1055,24 @@ async def add_mod(
                 date_edit=datetime.now(),
                 source=mod_source,
                 downloads=0,
-                game=mod_game
+                game=mod_game,
             )
 
             # If mod_id is given, update the insert statement
-            if mod_source_id > 0 and mod_source != 'local':
+            if mod_source_id > 0 and mod_source != "local":
                 insert_statement = insert_statement.values(source_id=mod_source_id)
 
                 tsession = sessionmaker(bind=catalog.engine)()
-                result = tsession.query(catalog.Mod).filter_by(source=mod_source, source_id=mod_source_id).first()
+                result = (
+                    tsession.query(catalog.Mod)
+                    .filter_by(source=mod_source, source_id=mod_source_id)
+                    .first()
+                )
                 tsession.close()
                 if result:
-                    return PlainTextResponse(status_code=412, content="Такая source-связка уже существует!")
+                    return PlainTextResponse(
+                        status_code=412, content="Такая source-связка уже существует!"
+                    )
 
             result = session.execute(insert_statement)
             rid = result.lastrowid  # Получаем ID последней вставленной строки
@@ -934,9 +1084,7 @@ async def add_mod(
                 session = sessionmaker(bind=account.engine)()
                 session.execute(
                     account.mod_and_author.insert().values(
-                        mod_id=rid, 
-                        user_id=user_id, 
-                        owner=True
+                        mod_id=rid, user_id=user_id, owner=True
                     )
                 )
                 session.commit()
@@ -944,18 +1092,31 @@ async def add_mod(
             session.close()
 
             file_ext = mod_file.filename.split(".")[-1]
-            result_upload_code, result_content, result_upload = await tools.storage_file_upload(type="archive", path=f"mods/{rid}/main.{file_ext}", file=real_mod_file)
+            result_upload_code, result_content, result_upload = (
+                await tools.storage_file_upload(
+                    type="archive",
+                    path=f"mods/{rid}/main.{file_ext}",
+                    file=real_mod_file,
+                )
+            )
 
             session = Session()
-            if result_upload != False:
+            if result_upload:
                 session.query(catalog.Mod).filter_by(id=rid).update({"condition": 0})
-                session.query(catalog.Game).filter_by(id=mod_game).update({
-                    catalog.Game.mods_count: func.coalesce(catalog.Game.mods_count, 0) + 1
-                })
+                session.query(catalog.Game).filter_by(id=mod_game).update(
+                    {
+                        catalog.Game.mods_count: func.coalesce(
+                            catalog.Game.mods_count, 0
+                        )
+                        + 1
+                    }
+                )
                 session.commit()
 
                 session.close()
-                return JSONResponse(status_code=201, content=rid)  # Возвращаем значение `id`
+                return JSONResponse(
+                    status_code=201, content=rid
+                )  # Возвращаем значение `id`
             else:
                 session.query(catalog.Mod).filter_by(id=rid).delete()
                 session.commit()
@@ -966,15 +1127,19 @@ async def add_mod(
                 session.commit()
                 session.close()
 
-                return JSONResponse(status_code=result_upload_code, content=f"Не удалось загрузить файл! {result_content}")
+                return JSONResponse(
+                    status_code=result_upload_code,
+                    content=f"Не удалось загрузить файл! {result_content}",
+                )
         else:
             session.close()
             return JSONResponse(status_code=403, content="Заблокировано!")
     else:
         return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
+
 @router.post(
-    MAIN_URL+"/edit/mod",
+    MAIN_URL + "/edit/mod",
     tags=["Mod"],
     summary="Редактирование мода",
     status_code=201,
@@ -983,63 +1148,106 @@ async def add_mod(
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
         411: routers_edit_mod_response[411],
-        412: {"description": "Такой игры не существует или такая source-связка занята."},
+        412: {
+            "description": "Такой игры не существует или такая source-связка занята."
+        },
         413: routers_edit_mod_response[413],
-        500: routers_edit_mod_response[500]
-    }
+        500: routers_edit_mod_response[500],
+    },
 )
 async def edit_mod(
     response: Response,
     request: Request,
     mod_id: int = Form(..., description="ID мода для редактирования."),
-    mod_name: str = Form(None, description="Название мода.", max_length=LIMITS.mod.name_max),
-    mod_short_description: str = Form(None, description="Краткое описание мода.", max_length=LIMITS.mod.short_desc_max),
-    mod_description: str = Form(None, description="Полное описание мода.", max_length=LIMITS.mod.desc_max),
-    mod_source: str = Form(None, description="Источник мода. Так же обязательно передать и `mod_source_id`, даже если его данные не изменились!", max_length=LIMITS.mod.source_max),
+    mod_name: str = Form(
+        None, description="Название мода.", max_length=LIMITS.mod.name_max
+    ),
+    mod_short_description: str = Form(
+        None, description="Краткое описание мода.", max_length=LIMITS.mod.short_desc_max
+    ),
+    mod_description: str = Form(
+        None, description="Полное описание мода.", max_length=LIMITS.mod.desc_max
+    ),
+    mod_source: str = Form(
+        None,
+        description="Источник мода. Так же обязательно передать и `mod_source_id`, даже если его данные не изменились!",
+        max_length=LIMITS.mod.source_max,
+    ),
     mod_source_id: int = Form(None, description="ID мода в первоисточнике."),
     mod_game: int = Form(None, description="ID игры-владельца."),
-    mod_public: int = Form(None, description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."),
-    mod_file: UploadFile = File(None, description="Файл мода. Максимальный размер 838860800 байт (800 мб).")
+    mod_public: int = Form(
+        None, description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."
+    ),
+    mod_file: UploadFile = File(
+        None, description="Файл мода. Максимальный размер 838860800 байт (800 мб)."
+    ),
 ):
-    access_result = await tools.access_mods(response=response, request=request, mods_ids=mod_id, edit=True)
-    if access_result == True:
-        body = {}
+    access_result = await tools.access_mods(
+        response=response, request=request, mods_ids=mod_id, edit=True
+    )
+    if access_result:
+        body: dict[str, object] = {}
         if mod_name is not None:
             if len(mod_name) > LIMITS.mod.name_edit_max:
-                return PlainTextResponse(status_code=413, content="Название слишком длинное!")
+                return PlainTextResponse(
+                    status_code=413, content="Название слишком длинное!"
+                )
             elif len(mod_name) < LIMITS.mod.name_min:
-                return PlainTextResponse(status_code=411, content="Название слишком короткое!")
+                return PlainTextResponse(
+                    status_code=411, content="Название слишком короткое!"
+                )
             body["name"] = mod_name
         if mod_short_description is not None:
-            if len(re.sub(r'\s+', ' ', mod_short_description)) > LIMITS.mod.short_desc_max:
-                return PlainTextResponse(status_code=413, content="Короткое описание слишком длинное!")
+            if (
+                len(re.sub(r"\s+", " ", mod_short_description))
+                > LIMITS.mod.short_desc_max
+            ):
+                return PlainTextResponse(
+                    status_code=413, content="Короткое описание слишком длинное!"
+                )
             body["short_description"] = mod_short_description
         if mod_description is not None:
-            if len(re.sub(r'\s+', ' ', mod_description)) > LIMITS.mod.desc_max:
-                return PlainTextResponse(status_code=413, content="Описание слишком длинное!")
+            if len(re.sub(r"\s+", " ", mod_description)) > LIMITS.mod.desc_max:
+                return PlainTextResponse(
+                    status_code=413, content="Описание слишком длинное!"
+                )
             body["description"] = mod_description
         if mod_source is not None:
             body["source"] = mod_source
-            if mod_source_id is not None and mod_source_id > 0 and mod_source != "local":
+            if (
+                mod_source_id is not None
+                and mod_source_id > 0
+                and mod_source != "local"
+            ):
                 body["source_id"] = mod_source_id
             else:
                 body["source_id"] = None
-            
+
             session = sessionmaker(bind=catalog.engine)()
-            result = session.query(catalog.Mod).filter_by(source=mod_source, source_id=body["source_id"]).first()
+            result = (
+                session.query(catalog.Mod)
+                .filter_by(source=mod_source, source_id=body["source_id"])
+                .first()
+            )
             session.close()
             if result:
-                return PlainTextResponse(status_code=412, content="Такая source-связка уже существует!")
+                return PlainTextResponse(
+                    status_code=412, content="Такая source-связка уже существует!"
+                )
         if mod_game is not None:
             if not await tools.check_game_exists(mod_game):
-                return PlainTextResponse(status_code=412, content="Такой игры не существует!")
+                return PlainTextResponse(
+                    status_code=412, content="Такой игры не существует!"
+                )
             body["game"] = mod_game
         if mod_public is not None:
             if mod_public in [0, 1, 2]:
                 body["public"] = mod_public
 
         if len(body) <= 0 and mod_file is None:
-            return PlainTextResponse(status_code=411, content="Ничего не было изменено!")
+            return PlainTextResponse(
+                status_code=411, content="Ничего не было изменено!"
+            )
 
         if len(body) > 0:
             body["date_edit"] = datetime.now()
@@ -1055,10 +1263,17 @@ async def edit_mod(
                 file_size = real_mod_file.getbuffer().nbytes
             body["size"] = file_size
 
-            result_file_update_code, result_file_update, result_file_status = await tools.storage_file_upload(type="archive", path=url, file=real_mod_file)
-            if result_file_status == False:
-                return PlainTextResponse(status_code=result_file_update_code, content=f"Не удалось обновить файл! {result_file_update}")
-                
+            result_file_update_code, result_file_update, result_file_status = (
+                await tools.storage_file_upload(
+                    type="archive", path=url, file=real_mod_file
+                )
+            )
+            if not result_file_status:
+                return PlainTextResponse(
+                    status_code=result_file_update_code,
+                    content=f"Не удалось обновить файл! {result_file_update}",
+                )
+
         session = sessionmaker(bind=catalog.engine)()
         session.query(catalog.Mod).filter_by(id=mod_id).update(body)
         session.commit()
@@ -1067,8 +1282,9 @@ async def edit_mod(
     else:
         return access_result
 
+
 @router.patch(
-    MAIN_URL+"/mods/{mod_id}",
+    MAIN_URL + "/mods/{mod_id}",
     tags=["Mod"],
     summary="Редактирование мода",
     status_code=201,
@@ -1077,7 +1293,9 @@ async def edit_mod(
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
         411: routers_edit_mod_response[411],
-        412: {"description": "Такой игры не существует или такая source-связка занята."},
+        412: {
+            "description": "Такой игры не существует или такая source-связка занята."
+        },
         413: routers_edit_mod_response[413],
         500: routers_edit_mod_response[500],
     },
@@ -1086,14 +1304,28 @@ async def edit_mod_rest(
     response: Response,
     request: Request,
     mod_id: int = Path(description="ID мода для редактирования."),
-    mod_name: str = Form(None, description="Название мода.", max_length=LIMITS.mod.name_max),
-    mod_short_description: str = Form(None, description="Краткое описание мода.", max_length=LIMITS.mod.short_desc_max),
-    mod_description: str = Form(None, description="Полное описание мода.", max_length=LIMITS.mod.desc_max),
-    mod_source: str = Form(None, description="Источник мода. Так же обязательно передать и `mod_source_id`, даже если его данные не изменились!", max_length=LIMITS.mod.source_max),
+    mod_name: str = Form(
+        None, description="Название мода.", max_length=LIMITS.mod.name_max
+    ),
+    mod_short_description: str = Form(
+        None, description="Краткое описание мода.", max_length=LIMITS.mod.short_desc_max
+    ),
+    mod_description: str = Form(
+        None, description="Полное описание мода.", max_length=LIMITS.mod.desc_max
+    ),
+    mod_source: str = Form(
+        None,
+        description="Источник мода. Так же обязательно передать и `mod_source_id`, даже если его данные не изменились!",
+        max_length=LIMITS.mod.source_max,
+    ),
     mod_source_id: int = Form(None, description="ID мода в первоисточнике."),
     mod_game: int = Form(None, description="ID игры-владельца."),
-    mod_public: int = Form(None, description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."),
-    mod_file: UploadFile = File(None, description="Файл мода. Максимальный размер 838860800 байт (800 мб)."),
+    mod_public: int = Form(
+        None, description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."
+    ),
+    mod_file: UploadFile = File(
+        None, description="Файл мода. Максимальный размер 838860800 байт (800 мб)."
+    ),
 ):
     return await edit_mod(
         response=response,
@@ -1111,23 +1343,26 @@ async def edit_mod_rest(
 
 
 @router.post(
-    MAIN_URL+"/edit/mod/authors",
+    MAIN_URL + "/edit/mod/authors",
     tags=["Mod"],
     summary="Редактирование авторов мода",
     status_code=202,
     responses={
         200: {"description": "Изменения успешно выполнены."},
         401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403]
-    }
+        403: standarts.responses["non-admin"][403],
+    },
 )
 async def edit_authors_mod(
     response: Response,
     request: Request,
-    mod_id:int = Form(..., description="ID мода для редактирования."),
-    mode:bool = Form(..., description="Добавить*(True)* или удалить*(False)* автора?"),
-    author:int = Form(..., description="ID автора."),
-    owner:bool = Form(False, description="Владелец ли? Текущий владелец если он есть станет участником.")
+    mod_id: int = Form(..., description="ID мода для редактирования."),
+    mode: bool = Form(..., description="Добавить*(True)* или удалить*(False)* автора?"),
+    author: int = Form(..., description="ID автора."),
+    owner: bool = Form(
+        False,
+        description="Владелец ли? Текущий владелец если он есть станет участником.",
+    ),
 ):
     access_result = await account.check_access(request=request, response=response)
 
@@ -1149,42 +1384,57 @@ async def edit_authors_mod(
                 if user_req.mute_until and user_req.mute_until > datetime.now():
                     return False
 
-                in_mod = session.query(account.mod_and_author).filter_by(mod_id=mod_id, user_id=req_user_id).first()
+                in_mod = (
+                    session.query(account.mod_and_author)
+                    .filter_by(mod_id=mod_id, user_id=req_user_id)
+                    .first()
+                )
 
                 if in_mod:
                     if in_mod.owner:
-                        if req_user_id == author and mode == False:
+                        if req_user_id == author and not mode:
                             return False
 
                         return True
-                    elif req_user_id == author and mode == False:
+                    elif req_user_id == author and not mode:
                         return True
                 elif user_req.change_authorship_mods:
                     return True
             return False
 
-
         if await mini():
             if mode:
-                has_owner = session.query(account.mod_and_author).filter_by(mod_id=mod_id, owner=True).first()
+                has_owner = (
+                    session.query(account.mod_and_author)
+                    .filter_by(mod_id=mod_id, owner=True)
+                    .first()
+                )
                 if owner and has_owner:
-                    session.query(account.mod_and_author).filter_by(mod_id=mod_id, owner=True).update({'owner': False})
+                    session.query(account.mod_and_author).filter_by(
+                        mod_id=mod_id, owner=True
+                    ).update({"owner": False})
                     session.commit()
 
-                has_target = session.query(account.mod_and_author).filter_by(mod_id=mod_id, user_id=author).first()
+                has_target = (
+                    session.query(account.mod_and_author)
+                    .filter_by(mod_id=mod_id, user_id=author)
+                    .first()
+                )
                 if has_target:
-                    session.query(account.mod_and_author).filter_by(mod_id=mod_id, user_id=author).update({'owner': owner})
+                    session.query(account.mod_and_author).filter_by(
+                        mod_id=mod_id, user_id=author
+                    ).update({"owner": owner})
                 else:
                     insert_statement = insert(account.mod_and_author).values(
-                        user_id=author,
-                        owner=owner,
-                        mod_id=mod_id
+                        user_id=author, owner=owner, mod_id=mod_id
                     )
                     session.execute(insert_statement)
                 session.commit()
             else:
-                delete_member = account.mod_and_author.delete().where(account.mod_and_author.c.mod_id == mod_id,
-                                                                      account.mod_and_author.c.user_id == author)
+                delete_member = account.mod_and_author.delete().where(
+                    account.mod_and_author.c.mod_id == mod_id,
+                    account.mod_and_author.c.user_id == author,
+                )
                 # Выполнение операции DELETE
                 session.execute(delete_member)
                 session.commit()
@@ -1197,8 +1447,9 @@ async def edit_authors_mod(
     else:
         return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
+
 @router.delete(
-    MAIN_URL+"/delete/mod",
+    MAIN_URL + "/delete/mod",
     tags=["Mod"],
     summary="Удаление мода",
     status_code=200,
@@ -1208,13 +1459,9 @@ async def edit_authors_mod(
         403: standarts.responses["non-admin"][403],
         500: {
             "description": "Не удалось удалить архив/ресурсы мода с файлового хранилища *(поробовать еще раз попозже)*.",
-            "content": {
-                "text/plain": {
-                    "example": "Не удалось удалить мод!"
-                }
-            }
-        }
-    }
+            "content": {"text/plain": {"example": "Не удалось удалить мод!"}},
+        },
+    },
 )
 async def delete_mod(
     response: Response,
@@ -1224,14 +1471,20 @@ async def delete_mod(
     access_result = await account.check_access(request=request, response=response)
 
     if not access_result or access_result.get("owner_id", -1) < 0:
-        return PlainTextResponse(status_code=401, content="Недействительный ключ сессии!")
+        return PlainTextResponse(
+            status_code=401, content="Недействительный ключ сессии!"
+        )
 
     # Создание сессии для аккаунтов
     Session = sessionmaker(bind=account.engine)
     session = Session()
 
     try:
-        user_req = session.query(account.Account).filter_by(id=access_result.get("owner_id")).first()
+        user_req = (
+            session.query(account.Account)
+            .filter_by(id=access_result.get("owner_id"))
+            .first()
+        )
         if not user_req:
             return PlainTextResponse(status_code=403, content="Пользователь не найден!")
 
@@ -1241,9 +1494,11 @@ async def delete_mod(
             if user_req.mute_until and user_req.mute_until > datetime.now():
                 return False
 
-            in_mod = session.query(account.mod_and_author).filter_by(
-                mod_id=mod_id, user_id=access_result.get("owner_id")
-            ).first()
+            in_mod = (
+                session.query(account.mod_and_author)
+                .filter_by(mod_id=mod_id, user_id=access_result.get("owner_id"))
+                .first()
+            )
 
             if in_mod and user_req.delete_self_mods and in_mod.owner:
                 return True
@@ -1258,8 +1513,12 @@ async def delete_mod(
         session.close()
 
     # Удаление ресурсов
-    resource_delete_result = await tools.delete_resources(owner_type="mods", owner_id=mod_id)
-    storage_delete_result = await tools.storage_file_delete(type="mods", path=f"mods/{mod_id}/main.zip")
+    resource_delete_result = await tools.delete_resources(
+        owner_type="mods", owner_id=mod_id
+    )
+    storage_delete_result = await tools.storage_file_delete(
+        type="mods", path=f"mods/{mod_id}/main.zip"
+    )
 
     if not (resource_delete_result and storage_delete_result):
         return PlainTextResponse(status_code=500, content="Не удалось удалить мод!")
@@ -1280,9 +1539,9 @@ async def delete_mod(
         session.commit()
 
         # Обновление количества модов в игре
-        session.query(catalog.Game).filter_by(id=game_id).update({
-            catalog.Game.mods_count: catalog.Game.mods_count - 1
-        })
+        session.query(catalog.Game).filter_by(id=game_id).update(
+            {catalog.Game.mods_count: catalog.Game.mods_count - 1}
+        )
         session.commit()
 
     finally:

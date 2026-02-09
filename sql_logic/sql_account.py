@@ -1,4 +1,14 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Table, ForeignKey, Boolean, insert
+from sqlalchemy import (
+    create_engine,
+    Column,
+    Integer,
+    String,
+    DateTime,
+    Table,
+    ForeignKey,
+    Boolean,
+    insert,
+)
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from fastapi import Request, Response
@@ -8,16 +18,16 @@ import ow_config as config
 from .envs import DB_HOST, DB_PASSWORD, DB_PORT, DB_USER
 
 engine = create_engine(
-    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}"
-    f"@{DB_HOST}:{DB_PORT}/catalog",
+    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}" f"@{DB_HOST}:{DB_PORT}/catalog",
     pool_pre_ping=True,
 )
 base = declarative_base()
 
 STANDART_STR_TIME = "%d.%m.%Y/%H:%M:%S"
 
-class Account(base): # Аккаунты юзеров
-    __tablename__ = 'accounts'
+
+class Account(base):  # Аккаунты юзеров
+    __tablename__ = "accounts"
     id = Column(Integer, primary_key=True)
 
     yandex_id = Column(Integer)
@@ -26,9 +36,11 @@ class Account(base): # Аккаунты юзеров
     username = Column(String(128))
     last_username_reset = Column(DateTime)
 
-    about = Column(String(512), default="") # Ограничение 512 символов
+    about = Column(String(512), default="")  # Ограничение 512 символов
     # если содержит "local" - обращаться к этому же серверу по id юзера, в ином случае содержит прямую ссылку, если пуст, то аватара нет
-    avatar_url = Column(String(512), default="") # если "local", так же содержит после себя .расширение_файла, т.е. "local.png", "local.webp"
+    avatar_url = Column(
+        String(512), default=""
+    )  # если "local", так же содержит после себя .расширение_файла, т.е. "local.png", "local.webp"
     grade = Column(String(128), default="")
 
     comments = Column(Integer, default=0)
@@ -41,16 +53,20 @@ class Account(base): # Аккаунты юзеров
 
     reputation = Column(Integer, default=0)
 
-    ## Права пользователей
-    admin = Column(Boolean, default=False) # только админ может менять грейды у всех юзеров, а так же назначать новых админов и назначать права юзерам, дает доступ ко всем правам
+    # Права пользователей
+    admin = Column(
+        Boolean, default=False
+    )  # только админ может менять грейды у всех юзеров, а так же назначать новых админов и назначать права юзерам, дает доступ ко всем правам
 
-    write_comments = Column(Boolean, default=True) # писать и редактировать
+    write_comments = Column(Boolean, default=True)  # писать и редактировать
     set_reactions = Column(Boolean, default=True)
 
     create_reactions = Column(Boolean, default=False)
 
-    mute_until = Column(DateTime) # временное ограничение на все права социальными действиями на сервисе, активен если время тут больше текущего
-    mute_users = Column(Boolean, default=False) # право на мут пользователей
+    mute_until = Column(
+        DateTime
+    )  # временное ограничение на все права социальными действиями на сервисе, активен если время тут больше текущего
+    mute_users = Column(Boolean, default=False)  # право на мут пользователей
 
     publish_mods = Column(Boolean, default=True)
     change_authorship_mods = Column(Boolean, default=False)
@@ -73,15 +89,18 @@ class Account(base): # Аккаунты юзеров
 
     vote_for_reputation = Column(Boolean, default=True)
 
-blocked_account_creation = Table('blocked_account_creation', base.metadata,
-    Column('yandex_id', Integer),
-    Column('google_id', String(512)),
-    Column('forget', DateTime)
+
+blocked_account_creation = Table(
+    "blocked_account_creation",
+    base.metadata,
+    Column("yandex_id", Integer),
+    Column("google_id", String(512)),
+    Column("forget", DateTime),
 )
 
 
-class Session(base): # Теги для модов
-    __tablename__ = 'sessions'
+class Session(base):  # Теги для модов
+    __tablename__ = "sessions"
     id = Column(Integer, primary_key=True)
 
     owner_id = Column(Integer)
@@ -89,7 +108,9 @@ class Session(base): # Теги для модов
     access_token = Column(String(512))
     refresh_token = Column(String(512))
 
-    broken = Column(String(124)) # Сессия закрыта по причине - `logout`, `too many sessions`
+    broken = Column(
+        String(124)
+    )  # Сессия закрыта по причине - `logout`, `too many sessions`
 
     login_method = Column(String(124))
 
@@ -98,26 +119,34 @@ class Session(base): # Теги для модов
     end_date_access = Column(DateTime)
     end_date_refresh = Column(DateTime)
 
-black_list = Table('black_list', base.metadata,
-    Column('user_id', Integer, ForeignKey('accounts.id')),
-    Column('blocked_id', Integer, ForeignKey('accounts.id')),
-    Column('when', DateTime),
+
+black_list = Table(
+    "black_list",
+    base.metadata,
+    Column("user_id", Integer, ForeignKey("accounts.id")),
+    Column("blocked_id", Integer, ForeignKey("accounts.id")),
+    Column("when", DateTime),
 )
 
-mod_and_author = Table('mods_and_authors', base.metadata,
-    Column('user_id', Integer, ForeignKey('accounts.id')),
-    Column('owner', Boolean), #только овнеры могут удалять свои моды, передавать овнерство другим, приглашать других на правах члена (не может удалить мод и не может приглашать новых членов)
-    Column('mod_id', Integer)
+mod_and_author = Table(
+    "mods_and_authors",
+    base.metadata,
+    Column("user_id", Integer, ForeignKey("accounts.id")),
+    Column(
+        "owner", Boolean
+    ),  # только овнеры могут удалять свои моды, передавать овнерство другим, приглашать других на правах члена (не может удалить мод и не может приглашать новых членов)
+    Column("mod_id", Integer),
 )
 
-class Forum(base): # Форумы, личные сообщения и все что угодно
-    __tablename__ = 'forums'
+
+class Forum(base):  # Форумы, личные сообщения и все что угодно
+    __tablename__ = "forums"
     id = Column(Integer, primary_key=True)
 
     title = Column(String(124))
-    description = Column(String(4096)) # Ограничение 4096 символов
+    description = Column(String(4096))  # Ограничение 4096 символов
 
-    to_type = Column(String(64)) #game / mod / private_messages
+    to_type = Column(String(64))  # game / mod / private_messages
     to_id = Column(Integer)
     author_id = Column(Integer)
 
@@ -127,8 +156,9 @@ class Forum(base): # Форумы, личные сообщения и все ч�
     update_date = Column(DateTime)
     last_comment_date = Column(DateTime)
 
-class Comment(base): # Теги для модов
-    __tablename__ = 'comments'
+
+class Comment(base):  # Теги для модов
+    __tablename__ = "comments"
     id = Column(Integer, primary_key=True)
 
     text = Column(String(8192))
@@ -142,15 +172,19 @@ class Comment(base): # Теги для модов
 
     reputation = Column(Integer)
 
-comments_reactions = Table('unity_comments_reactions', base.metadata,
-    Column('comment_id', Integer, ForeignKey('comments.id')),
-    Column('user_id', Integer, ForeignKey('accounts.id')),
-    Column('reaction_id', Integer, ForeignKey('reactions.id')),
-    Column('when', DateTime)
+
+comments_reactions = Table(
+    "unity_comments_reactions",
+    base.metadata,
+    Column("comment_id", Integer, ForeignKey("comments.id")),
+    Column("user_id", Integer, ForeignKey("accounts.id")),
+    Column("reaction_id", Integer, ForeignKey("reactions.id")),
+    Column("when", DateTime),
 )
 
-class Reaction(base): # Жанры для игр
-    __tablename__ = 'reactions'
+
+class Reaction(base):  # Жанры для игр
+    __tablename__ = "reactions"
     id = Column(Integer, primary_key=True)
     name = Column(String(124))
     icon_url = Column(String(512))
@@ -159,8 +193,7 @@ class Reaction(base): # Жанры для игр
     update_date = Column(DateTime)
 
 
-
-async def gen_session(user_id:int, session, login_method:str = "unknown"):
+async def gen_session(user_id: int, session, login_method: str = "unknown"):
     ddate = datetime.datetime.now()
     # Проверяем есть ли более 10 активных сессий
     # Если есть - аннулируем все сессии
@@ -170,35 +203,44 @@ async def gen_session(user_id:int, session, login_method:str = "unknown"):
     if row.count() > 9:
         row.update({"broken": "too many sessions"})
 
-
     # Генерируем псевдо-случайные токены
-    access_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(6))).decode('utf-8')
-    refresh_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(7))).decode('utf-8')
+    access_token = (
+        bcrypt.hashpw(
+            str(datetime.datetime.now().microsecond).encode("utf-8"), bcrypt.gensalt(6)
+        )
+    ).decode("utf-8")
+    refresh_token = (
+        bcrypt.hashpw(
+            str(datetime.datetime.now().microsecond).encode("utf-8"), bcrypt.gensalt(7)
+        )
+    ).decode("utf-8")
 
     # Определяем временные рамки жизни токенов
-    end_access = ddate+datetime.timedelta(minutes=40)
-    end_refresh = ddate+datetime.timedelta(days=60)
+    end_access = ddate + datetime.timedelta(minutes=40)
+    end_refresh = ddate + datetime.timedelta(days=60)
 
     # Заносим в базу
     insert_statement = insert(Session).values(
         owner_id=user_id,
-
         access_token=access_token,
         refresh_token=refresh_token,
-
         login_method=login_method,
-
         start_date=ddate,
         end_date_access=end_access,
-        end_date_refresh=end_refresh
+        end_date_refresh=end_refresh,
     )
     # Выполнение операции INSERT
     session.execute(insert_statement)
 
-    return {"access": {"token": access_token, "end": end_access},
-            "refresh": {"token": refresh_token, "end": end_refresh}}
+    return {
+        "access": {"token": access_token, "end": end_access},
+        "refresh": {"token": refresh_token, "end": end_refresh},
+    }
 
-async def update_session(response: Response, request: Request, result_row: bool = False):
+
+async def update_session(
+    response: Response, request: Request, result_row: bool = False
+):
     # Создание сессии
     USession = sessionmaker(bind=engine)
     session = USession()
@@ -212,25 +254,73 @@ async def update_session(response: Response, request: Request, result_row: bool 
 
     res = row.first()
     if res:
-        access_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(6))).decode('utf-8')
-        refresh_token = (bcrypt.hashpw(str(datetime.datetime.now().microsecond).encode('utf-8'), bcrypt.gensalt(7))).decode('utf-8')
+        access_token = (
+            bcrypt.hashpw(
+                str(datetime.datetime.now().microsecond).encode("utf-8"),
+                bcrypt.gensalt(6),
+            )
+        ).decode("utf-8")
+        refresh_token = (
+            bcrypt.hashpw(
+                str(datetime.datetime.now().microsecond).encode("utf-8"),
+                bcrypt.gensalt(7),
+            )
+        ).decode("utf-8")
 
-        end_access = today+datetime.timedelta(minutes=40)
-        end_refresh = today+datetime.timedelta(days=60)
+        end_access = today + datetime.timedelta(minutes=40)
+        end_refresh = today + datetime.timedelta(days=60)
 
         # Обновление БД
-        row.update({"end_date_access": end_access, "end_date_refresh": end_refresh,
-                    "access_token": access_token, "refresh_token": refresh_token,
-                    "last_request_date": today})
+        row.update(
+            {
+                "end_date_access": end_access,
+                "end_date_refresh": end_refresh,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "last_request_date": today,
+            }
+        )
         session.commit()
 
         # Обновление данных в куки юзера
-        response.set_cookie(key='accessToken', value=access_token, httponly=True, secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE, max_age=2100)
-        response.set_cookie(key='refreshToken', value=refresh_token, httponly=True, secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE, max_age=5184000)
+        response.set_cookie(
+            key="accessToken",
+            value=access_token,
+            httponly=True,
+            secure=config.COOKIE_SECURE,
+            samesite=config.COOKIE_SAMESITE,
+            max_age=2100,
+        )
+        response.set_cookie(
+            key="refreshToken",
+            value=refresh_token,
+            httponly=True,
+            secure=config.COOKIE_SECURE,
+            samesite=config.COOKIE_SAMESITE,
+            max_age=5184000,
+        )
 
-        response.set_cookie(key='loginJS', value=end_refresh.strftime(STANDART_STR_TIME), secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE, max_age=5184000)
-        response.set_cookie(key='accessJS', value=end_access.strftime(STANDART_STR_TIME), secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE, max_age=5184000)
-        response.set_cookie(key='userID', value=str(res.owner_id), secure=config.COOKIE_SECURE, samesite=config.COOKIE_SAMESITE, max_age=5184000)
+        response.set_cookie(
+            key="loginJS",
+            value=end_refresh.strftime(STANDART_STR_TIME),
+            secure=config.COOKIE_SECURE,
+            samesite=config.COOKIE_SAMESITE,
+            max_age=5184000,
+        )
+        response.set_cookie(
+            key="accessJS",
+            value=end_access.strftime(STANDART_STR_TIME),
+            secure=config.COOKIE_SECURE,
+            samesite=config.COOKIE_SAMESITE,
+            max_age=5184000,
+        )
+        response.set_cookie(
+            key="userID",
+            value=str(res.owner_id),
+            secure=config.COOKIE_SECURE,
+            samesite=config.COOKIE_SAMESITE,
+            max_age=5184000,
+        )
 
         if result_row:
             rr = session.query(Session).filter_by(id=res.id).first().__dict__
@@ -242,7 +332,8 @@ async def update_session(response: Response, request: Request, result_row: bool 
     session.close()
     return False
 
-async def check_session(user_access_token:str):
+
+async def check_session(user_access_token: str):
     # Создание сессии
     USession = sessionmaker(bind=engine)
     session = USession()
@@ -266,27 +357,35 @@ async def check_session(user_access_token:str):
     session.close()
     return False
 
+
 async def forget_accounts():
     # Создание сессии
     USession = sessionmaker(bind=engine)
     session = USession()
 
     # Выполнение запроса
-    delete_member = blocked_account_creation.delete().where(blocked_account_creation.c.forget < datetime.datetime.now())
+    delete_member = blocked_account_creation.delete().where(
+        blocked_account_creation.c.forget < datetime.datetime.now()
+    )
 
     # Выполнение операции DELETE
     session.execute(delete_member)
     session.commit()
     session.close()
 
+
 async def check_access(response: Response, request: Request):
     await forget_accounts()
     if "accessToken" in request.cookies:
         access = await check_session(request.cookies.get("accessToken", ""))
-        if access: return access
+        if access:
+            return access
     if "refreshToken" in request.cookies:
-        refresh = await update_session(response=response, request=request, result_row=True)
-        if refresh: return refresh
+        refresh = await update_session(
+            response=response, request=request, result_row=True
+        )
+        if refresh:
+            return refresh
     return False
 
 
@@ -297,5 +396,6 @@ async def no_from_russia(request: Request):
         return "Вы должны выбрать российский сервис авторизации согласно законодательству РФ!"
 
     return False
+
 
 base.metadata.create_all(engine)

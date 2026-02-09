@@ -10,8 +10,7 @@ from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from .envs import DB_HOST, DB_PASSWORD, DB_PORT, DB_USER
 
 engine = create_engine(
-    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}"
-    f"@{DB_HOST}:{DB_PORT}/access",
+    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}" f"@{DB_HOST}:{DB_PORT}/access",
     pool_pre_ping=True,
 )
 Base = declarative_base()
@@ -111,10 +110,14 @@ def _increment_stat(
 
 def create_processing(type: str, type_id: int, name: str, time_start: datetime) -> None:
     """Backward-compatible wrapper for recording processing time."""
-    record_processing_time(entity_type=type, entity_id=type_id, name=name, time_start=time_start)
+    record_processing_time(
+        entity_type=type, entity_id=type_id, name=name, time_start=time_start
+    )
 
 
-def record_processing_time(entity_type: str, entity_id: int, name: str, time_start: datetime) -> None:
+def record_processing_time(
+    entity_type: str, entity_id: int, name: str, time_start: datetime
+) -> None:
     milliseconds = int((datetime.now() - time_start).total_seconds() * 1000)
 
     with session_scope() as session:
@@ -133,19 +136,41 @@ def record_processing_time(entity_type: str, entity_id: int, name: str, time_sta
 def update(type: str, type_id: int, name: str) -> None:
     now = datetime.now()
     with session_scope() as session:
-        _update_hour(session=session, entity_type=type, entity_id=type_id, name=name, now=now)
-        _update_day(session=session, entity_type=type, entity_id=type_id, name=name, today=now.date())
+        _update_hour(
+            session=session, entity_type=type, entity_id=type_id, name=name, now=now
+        )
+        _update_day(
+            session=session,
+            entity_type=type,
+            entity_id=type_id,
+            name=name,
+            today=now.date(),
+        )
 
 
 def update_hour(session: Session, type: str, type_id: int, name: str) -> None:
-    _update_hour(session=session, entity_type=type, entity_id=type_id, name=name, now=datetime.now())
+    _update_hour(
+        session=session,
+        entity_type=type,
+        entity_id=type_id,
+        name=name,
+        now=datetime.now(),
+    )
 
 
 def update_day(session: Session, type: str, type_id: int, name: str) -> None:
-    _update_day(session=session, entity_type=type, entity_id=type_id, name=name, today=date.today())
+    _update_day(
+        session=session,
+        entity_type=type,
+        entity_id=type_id,
+        name=name,
+        today=date.today(),
+    )
 
 
-def _update_hour(session: Session, entity_type: str, entity_id: int, name: str, now: datetime) -> None:
+def _update_hour(
+    session: Session, entity_type: str, entity_id: int, name: str, now: datetime
+) -> None:
     current_hour = now.replace(minute=0, second=0, microsecond=0)
     entity_id_value = int(entity_id) if entity_id is not None else None
     _increment_stat(
@@ -159,7 +184,9 @@ def _update_hour(session: Session, entity_type: str, entity_id: int, name: str, 
     )
 
 
-def _update_day(session: Session, entity_type: str, entity_id: int, name: str, today: date) -> None:
+def _update_day(
+    session: Session, entity_type: str, entity_id: int, name: str, today: date
+) -> None:
     entity_id_value = int(entity_id) if entity_id is not None else None
     _increment_stat(
         session=session,
