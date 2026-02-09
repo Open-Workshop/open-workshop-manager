@@ -346,7 +346,10 @@ async def mod_list(
         False, description="Включать ли в ответ полное описание модов."
     ),
     dates: bool = Query(
-        False, description="Включать ли в ответ даты создания и обновления модов."
+        False,
+        description=(
+            "Включать ли в ответ даты создания, редактирования и обновления модов."
+        ),
     ),
     general: bool = Query(
         True,
@@ -426,7 +429,9 @@ async def mod_list(
         query = query.add_column(catalog.Mod.short_description)
     if dates:
         query = query.add_columns(
-            catalog.Mod.date_update_file, catalog.Mod.date_creation
+            catalog.Mod.date_update_file,
+            catalog.Mod.date_creation,
+            catalog.Mod.date_edit,
         )
     if general:
         query = query.add_columns(
@@ -511,6 +516,7 @@ async def mod_list(
             if dates:
                 out["date_update_file"] = mod.date_update_file
                 out["date_creation"] = mod.date_creation
+                out["date_edit"] = mod.date_edit
             if general:
                 out["name"] = mod.name
                 out["size"] = mod.size
