@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, Response, Form, Query, Path, UploadFile, File
 from fastapi.responses import RedirectResponse, PlainTextResponse
 from io import BytesIO
+import logging
 import bcrypt
 import tools
 from ow_config import MAIN_URL
@@ -11,6 +12,8 @@ from sqlalchemy import insert
 from sqlalchemy.orm import sessionmaker
 from sql_logic import sql_account as account
 import standarts
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -69,7 +72,10 @@ async def info_profile(
 
     if rights or private:
         # Чекаем сессию юзера
-        print(request.cookies.get("accessToken", ""))
+        logger.debug(
+            "Access token cookie present=%s",
+            bool(request.cookies.get("accessToken")),
+        )
         access_result = await account.check_access(request=request, response=response)
 
         # Смотрим действительна ли она (сессия)
@@ -553,7 +559,12 @@ async def edit_profile(
             )
         )
         if not result_status:
-            print("Google регистрация: во время загрузки аватара произошла ошибка!")
+            logger.warning(
+                "Google регистрация: во время загрузки аватара произошла ошибка! "
+                "code=%s detail=%s",
+                result_upload_code,
+                result_upload,
+            )
             return PlainTextResponse(
                 status_code=result_upload_code,
                 content=f"Что-то пошло не так при обработке аватара ._. {result_upload}",

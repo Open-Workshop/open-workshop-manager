@@ -1,6 +1,7 @@
 from sql_logic import sql_account as account
 from sql_logic import sql_catalog as catalog
 import ow_config as config
+import logging
 from io import BytesIO
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -11,6 +12,8 @@ from PIL import Image, UnidentifiedImageError
 import datetime
 import json
 import bcrypt
+
+logger = logging.getLogger(__name__)
 
 
 async def check_token(token_name: str, token: str) -> bool:
@@ -28,7 +31,7 @@ async def check_token(token_name: str, token: str) -> bool:
     stored_token_hash = getattr(config, token_name, None)
 
     if stored_token_hash is None:
-        print(f"Токен `{token_name}` не найден в config!")
+        logger.warning("Токен `%s` не найден в config!", token_name)
         return False
 
     # Хеш из config должен быть строкой, конвертируем в байты
@@ -419,7 +422,9 @@ async def delete_resources(
             if delete_result:
                 deleted.append(resource)
             else:
-                print(f"Delete Resources: Error: resource not deleted ({resource})")
+                logger.warning(
+                    "Delete Resources: Error: resource not deleted (%s)", resource
+                )
         else:
             deleted.append(resource)
 
@@ -431,7 +436,7 @@ async def delete_resources(
         session.commit()
         session.close()
     else:
-        print("Delete Resources: No resources deleted")
+        logger.info("Delete Resources: No resources deleted")
 
     return True
 

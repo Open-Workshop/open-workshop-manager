@@ -12,6 +12,7 @@ from fastapi import (
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from sql_logic import sql_account as account
 import tools
+import logging
 import re
 import io
 from datetime import datetime
@@ -23,6 +24,8 @@ from ow_config import MAIN_URL
 import ow_config as config
 from limits import LIMITS
 import standarts
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_FILENAME_CHARS = set(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
@@ -497,7 +500,7 @@ async def mod_list(
 
     # Фильтрация по имени
     if len(name) > 0:
-        print(len(name))
+        logger.debug("Filtering mods by name length=%s", len(name))
         query = query.filter(catalog.Mod.name.ilike(f"%{name}%"))
 
     # Фильтрация по тегам
@@ -1022,7 +1025,9 @@ async def add_mod(
     user_id = access_result.get("owner_id", -1)
 
     if access_result and user_id >= 0:
-        print(mod_short_description)
+        logger.debug(
+            "Mod short description length=%s", len(mod_short_description or "")
+        )
         if len(re.sub(r"\s+", " ", mod_short_description)) > LIMITS.mod.short_desc_max:
             return PlainTextResponse(
                 status_code=413, content="Короткое описание слишком длинное!"

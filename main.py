@@ -1,4 +1,7 @@
-from fastapi import FastAPI
+import logging
+import time
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from ow_config import MAIN_URL
 import ow_config as config
@@ -17,6 +20,10 @@ from social.api_black_list import router as black_list_router
 from social.api_forum import router as forum_router
 from social.api_forum_comment import router as forum_comment_router
 from starlette.types import ASGIApp, Receive, Scope, Send
+from logging_setup import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 
 class CookieDefaultsMiddleware:
@@ -74,6 +81,34 @@ app = FastAPI(
     redoc_url=MAIN_URL + "/",
     docs_url=MAIN_URL + "/docs",
 )
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        logger.exception(
+            "HTTP %s %s -> 500 (%.2fms)",
+            request.method,
+            request.url.path,
+            duration_ms,
+        )
+        raise
+
+    duration_ms = (time.perf_counter() - start_time) * 1000
+    client = request.client.host if request.client else "-"
+    logger.info(
+        "HTTP %s %s -> %s (%.2fms) client=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+        client,
+    )
+    return response
 
 app.add_middleware(
     CORSMiddleware,

@@ -10,6 +10,7 @@ import json
 
 # from yandexid import AsyncYandexOAuth, AsyncYandexID
 from google_auth_oauthlib.flow import Flow
+import logging
 import bcrypt
 from urllib import parse
 import datetime
@@ -24,6 +25,8 @@ import aiohttp
 from sqlalchemy import insert
 from sqlalchemy.orm import sessionmaker
 import standarts
+
+logger = logging.getLogger(__name__)
 
 STANDART_STR_TIME = account.STANDART_STR_TIME
 
@@ -253,7 +256,7 @@ async def google_complite(
             "https://oauth2.googleapis.com/token", data=data_complite
         ) as token_response:
             google_access = await token_response.json()
-            print(google_access)
+            logger.debug("Google token response received")
 
             async with NETsession.get(
                 "https://www.googleapis.com/oauth2/v1/userinfo",
@@ -310,7 +313,7 @@ async def google_complite(
                 )
                 return prefix + suffix
 
-            print(dtime, type(dtime))
+            logger.debug("Google registration time=%s", dtime)
             insert_statement = insert(account.Account).values(
                 google_id=user_data["id"],
                 username=await generate_unique_username(),
@@ -356,12 +359,17 @@ async def google_complite(
                                 ).update({"avatar_url": f"local.{format_name}"})
                                 session.commit()
                             else:
-                                print(
-                                    f"Google регистрация: во время загрузки аватара произошла ошибка! {result_upload_code} {result_upload}"
+                                logger.warning(
+                                    "Google регистрация: во время загрузки аватара "
+                                    "произошла ошибка! code=%s detail=%s",
+                                    result_upload_code,
+                                    result_upload,
                                 )
                         else:
-                            print(
-                                "Google регистрация: во время получения изображения произошла ошибка!"
+                            logger.warning(
+                                "Google регистрация: во время получения изображения "
+                                "произошла ошибка! status=%s",
+                                resp.status,
                             )
     else:
         id = rows.id

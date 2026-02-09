@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, Response, Form, Query, Path
 from fastapi.responses import JSONResponse, PlainTextResponse
 import tools
+import logging
 from ow_config import MAIN_URL
 from limits import LIMITS
 from sqlalchemy.orm import sessionmaker
@@ -8,6 +9,8 @@ from sqlalchemy import insert, delete
 from sql_logic import sql_catalog as catalog
 from datetime import datetime
 import standarts
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -182,7 +185,7 @@ async def games_list(
     # Фильтрация по жанрам
     if len(genres) > 0:
         for genre in genres:
-            print(type(genre))
+            logger.debug("Genre filter type=%s", type(genre))
             query = query.filter(catalog.Game.genres.any(id=genre))
 
             # filtered_games = session.query(Game).filter(Game.genres.any(id=excluded_genre_id))
