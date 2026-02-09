@@ -95,6 +95,7 @@ async def download_mod(
         session.close()
         return PlainTextResponse(status_code=404, content="Not found")
     else:
+        raw_name = mod.name or ""
         mod_query.update({catalog.Mod.downloads: catalog.Mod.downloads + 1})
         session.query(catalog.Game).filter(catalog.Game.id == mod.game).update(
             {catalog.Game.mods_downloads: catalog.Game.mods_downloads + 1}
@@ -105,7 +106,6 @@ async def download_mod(
 
         statistics.update("mod", mod_id, "download")
 
-    raw_name = mod.name or ""
     safe_name_chars = []
     for ch in raw_name:
         if ch in ALLOWED_FILENAME_CHARS:
