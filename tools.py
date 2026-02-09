@@ -345,11 +345,11 @@ async def storage_file_upload(
                     If the file was uploaded successfully, the response body is returned as a path to the uploaded file.
     """
 
-    real_url = f"{config.STORAGE_URL}/upload?token={config.storage_upload_token}"
+    real_url = f"{config.STORAGE_URL}/upload"
 
     async with aiohttp.ClientSession() as session:
         async with session.post(
-            real_url, data={"file": file, "type": type, "path": path}
+            real_url, data={"file": file, "type": type, "path": path, "token": config.storage_upload_token}
         ) as resp:
             return resp.status, str(await resp.text()), resp.status == 201
 
@@ -366,10 +366,10 @@ async def storage_file_delete(type: str, path: str) -> bool:
         bool: True if the file was successfully deleted, False otherwise.
     """
 
-    real_url = f"{config.STORAGE_URL}/delete?token={config.storage_delete_token}"
+    real_url = f"{config.STORAGE_URL}/delete"
 
     async with aiohttp.ClientSession() as session:
-        async with session.delete(real_url, data={"type": type, "path": path}) as resp:
+        async with session.delete(real_url, data={"type": type, "path": path, "token": config.storage_delete_token}) as resp:
             return resp.status in [404, 200]
 
 
