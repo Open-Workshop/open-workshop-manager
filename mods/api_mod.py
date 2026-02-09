@@ -1507,11 +1507,15 @@ async def delete_mod(
     mod_id: int = Form(..., description="ID мода для удаления."),
 ):
     access_result = await account.check_access(request=request, response=response)
+    logger.info("Delete mod request received mod_id=%s", mod_id)
 
     if not access_result or access_result.get("owner_id", -1) < 0:
+        logger.info("Delete mod denied: invalid session mod_id=%s", mod_id)
         return PlainTextResponse(
             status_code=401, content="Недействительный ключ сессии!"
         )
+    user_id = access_result.get("owner_id", -1)
+    logger.info("Delete mod auth ok mod_id=%s user_id=%s", mod_id, user_id)
 
     # Создание сессии для аккаунтов
     Session = sessionmaker(bind=account.engine)
@@ -1534,7 +1538,7 @@ async def delete_mod(
 
             in_mod = (
                 session.query(account.mod_and_author)
-                .filter_by(mod_id=mod_id, user_id=access_result.get("owner_id"))
+                .filter_by(mod_id=mod_id, user_id=user_id)
                 .first()
             )
 
@@ -1546,19 +1550,42 @@ async def delete_mod(
             return False
 
         if not await mini():
+            logger.info(
+                "Delete mod denied by permissions mod_id=%s user_id=%s",
+                mod_id,
+                user_id,
+            )
             return PlainTextResponse(status_code=403, content="Заблокировано!")
     finally:
         session.close()
 
     # Удаление ресурсов
+    logger.info("Delete mod removing resources mod_id=%s", mod_id)
     resource_delete_result = await tools.delete_resources(
         owner_type="mods", owner_id=mod_id
     )
+    logger.info(
+        "Delete mod resources result mod_id=%s ok=%s",
+        mod_id,
+        resource_delete_result,
+    )
+    logger.info("Delete mod removing archive mod_id=%s", mod_id)
     storage_delete_result = await tools.storage_file_delete(
         type="mods", path=f"mods/{mod_id}/main.zip"
     )
+    logger.info(
+        "Delete mod archive delete result mod_id=%s ok=%s",
+        mod_id,
+        storage_delete_result,
+    )
 
     if not (resource_delete_result and storage_delete_result):
+        logger.warning(
+            "Delete mod failed external delete mod_id=%s resources_ok=%s archive_ok=%s",
+            mod_id,
+            resource_delete_result,
+            storage_delete_result,
+        )
         return PlainTextResponse(status_code=500, content="Не удалось удалить мод!")
 
     # Создание сессии для базы модов

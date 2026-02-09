@@ -372,8 +372,32 @@ async def storage_file_delete(type: str, path: str) -> bool:
     real_url = f"{config.STORAGE_URL}/delete"
 
     async with aiohttp.ClientSession() as session:
-        async with session.delete(real_url, data={"type": type, "path": path, "token": config.storage_delete_token}) as resp:
-            return resp.status in [404, 200]
+        async with session.delete(
+            real_url,
+            data={
+                "type": type,
+                "path": path,
+                "token": config.storage_delete_token,
+            },
+        ) as resp:
+            if resp.status in [404, 200]:
+                logger.info(
+                    "Storage delete result type=%s path=%s status=%s",
+                    type,
+                    path,
+                    resp.status,
+                )
+                return True
+
+            body = await resp.text()
+            logger.warning(
+                "Storage delete failed type=%s path=%s status=%s body=%s",
+                type,
+                path,
+                resp.status,
+                body,
+            )
+            return False
 
 
 async def delete_resources(
@@ -398,6 +422,12 @@ async def delete_resources(
     if len(resources_ids) <= 0 and owner_id <= 0:
         return False
 
+    logger.debug(
+        "Delete resources start owner_type=%s owner_id=%s ids_count=%s",
+        owner_type,
+        owner_id,
+        len(resources_ids),
+    )
     Session = sessionmaker(bind=catalog.engine)
 
     session = Session()
@@ -411,6 +441,7 @@ async def delete_resources(
     resources = {i.id: i.url for i in query.all()}
     session.close()
 
+    logger.debug("Delete resources found=%s", len(resources))
     deleted = []
     for resource in resources.keys():
         url = resources[resource]
@@ -438,6 +469,13 @@ async def delete_resources(
     else:
         logger.info("Delete Resources: No resources deleted")
 
+    failed_count = len(resources) - len(deleted)
+    logger.info(
+        "Delete Resources: done total=%s deleted=%s failed=%s",
+        len(resources),
+        len(deleted),
+        failed_count,
+    )
     return True
 
 
