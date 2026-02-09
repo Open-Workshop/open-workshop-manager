@@ -1571,7 +1571,7 @@ async def delete_mod(
     )
     logger.info("Delete mod removing archive mod_id=%s", mod_id)
     storage_delete_result = await tools.storage_file_delete(
-        type="mods", path=f"mods/{mod_id}/main.zip"
+        type="archive", path=f"mods/{mod_id}/main.zip"
     )
     logger.info(
         "Delete mod archive delete result mod_id=%s ok=%s",
