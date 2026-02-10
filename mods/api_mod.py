@@ -115,7 +115,7 @@ async def add_mod_from_file(
         ..., description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."
     ),
     pack_format: str = Form("zip", description="Формат упаковки."),
-    pack_level: int = Form(9, description="Степень сжатия (0-9)."),
+    pack_level: int = Form(3, description="Степень сжатия (0-9)."),
 ):
     access_result = await account.check_access(request=request, response=response)
     if isinstance(access_result, bool):
@@ -226,7 +226,7 @@ async def add_mod_from_file(
             try:
                 pack_level = int(pack_level)
             except (TypeError, ValueError):
-                pack_level = 9
+                pack_level = 3
             pack_level = max(0, min(pack_level, 9))
             job_id = uuid.uuid4().hex
             ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
@@ -273,6 +273,91 @@ async def add_mod_from_file(
             return PlainTextResponse(status_code=403, content="Заблокировано!")
     else:
         return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+
+
+@router.post(
+    MAIN_URL + "/mods/{mod_id}/file",
+    tags=["Mod"],
+    summary="Обновление файла мода (файл напрямую на Storage)",
+    status_code=307,
+    responses={
+        307: {"description": "Перенаправление на Storage для загрузки"},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Мод не найден."},
+        411: routers_edit_mod_response[411],
+        413: routers_edit_mod_response[413],
+        500: routers_edit_mod_response[500],
+    },
+)
+async def update_mod_file(
+    response: Response,
+    request: Request,
+    mod_id: int = Path(description="ID мода для обновления файла."),
+    pack_format: str = Form("zip", description="Формат упаковки."),
+    pack_level: int = Form(3, description="Степень сжатия (0-9)."),
+):
+    access_result = await tools.access_mods(
+        response=response, request=request, mods_ids=mod_id, edit=True
+    )
+    if access_result is not True:
+        return access_result
+
+    session = sessionmaker(bind=catalog.engine)()
+    mod_exists = session.query(catalog.Mod.id).filter_by(id=mod_id).first()
+    session.close()
+    if not mod_exists:
+        return PlainTextResponse(status_code=404, content="Mod not found")
+
+    if pack_format != "zip":
+        return PlainTextResponse(status_code=400, content="Unsupported format")
+
+    if not getattr(config, "TRANSFER_JWT_SECRET", None):
+        return PlainTextResponse(status_code=500, content="JWT secret missing")
+
+    try:
+        pack_level = int(pack_level)
+    except (TypeError, ValueError):
+        pack_level = 3
+    pack_level = max(0, min(pack_level, 9))
+
+    job_id = uuid.uuid4().hex
+    ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
+    try:
+        ttl_seconds = int(ttl_raw)
+    except (TypeError, ValueError):
+        ttl_seconds = 900
+    payload = {
+        "job_id": job_id,
+        "mod_id": mod_id,
+        "pack_format": pack_format,
+        "pack_level": pack_level,
+        "update_only": True,
+    }
+    token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
+    if not token:
+        return PlainTextResponse(status_code=500, content="JWT secret missing")
+
+    transfer_url = f"{config.STORAGE_URL}/transfer/upload?token={quote(token)}&job_id={job_id}"
+    wants_json = (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or "application/json" in (request.headers.get("Accept", "") or "")
+    )
+    if wants_json:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "job_id": job_id,
+                "mod_id": mod_id,
+                "transfer_url": transfer_url,
+                "ws_url": f"{config.STORAGE_URL}/transfer/ws/{job_id}?token={quote(token)}",
+            },
+        )
+
+    response = RedirectResponse(url=transfer_url, status_code=307)
+    response.headers["X-Upload-Job"] = job_id
+    response.headers["X-Progress-WS"] = f"{config.STORAGE_URL}/transfer/ws/{job_id}"
+    return response
 
 
 @router.post(
@@ -337,7 +422,7 @@ async def add_mod_from_url(
     ),
     mod_url: str = Form(..., description="Прямая ссылка на файл мода."),
     pack_format: str = Form("zip", description="Формат упаковки."),
-    pack_level: int = Form(9, description="Степень сжатия (0-9)."),
+    pack_level: int = Form(3, description="Степень сжатия (0-9)."),
 ):
     access_result = await account.check_access(request=request, response=response)
     if isinstance(access_result, bool):
@@ -453,7 +538,7 @@ async def add_mod_from_url(
             try:
                 pack_level = int(pack_level)
             except (TypeError, ValueError):
-                pack_level = 9
+                pack_level = 3
             pack_level = max(0, min(pack_level, 9))
             job_id = uuid.uuid4().hex
             ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
@@ -522,6 +607,7 @@ async def storage_transfer_complete(
     job_id = payload.get("job_id")
     mod_id = payload.get("mod_id")
     pack_format = payload.get("pack_format", "zip")
+    update_only = bool(payload.get("update_only") or payload.get("keep_condition"))
 
     if not job_id or not mod_id:
         return PlainTextResponse(status_code=400, content="Invalid payload")
@@ -535,10 +621,11 @@ async def storage_transfer_complete(
         return PlainTextResponse(status_code=202, content="Transfer failed")
 
     logger.info(
-        "transfer callback received job_id=%s mod_id=%s bytes=%s",
+        "transfer callback received job_id=%s mod_id=%s bytes=%s update_only=%s",
         job_id,
         mod_id,
         payload.get("bytes"),
+        update_only,
     )
     ext = "zip" if pack_format == "zip" else pack_format
     dest_path = f"mods/{mod_id}/main.{ext}"
@@ -579,6 +666,17 @@ async def storage_transfer_complete(
     if not mod:
         session.close()
         return PlainTextResponse(status_code=404, content="Mod not found")
+    if update_only:
+        session.query(catalog.Mod).filter_by(id=mod_id).update(
+            {
+                "size": final_size,
+                "date_update_file": datetime.now(),
+            }
+        )
+        session.commit()
+        session.close()
+        return PlainTextResponse(status_code=200, content="OK")
+
     if mod.condition == 0:
         session.close()
         return PlainTextResponse(status_code=200, content="Already finalized")

@@ -436,7 +436,7 @@ async def storage_file_delete(type: str, path: str) -> bool:
 
 
 async def storage_job_repack(
-    job_id: str, pack_format: str = "zip", pack_level: int = 9
+    job_id: str, pack_format: str = "zip", pack_level: int = 3
 ) -> tuple[int, dict | str, bool]:
     real_url = f"{config.STORAGE_URL}/transfer/repack"
     timeout_raw = getattr(config, "STORAGE_TIMEOUT_SECONDS", 1800)
