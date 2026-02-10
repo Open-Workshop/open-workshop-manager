@@ -522,7 +522,6 @@ async def storage_transfer_complete(
     job_id = payload.get("job_id")
     mod_id = payload.get("mod_id")
     pack_format = payload.get("pack_format", "zip")
-    pack_level = payload.get("pack_level", 9)
 
     if not job_id or not mod_id:
         return PlainTextResponse(status_code=400, content="Invalid payload")
@@ -541,30 +540,6 @@ async def storage_transfer_complete(
         mod_id,
         payload.get("bytes"),
     )
-    repack_start = datetime.now()
-    try:
-        repack_code, repack_payload, repack_ok = await tools.storage_job_repack(
-            job_id=job_id, pack_format=pack_format, pack_level=pack_level
-        )
-    except Exception:
-        logger.exception("transfer repack exception job_id=%s mod_id=%s", job_id, mod_id)
-        return PlainTextResponse(status_code=504, content="Repack timeout")
-    if not repack_ok:
-        logger.warning(
-            "transfer repack failed job_id=%s status=%s body=%s",
-            job_id,
-            repack_code,
-            repack_payload,
-        )
-        return PlainTextResponse(status_code=500, content="Repack failed")
-    repack_duration = (datetime.now() - repack_start).total_seconds()
-    logger.info(
-        "transfer repack done job_id=%s mod_id=%s duration=%.2fs",
-        job_id,
-        mod_id,
-        repack_duration,
-    )
-
     ext = "zip" if pack_format == "zip" else pack_format
     dest_path = f"mods/{mod_id}/main.{ext}"
 
@@ -595,8 +570,6 @@ async def storage_transfer_complete(
     final_size = None
     if isinstance(move_payload, dict):
         final_size = move_payload.get("final_bytes")
-    if final_size is None and isinstance(repack_payload, dict):
-        final_size = repack_payload.get("packed_bytes")
     if final_size is None:
         final_size = payload.get("bytes", 0)
 
