@@ -535,9 +535,20 @@ async def storage_transfer_complete(
         logger.warning("transfer failed job_id=%s status=%s", job_id, status)
         return PlainTextResponse(status_code=202, content="Transfer failed")
 
-    repack_code, repack_payload, repack_ok = await tools.storage_job_repack(
-        job_id=job_id, pack_format=pack_format, pack_level=pack_level
+    logger.info(
+        "transfer callback received job_id=%s mod_id=%s bytes=%s",
+        job_id,
+        mod_id,
+        payload.get("bytes"),
     )
+    repack_start = datetime.now()
+    try:
+        repack_code, repack_payload, repack_ok = await tools.storage_job_repack(
+            job_id=job_id, pack_format=pack_format, pack_level=pack_level
+        )
+    except Exception:
+        logger.exception("transfer repack exception job_id=%s mod_id=%s", job_id, mod_id)
+        return PlainTextResponse(status_code=504, content="Repack timeout")
     if not repack_ok:
         logger.warning(
             "transfer repack failed job_id=%s status=%s body=%s",
@@ -546,13 +557,25 @@ async def storage_transfer_complete(
             repack_payload,
         )
         return PlainTextResponse(status_code=500, content="Repack failed")
+    repack_duration = (datetime.now() - repack_start).total_seconds()
+    logger.info(
+        "transfer repack done job_id=%s mod_id=%s duration=%.2fs",
+        job_id,
+        mod_id,
+        repack_duration,
+    )
 
     ext = "zip" if pack_format == "zip" else pack_format
     dest_path = f"mods/{mod_id}/main.{ext}"
 
-    move_code, move_payload, move_ok = await tools.storage_job_move(
-        job_id=job_id, type="archive", path=dest_path
-    )
+    move_start = datetime.now()
+    try:
+        move_code, move_payload, move_ok = await tools.storage_job_move(
+            job_id=job_id, type="archive", path=dest_path
+        )
+    except Exception:
+        logger.exception("transfer move exception job_id=%s mod_id=%s", job_id, mod_id)
+        return PlainTextResponse(status_code=504, content="Move timeout")
     if not move_ok:
         logger.warning(
             "transfer move failed job_id=%s status=%s body=%s",
@@ -561,6 +584,13 @@ async def storage_transfer_complete(
             move_payload,
         )
         return PlainTextResponse(status_code=500, content="Move failed")
+    move_duration = (datetime.now() - move_start).total_seconds()
+    logger.info(
+        "transfer move done job_id=%s mod_id=%s duration=%.2fs",
+        job_id,
+        mod_id,
+        move_duration,
+    )
 
     final_size = None
     if isinstance(move_payload, dict):
