@@ -439,8 +439,14 @@ async def storage_job_repack(
     job_id: str, pack_format: str = "zip", pack_level: int = 9
 ) -> tuple[int, dict | str, bool]:
     real_url = f"{config.STORAGE_URL}/transfer/repack"
+    timeout_raw = getattr(config, "STORAGE_TIMEOUT_SECONDS", 1800)
+    try:
+        timeout_seconds = int(timeout_raw)
+    except (TypeError, ValueError):
+        timeout_seconds = 1800
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.post(
             real_url,
             data={
@@ -462,8 +468,14 @@ async def storage_job_move(
     job_id: str, type: str, path: str
 ) -> tuple[int, dict | str, bool]:
     real_url = f"{config.STORAGE_URL}/transfer/move"
+    timeout_raw = getattr(config, "STORAGE_TIMEOUT_SECONDS", 1800)
+    try:
+        timeout_seconds = int(timeout_raw)
+    except (TypeError, ValueError):
+        timeout_seconds = 1800
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.post(
             real_url,
             data={
