@@ -1,5 +1,7 @@
 import logging
 import time
+import asyncio
+import datetime
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,9 +23,69 @@ from social.api_forum import router as forum_router
 from social.api_forum_comment import router as forum_comment_router
 from starlette.types import ASGIApp, Receive, Scope, Send
 from logging_setup import setup_logging
+from sql_logic import sql_catalog as catalog
+from sql_logic import sql_account as account
+from sqlalchemy.orm import sessionmaker
 
 setup_logging()
 logger = logging.getLogger(__name__)
+
+CLEANUP_INTERVAL_SECONDS = 600
+CLEANUP_STALE_SECONDS = 24 * 60 * 60
+_cleanup_task: asyncio.Task | None = None
+
+
+async def _cleanup_stale_mods_once() -> None:
+    cutoff = datetime.datetime.now() - datetime.timedelta(seconds=CLEANUP_STALE_SECONDS)
+    session = sessionmaker(bind=catalog.engine)()
+    try:
+        stale = (
+            session.query(catalog.Mod.id)
+            .filter(catalog.Mod.condition == 1)
+            .filter(catalog.Mod.date_creation < cutoff)
+            .all()
+        )
+        stale_ids = [row.id for row in stale]
+    finally:
+        session.close()
+
+    if not stale_ids:
+        return
+
+    session = sessionmaker(bind=catalog.engine)()
+    try:
+        session.query(catalog.Mod).filter(catalog.Mod.id.in_(stale_ids)).delete(
+            synchronize_session=False
+        )
+        session.query(catalog.mods_dependencies).filter(
+            catalog.mods_dependencies.c.mod_id.in_(stale_ids)
+        ).delete(synchronize_session=False)
+        session.query(catalog.mods_tags).filter(
+            catalog.mods_tags.c.mod_id.in_(stale_ids)
+        ).delete(synchronize_session=False)
+        session.commit()
+    finally:
+        session.close()
+
+    session = sessionmaker(bind=account.engine)()
+    try:
+        session.query(account.mod_and_author).filter(
+            account.mod_and_author.c.mod_id.in_(stale_ids)
+        ).delete(synchronize_session=False)
+        session.commit()
+    finally:
+        session.close()
+
+    logger.info("Cleanup stale mods deleted count=%s", len(stale_ids))
+
+
+async def _cleanup_stale_mods_loop() -> None:
+    while True:
+        try:
+            await _cleanup_stale_mods_once()
+        except Exception:
+            logger.exception("Cleanup stale mods failed")
+        await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
 
 
 class CookieDefaultsMiddleware:
@@ -152,9 +214,31 @@ app.add_middleware(
     expose_headers=[
         "Content-Type",
         "Content-Disposition",
+        "Location",
+        "X-Upload-Job",
+        "X-Progress-WS",
     ],  # Какие заголовки доступны JS
 )
 app.add_middleware(CookieDefaultsMiddleware)
+
+
+@app.on_event("startup")
+async def _start_cleanup_task() -> None:
+    global _cleanup_task
+    if _cleanup_task is None:
+        _cleanup_task = asyncio.create_task(_cleanup_stale_mods_loop())
+
+
+@app.on_event("shutdown")
+async def _stop_cleanup_task() -> None:
+    global _cleanup_task
+    if _cleanup_task:
+        _cleanup_task.cancel()
+        try:
+            await _cleanup_task
+        except asyncio.CancelledError:
+            pass
+        _cleanup_task = None
 
 app.include_router(game_router)
 app.include_router(mod_router)

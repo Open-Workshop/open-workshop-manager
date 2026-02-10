@@ -12,8 +12,11 @@ from PIL import Image, UnidentifiedImageError
 import datetime
 import json
 import bcrypt
+import jwt
 
 logger = logging.getLogger(__name__)
+
+TRANSFER_JWT_ALG = "HS256"
 
 
 async def check_token(token_name: str, token: str) -> bool:
@@ -39,6 +42,38 @@ async def check_token(token_name: str, token: str) -> bool:
 
     # Хешируем переданный токен с использованием bcrypt и проверяем соответствие
     return bcrypt.checkpw(token.encode(), stored_token_hash)
+
+
+def create_transfer_jwt(
+    payload: dict,
+    audience: str,
+    ttl_seconds: int,
+    issuer: str = "manager",
+) -> str | None:
+    secret = getattr(config, "TRANSFER_JWT_SECRET", None)
+    if not secret:
+        return None
+    now = datetime.datetime.now(datetime.timezone.utc)
+    claims = dict(payload)
+    claims.update(
+        {
+            "aud": audience,
+            "iss": issuer,
+            "iat": int(now.timestamp()),
+            "exp": int((now + datetime.timedelta(seconds=ttl_seconds)).timestamp()),
+        }
+    )
+    return jwt.encode(claims, secret, algorithm=TRANSFER_JWT_ALG)
+
+
+def decode_transfer_jwt(token: str, audience: str) -> dict | None:
+    secret = getattr(config, "TRANSFER_JWT_SECRET", None)
+    if not secret:
+        return None
+    try:
+        return jwt.decode(token, secret, algorithms=[TRANSFER_JWT_ALG], audience=audience)
+    except jwt.PyJWTError:
+        return None
 
 
 async def access_admin(response: Response, request: Request) -> JSONResponse | bool:
@@ -398,6 +433,52 @@ async def storage_file_delete(type: str, path: str) -> bool:
                 body,
             )
             return False
+
+
+async def storage_job_repack(
+    job_id: str, pack_format: str = "zip", pack_level: int = 9
+) -> tuple[int, dict | str, bool]:
+    real_url = f"{config.STORAGE_URL}/transfer/repack"
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            real_url,
+            data={
+                "job_id": job_id,
+                "format": pack_format,
+                "compression_level": pack_level,
+                "token": config.storage_manage_token,
+            },
+        ) as resp:
+            body = await resp.text()
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError:
+                payload = body
+            return resp.status, payload, resp.status == 200
+
+
+async def storage_job_move(
+    job_id: str, type: str, path: str
+) -> tuple[int, dict | str, bool]:
+    real_url = f"{config.STORAGE_URL}/transfer/move"
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            real_url,
+            data={
+                "job_id": job_id,
+                "type": type,
+                "path": path,
+                "token": config.storage_manage_token,
+            },
+        ) as resp:
+            body = await resp.text()
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError:
+                payload = body
+            return resp.status, payload, resp.status == 200
 
 
 async def delete_resources(
