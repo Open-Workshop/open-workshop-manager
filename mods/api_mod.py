@@ -692,7 +692,6 @@ async def storage_transfer_complete(
         {
             "condition": 0,
             "size": final_size,
-            "date_update_file": datetime.now(),
         }
     )
     session.query(catalog.Game).filter_by(id=mod.game).update(
