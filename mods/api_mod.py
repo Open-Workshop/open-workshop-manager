@@ -31,16 +31,6 @@ ALLOWED_FILENAME_CHARS = set(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
 )
 
-
-def _payload_flag(value: object) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int):
-        return value != 0
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
-    return False
-
 routers_edit_mod_response = {
     411: {
         "description": "Не достингнут минимальный размер (название мода).",
@@ -617,9 +607,7 @@ async def storage_transfer_complete(
     job_id = payload.get("job_id")
     mod_id = payload.get("mod_id")
     pack_format = payload.get("pack_format", "zip")
-    update_only = _payload_flag(payload.get("update_only")) or _payload_flag(
-        payload.get("keep_condition")
-    )
+    update_only = bool(payload.get("update_only") or payload.get("keep_condition"))
 
     if not job_id or not mod_id:
         return PlainTextResponse(status_code=400, content="Invalid payload")
@@ -638,6 +626,13 @@ async def storage_transfer_complete(
         mod_id,
         payload.get("bytes"),
         update_only,
+    )
+    logger.info(
+        "transfer callback flags job_id=%s mod_id=%s update_only_raw=%r keep_condition_raw=%r",
+        job_id,
+        mod_id,
+        payload.get("update_only"),
+        payload.get("keep_condition"),
     )
     ext = "zip" if pack_format == "zip" else pack_format
     dest_path = f"mods/{mod_id}/main.{ext}"
