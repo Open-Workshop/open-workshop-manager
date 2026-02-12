@@ -3,6 +3,9 @@ yandex_client_secret = "..."
 
 STORAGE_URL = "http://127.0.0.1:7070"
 MAIN_URL = "/api/accounts"
+TRANSFER_JWT_SECRET = ""
+TRANSFER_JWT_TTL_SECONDS = 900
+STORAGE_TIMEOUT_SECONDS = 1800
 
 
 # MySQL параметры
@@ -25,6 +28,7 @@ access_mods_check_anonymous = ""
 
 storage_upload_token = ""
 storage_delete_token = ""
+storage_manage_token = ""
 
 
 # Cookies / CORS

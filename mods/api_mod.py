@@ -6,18 +6,18 @@ from fastapi import (
     Path,
     Query,
     Header,
-    File,
-    UploadFile,
 )
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from sql_logic import sql_account as account
 import tools
 import logging
 import re
-import io
+import uuid
+from urllib.parse import urlparse, quote
 from datetime import datetime
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import insert, func
+from typing import Optional
 from sql_logic import sql_catalog as catalog
 from sql_logic import sql_statistics as statistics
 from ow_config import MAIN_URL
@@ -52,6 +52,655 @@ routers_edit_mod_response = {
 
 
 router = APIRouter()
+
+
+@router.post(
+    MAIN_URL + "/mods/from-file",
+    tags=["Mod"],
+    summary="Добавление мода (файл напрямую на Storage)",
+    status_code=307,
+    responses={
+        307: {"description": "Перенаправление на Storage для загрузки"},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        411: routers_edit_mod_response[411],
+        412: {
+            "description": "Неккоректный ID выбранной игры ИЛИ source-связка уже занята.",
+            "content": {"text/plain": {"example": "Такой игры не существует!"}},
+        },
+        413: routers_edit_mod_response[413],
+        500: routers_edit_mod_response[500],
+    },
+)
+@router.post(
+    MAIN_URL + "/add/mod/from-file",
+    tags=["Mod"],
+    summary="Добавление мода (файл напрямую на Storage)",
+    status_code=307,
+    responses={
+        307: {"description": "Перенаправление на Storage для загрузки"},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        411: routers_edit_mod_response[411],
+        412: {
+            "description": "Неккоректный ID выбранной игры ИЛИ source-связка уже занята.",
+            "content": {"text/plain": {"example": "Такой игры не существует!"}},
+        },
+        413: routers_edit_mod_response[413],
+        500: routers_edit_mod_response[500],
+    },
+)
+async def add_mod_from_file(
+    response: Response,
+    request: Request,
+    without_author: bool = Form(
+        False,
+        description="Указывать ли авторство мода. Для выбора должны быть админ права.",
+    ),
+    mod_name: str = Form(
+        ..., description="Название мода", max_length=LIMITS.mod.name_max
+    ),
+    mod_short_description: str = Form(
+        "", description="Короткое описание мода.", max_length=LIMITS.mod.short_desc_max
+    ),
+    mod_description: str = Form(
+        "", description="Полное описание мода.", max_length=LIMITS.mod.desc_max
+    ),
+    mod_source: str = Form(
+        "local", description="Источник мода.", max_length=LIMITS.mod.source_max
+    ),
+    mod_source_id: int = Form(-1, description="ID мода в первоисточнике."),
+    mod_game: int = Form(..., description="ID игры-владельца."),
+    mod_public: int = Form(
+        ..., description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."
+    ),
+    pack_format: str = Form("zip", description="Формат упаковки."),
+    pack_level: int = Form(3, description="Степень сжатия (0-9)."),
+):
+    access_result = await account.check_access(request=request, response=response)
+    if isinstance(access_result, bool):
+        return JSONResponse(status_code=403, content="Нет кук доступа!")
+    user_id = access_result.get("owner_id", -1)
+
+    if access_result and user_id >= 0:
+        logger.debug(
+            "Mod short description length=%s", len(mod_short_description or "")
+        )
+        if len(re.sub(r"\s+", " ", mod_short_description)) > LIMITS.mod.short_desc_max:
+            return PlainTextResponse(
+                status_code=413, content="Короткое описание слишком длинное!"
+            )
+        elif len(re.sub(r"\s+", " ", mod_description)) > LIMITS.mod.desc_max:
+            return PlainTextResponse(
+                status_code=413, content="Описание слишком длинное!"
+            )
+        elif len(mod_name) > LIMITS.mod.name_max:
+            return PlainTextResponse(
+                status_code=413, content="Название слишком длинное!"
+            )
+        elif len(mod_name) < LIMITS.mod.name_min:
+            return PlainTextResponse(
+                status_code=411, content="Название слишком короткое!"
+            )
+        elif not await tools.check_game_exists(mod_game):
+            return PlainTextResponse(
+                status_code=412, content="Такой игры не существует!"
+            )
+
+        if pack_format != "zip":
+            return PlainTextResponse(status_code=400, content="Unsupported format")
+
+        if not getattr(config, "TRANSFER_JWT_SECRET", None):
+            return PlainTextResponse(status_code=500, content="JWT secret missing")
+
+        session = sessionmaker(bind=account.engine)()
+        user_req = session.query(account.Account).filter_by(id=user_id).first()
+
+        async def mini():
+            if user_req.admin:
+                return True
+            else:
+                if without_author:
+                    return False
+                elif user_req.mute_until and user_req.mute_until > datetime.now():
+                    return False
+                elif user_req.publish_mods:
+                    return True
+            return False
+
+        if await mini():
+            session.close()
+
+            if mod_public not in [0, 1, 2]:
+                mod_public = 0
+
+            Session = sessionmaker(bind=catalog.engine)
+            session = Session()
+            insert_statement = insert(catalog.Mod)
+            insert_statement = insert_statement.values(
+                name=mod_name,
+                short_description=mod_short_description,
+                description=mod_description,
+                size=0,
+                condition=1,
+                public=mod_public,
+                date_creation=datetime.now(),
+                date_update_file=datetime.now(),
+                date_edit=datetime.now(),
+                source=mod_source,
+                downloads=0,
+                game=mod_game,
+            )
+
+            if mod_source_id > 0 and mod_source != "local":
+                insert_statement = insert_statement.values(source_id=mod_source_id)
+
+                tsession = sessionmaker(bind=catalog.engine)()
+                result = (
+                    tsession.query(catalog.Mod)
+                    .filter_by(source=mod_source, source_id=mod_source_id)
+                    .first()
+                )
+                tsession.close()
+                if result:
+                    return PlainTextResponse(
+                        status_code=412, content="Такая source-связка уже существует!"
+                    )
+
+            result = session.execute(insert_statement)
+            rid = result.lastrowid
+            session.commit()
+
+            if not without_author:
+                session = sessionmaker(bind=account.engine)()
+                session.execute(
+                    account.mod_and_author.insert().values(
+                        mod_id=rid, user_id=user_id, owner=True
+                    )
+                )
+                session.commit()
+                session.close()
+
+            session.close()
+
+            try:
+                pack_level = int(pack_level)
+            except (TypeError, ValueError):
+                pack_level = 3
+            pack_level = max(0, min(pack_level, 9))
+            job_id = uuid.uuid4().hex
+            ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
+            try:
+                ttl_seconds = int(ttl_raw)
+            except (TypeError, ValueError):
+                ttl_seconds = 900
+            payload = {
+                "job_id": job_id,
+                "mod_id": rid,
+                "pack_format": pack_format,
+                "pack_level": pack_level,
+            }
+            token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
+            if not token:
+                return PlainTextResponse(status_code=500, content="JWT secret missing")
+
+            transfer_url = (
+                f"{config.STORAGE_URL}/transfer/upload?token={quote(token)}&job_id={job_id}"
+            )
+
+            wants_json = (
+                request.headers.get("X-Requested-With") == "XMLHttpRequest"
+                or "application/json" in (request.headers.get("Accept", "") or "")
+            )
+
+            if wants_json:
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "job_id": job_id,
+                        "mod_id": rid,
+                        "transfer_url": transfer_url,
+                        "ws_url": f"{config.STORAGE_URL}/transfer/ws/{job_id}?token={quote(token)}",
+                    },
+                )
+
+            response = RedirectResponse(url=transfer_url, status_code=307)
+            response.headers["X-Upload-Job"] = job_id
+            response.headers["X-Progress-WS"] = f"{config.STORAGE_URL}/transfer/ws/{job_id}"
+            return response
+        else:
+            session.close()
+            return PlainTextResponse(status_code=403, content="Заблокировано!")
+    else:
+        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+
+
+@router.post(
+    MAIN_URL + "/mods/{mod_id}/file",
+    tags=["Mod"],
+    summary="Обновление файла мода (файл напрямую на Storage)",
+    status_code=307,
+    responses={
+        307: {"description": "Перенаправление на Storage для загрузки"},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Мод не найден."},
+        411: routers_edit_mod_response[411],
+        413: routers_edit_mod_response[413],
+        500: routers_edit_mod_response[500],
+    },
+)
+async def update_mod_file(
+    response: Response,
+    request: Request,
+    mod_id: int = Path(description="ID мода для обновления файла."),
+    pack_format: str = Form("zip", description="Формат упаковки."),
+    pack_level: int = Form(3, description="Степень сжатия (0-9)."),
+):
+    access_result = await tools.access_mods(
+        response=response, request=request, mods_ids=mod_id, edit=True
+    )
+    if access_result is not True:
+        return access_result
+
+    session = sessionmaker(bind=catalog.engine)()
+    mod_exists = session.query(catalog.Mod.id).filter_by(id=mod_id).first()
+    session.close()
+    if not mod_exists:
+        return PlainTextResponse(status_code=404, content="Mod not found")
+
+    if pack_format != "zip":
+        return PlainTextResponse(status_code=400, content="Unsupported format")
+
+    if not getattr(config, "TRANSFER_JWT_SECRET", None):
+        return PlainTextResponse(status_code=500, content="JWT secret missing")
+
+    try:
+        pack_level = int(pack_level)
+    except (TypeError, ValueError):
+        pack_level = 3
+    pack_level = max(0, min(pack_level, 9))
+
+    job_id = uuid.uuid4().hex
+    ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
+    try:
+        ttl_seconds = int(ttl_raw)
+    except (TypeError, ValueError):
+        ttl_seconds = 900
+    payload = {
+        "job_id": job_id,
+        "mod_id": mod_id,
+        "pack_format": pack_format,
+        "pack_level": pack_level,
+        "update_only": True,
+    }
+    token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
+    if not token:
+        return PlainTextResponse(status_code=500, content="JWT secret missing")
+
+    transfer_url = f"{config.STORAGE_URL}/transfer/upload?token={quote(token)}&job_id={job_id}"
+    wants_json = (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or "application/json" in (request.headers.get("Accept", "") or "")
+    )
+    if wants_json:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "job_id": job_id,
+                "mod_id": mod_id,
+                "transfer_url": transfer_url,
+                "ws_url": f"{config.STORAGE_URL}/transfer/ws/{job_id}?token={quote(token)}",
+            },
+        )
+
+    response = RedirectResponse(url=transfer_url, status_code=307)
+    response.headers["X-Upload-Job"] = job_id
+    response.headers["X-Progress-WS"] = f"{config.STORAGE_URL}/transfer/ws/{job_id}"
+    return response
+
+
+@router.post(
+    MAIN_URL + "/mods/from-url",
+    tags=["Mod"],
+    summary="Добавление мода по ссылке",
+    status_code=307,
+    responses={
+        307: {"description": "Перенаправление на Storage для загрузки"},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        411: routers_edit_mod_response[411],
+        412: {
+            "description": "Неккоректный ID выбранной игры ИЛИ source-связка уже занята.",
+            "content": {"text/plain": {"example": "Такой игры не существует!"}},
+        },
+        413: routers_edit_mod_response[413],
+        500: routers_edit_mod_response[500],
+    },
+)
+@router.post(
+    MAIN_URL + "/add/mod/from-url",
+    tags=["Mod"],
+    summary="Добавление мода по ссылке",
+    status_code=307,
+    responses={
+        307: {"description": "Перенаправление на Storage для загрузки"},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        411: routers_edit_mod_response[411],
+        412: {
+            "description": "Неккоректный ID выбранной игры ИЛИ source-связка уже занята.",
+            "content": {"text/plain": {"example": "Такой игры не существует!"}},
+        },
+        413: routers_edit_mod_response[413],
+        500: routers_edit_mod_response[500],
+    },
+)
+async def add_mod_from_url(
+    response: Response,
+    request: Request,
+    without_author: bool = Form(
+        False,
+        description="Указывать ли авторство мода. Для выбора должны быть админ права.",
+    ),
+    mod_name: str = Form(
+        ..., description="Название мода", max_length=LIMITS.mod.name_max
+    ),
+    mod_short_description: str = Form(
+        "", description="Короткое описание мода.", max_length=LIMITS.mod.short_desc_max
+    ),
+    mod_description: str = Form(
+        "", description="Полное описание мода.", max_length=LIMITS.mod.desc_max
+    ),
+    mod_source: str = Form(
+        "local", description="Источник мода.", max_length=LIMITS.mod.source_max
+    ),
+    mod_source_id: int = Form(-1, description="ID мода в первоисточнике."),
+    mod_game: int = Form(..., description="ID игры-владельца."),
+    mod_public: int = Form(
+        ..., description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."
+    ),
+    mod_url: str = Form(..., description="Прямая ссылка на файл мода."),
+    pack_format: str = Form("zip", description="Формат упаковки."),
+    pack_level: int = Form(3, description="Степень сжатия (0-9)."),
+):
+    access_result = await account.check_access(request=request, response=response)
+    if isinstance(access_result, bool):
+        return JSONResponse(status_code=403, content="Нет кук доступа!")
+    user_id = access_result.get("owner_id", -1)
+
+    if access_result and user_id >= 0:
+        logger.debug(
+            "Mod short description length=%s", len(mod_short_description or "")
+        )
+        if len(re.sub(r"\s+", " ", mod_short_description)) > LIMITS.mod.short_desc_max:
+            return PlainTextResponse(
+                status_code=413, content="Короткое описание слишком длинное!"
+            )
+        elif len(re.sub(r"\s+", " ", mod_description)) > LIMITS.mod.desc_max:
+            return PlainTextResponse(
+                status_code=413, content="Описание слишком длинное!"
+            )
+        elif len(mod_name) > LIMITS.mod.name_max:
+            return PlainTextResponse(
+                status_code=413, content="Название слишком длинное!"
+            )
+        elif len(mod_name) < LIMITS.mod.name_min:
+            return PlainTextResponse(
+                status_code=411, content="Название слишком короткое!"
+            )
+        elif not await tools.check_game_exists(mod_game):
+            return PlainTextResponse(
+                status_code=412, content="Такой игры не существует!"
+            )
+
+        parsed = urlparse(mod_url)
+        if parsed.scheme not in {"http", "https"}:
+            return PlainTextResponse(status_code=411, content="Некорректная ссылка!")
+
+        if pack_format != "zip":
+            return PlainTextResponse(status_code=400, content="Unsupported format")
+
+        if not getattr(config, "TRANSFER_JWT_SECRET", None):
+            return PlainTextResponse(status_code=500, content="JWT secret missing")
+
+        # Проверка прав
+        session = sessionmaker(bind=account.engine)()
+        user_req = session.query(account.Account).filter_by(id=user_id).first()
+
+        async def mini():
+            if user_req.admin:
+                return True
+            else:
+                if without_author:
+                    return False
+                elif user_req.mute_until and user_req.mute_until > datetime.now():
+                    return False
+                elif user_req.publish_mods:
+                    return True
+            return False
+
+        if await mini():
+            session.close()
+
+            if mod_public not in [0, 1, 2]:
+                mod_public = 0
+
+            Session = sessionmaker(bind=catalog.engine)
+            session = Session()
+            insert_statement = insert(catalog.Mod)
+            insert_statement = insert_statement.values(
+                name=mod_name,
+                short_description=mod_short_description,
+                description=mod_description,
+                size=0,
+                condition=1,
+                public=mod_public,
+                date_creation=datetime.now(),
+                date_update_file=datetime.now(),
+                date_edit=datetime.now(),
+                source=mod_source,
+                downloads=0,
+                game=mod_game,
+            )
+
+            if mod_source_id > 0 and mod_source != "local":
+                insert_statement = insert_statement.values(source_id=mod_source_id)
+
+                tsession = sessionmaker(bind=catalog.engine)()
+                result = (
+                    tsession.query(catalog.Mod)
+                    .filter_by(source=mod_source, source_id=mod_source_id)
+                    .first()
+                )
+                tsession.close()
+                if result:
+                    return PlainTextResponse(
+                        status_code=412, content="Такая source-связка уже существует!"
+                    )
+
+            result = session.execute(insert_statement)
+            rid = result.lastrowid
+            session.commit()
+
+            if not without_author:
+                session = sessionmaker(bind=account.engine)()
+                session.execute(
+                    account.mod_and_author.insert().values(
+                        mod_id=rid, user_id=user_id, owner=True
+                    )
+                )
+                session.commit()
+                session.close()
+
+            session.close()
+
+            try:
+                pack_level = int(pack_level)
+            except (TypeError, ValueError):
+                pack_level = 3
+            pack_level = max(0, min(pack_level, 9))
+            job_id = uuid.uuid4().hex
+            ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
+            try:
+                ttl_seconds = int(ttl_raw)
+            except (TypeError, ValueError):
+                ttl_seconds = 900
+            payload = {
+                "job_id": job_id,
+                "mod_id": rid,
+                "download_url": mod_url,
+                "pack_format": pack_format,
+                "pack_level": pack_level,
+            }
+            token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
+            if not token:
+                return PlainTextResponse(status_code=500, content="JWT secret missing")
+
+            redirect_url = (
+                f"{config.STORAGE_URL}/transfer/start?token={quote(token)}&job_id={job_id}"
+            )
+
+            wants_json = (
+                request.headers.get("X-Requested-With") == "XMLHttpRequest"
+                or "application/json" in (request.headers.get("Accept", "") or "")
+            )
+
+            if wants_json:
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "job_id": job_id,
+                        "mod_id": rid,
+                        "transfer_url": redirect_url,
+                        "ws_url": f"{config.STORAGE_URL}/transfer/ws/{job_id}?token={quote(token)}",
+                    },
+                )
+
+            response = RedirectResponse(url=redirect_url, status_code=307)
+            response.headers["X-Upload-Job"] = job_id
+            response.headers["X-Progress-WS"] = f"{config.STORAGE_URL}/transfer/ws/{job_id}"
+            return response
+        else:
+            session.close()
+            return PlainTextResponse(status_code=403, content="Заблокировано!")
+    else:
+        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+
+
+@router.post(
+    MAIN_URL + "/storage/transfer/complete",
+    include_in_schema=False,
+)
+async def storage_transfer_complete(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    if not authorization or not authorization.startswith("Bearer "):
+        return PlainTextResponse(status_code=401, content="Token not found")
+    token = authorization.split(" ", 1)[1]
+    payload = tools.decode_transfer_jwt(token, audience="manager")
+    if not payload:
+        return PlainTextResponse(status_code=403, content="Access denied")
+
+    status = payload.get("status")
+    job_id = payload.get("job_id")
+    mod_id = payload.get("mod_id")
+    pack_format = payload.get("pack_format", "zip")
+    update_only = bool(payload.get("update_only") or payload.get("keep_condition"))
+
+    if not job_id or not mod_id:
+        return PlainTextResponse(status_code=400, content="Invalid payload")
+    try:
+        mod_id = int(mod_id)
+    except (TypeError, ValueError):
+        return PlainTextResponse(status_code=400, content="Invalid payload")
+
+    if status != "success":
+        logger.warning("transfer failed job_id=%s status=%s", job_id, status)
+        return PlainTextResponse(status_code=202, content="Transfer failed")
+
+    logger.info(
+        "transfer callback received job_id=%s mod_id=%s bytes=%s update_only=%s",
+        job_id,
+        mod_id,
+        payload.get("bytes"),
+        update_only,
+    )
+    logger.info(
+        "transfer callback flags job_id=%s mod_id=%s update_only_raw=%r keep_condition_raw=%r",
+        job_id,
+        mod_id,
+        payload.get("update_only"),
+        payload.get("keep_condition"),
+    )
+    ext = "zip" if pack_format == "zip" else pack_format
+    dest_path = f"mods/{mod_id}/main.{ext}"
+
+    move_start = datetime.now()
+    try:
+        move_code, move_payload, move_ok = await tools.storage_job_move(
+            job_id=job_id, type="archive", path=dest_path
+        )
+    except Exception:
+        logger.exception("transfer move exception job_id=%s mod_id=%s", job_id, mod_id)
+        return PlainTextResponse(status_code=504, content="Move timeout")
+    if not move_ok:
+        logger.warning(
+            "transfer move failed job_id=%s status=%s body=%s",
+            job_id,
+            move_code,
+            move_payload,
+        )
+        return PlainTextResponse(status_code=500, content="Move failed")
+    move_duration = (datetime.now() - move_start).total_seconds()
+    logger.info(
+        "transfer move done job_id=%s mod_id=%s duration=%.2fs",
+        job_id,
+        mod_id,
+        move_duration,
+    )
+
+    final_size = None
+    if isinstance(move_payload, dict):
+        final_size = move_payload.get("final_bytes")
+    if final_size is None:
+        final_size = payload.get("bytes", 0)
+
+    Session = sessionmaker(bind=catalog.engine)
+    session = Session()
+    mod = session.query(catalog.Mod).filter_by(id=mod_id).first()
+    if not mod:
+        session.close()
+        return PlainTextResponse(status_code=404, content="Mod not found")
+    if update_only:
+        session.query(catalog.Mod).filter_by(id=mod_id).update(
+            {
+                "size": final_size,
+                "date_update_file": datetime.now(),
+            }
+        )
+        session.commit()
+        session.close()
+        return PlainTextResponse(status_code=200, content="OK")
+
+    if mod.condition == 0:
+        session.close()
+        return PlainTextResponse(status_code=200, content="Already finalized")
+
+    session.query(catalog.Mod).filter_by(id=mod_id).update(
+        {
+            "condition": 0,
+            "size": final_size,
+        }
+    )
+    session.query(catalog.Game).filter_by(id=mod.game).update(
+        {catalog.Game.mods_count: func.coalesce(catalog.Game.mods_count, 0) + 1}
+    )
+    session.commit()
+    session.close()
+
+    return PlainTextResponse(status_code=200, content="OK")
 
 
 @router.get(
@@ -949,232 +1598,6 @@ async def mod_dependencies(
     return {"count": len(dependencies), "results": dependencies}
 
 
-@router.post(
-    MAIN_URL + "/mods",
-    tags=["Mod"],
-    summary="Добавление мода",
-    status_code=201,
-    responses={
-        201: {
-            "description": "Возвращает ID созданного мода",
-            "content": {"application/json": {"example": 123}},
-        },
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
-        411: routers_edit_mod_response[411],
-        412: {
-            "description": "Неккоректный ID выбранной игры ИЛИ выбранный ID мода уже занят ИЛИ source-связка уже занята.",
-            "content": {"text/plain": {"example": "Такой игры не существует!"}},
-        },
-        413: routers_edit_mod_response[413],
-        500: routers_edit_mod_response[500],
-    },
-)
-@router.post(
-    MAIN_URL + "/add/mod",
-    tags=["Mod"],
-    summary="Добавление мода",
-    status_code=201,
-    responses={
-        201: {
-            "description": "Возвращает ID созданного мода",
-            "content": {"application/json": {"example": 123}},
-        },
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
-        411: routers_edit_mod_response[411],
-        412: {
-            "description": "Неккоректный ID выбранной игры ИЛИ выбранный ID мода уже занят ИЛИ source-связка уже занята.",
-            "content": {"text/plain": {"example": "Такой игры не существует!"}},
-        },
-        413: routers_edit_mod_response[413],
-        500: routers_edit_mod_response[500],
-    },
-)
-async def add_mod(
-    response: Response,
-    request: Request,
-    without_author: bool = Form(
-        False,
-        description="Указывать ли авторство мода. Для выбора должны быть админ права.",
-    ),
-    mod_name: str = Form(
-        ..., description="Название мода", max_length=LIMITS.mod.name_max
-    ),
-    mod_short_description: str = Form(
-        "", description="Короткое описание мода.", max_length=LIMITS.mod.short_desc_max
-    ),
-    mod_description: str = Form(
-        "", description="Полное описание мода.", max_length=LIMITS.mod.desc_max
-    ),
-    mod_source: str = Form(
-        "local", description="Источник мода.", max_length=LIMITS.mod.source_max
-    ),
-    mod_source_id: int = Form(-1, description="ID мода в первоисточнике."),
-    mod_game: int = Form(..., description="ID игры-владельца."),
-    mod_public: int = Form(
-        ..., description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."
-    ),
-    mod_file: UploadFile = File(
-        ..., description="Файл мода. Максимальный размер 838860800 байт (800 мб)."
-    ),
-):
-    access_result = await account.check_access(request=request, response=response)
-    if isinstance(access_result, bool):
-        return JSONResponse(status_code=403, content="Нет кук доступа!")
-    user_id = access_result.get("owner_id", -1)
-
-    if access_result and user_id >= 0:
-        logger.debug(
-            "Mod short description length=%s", len(mod_short_description or "")
-        )
-        if len(re.sub(r"\s+", " ", mod_short_description)) > LIMITS.mod.short_desc_max:
-            return PlainTextResponse(
-                status_code=413, content="Короткое описание слишком длинное!"
-            )
-        elif len(re.sub(r"\s+", " ", mod_description)) > LIMITS.mod.desc_max:
-            return PlainTextResponse(
-                status_code=413, content="Описание слишком длинное!"
-            )
-        elif len(mod_name) > LIMITS.mod.name_max:
-            return PlainTextResponse(
-                status_code=413, content="Название слишком длинное!"
-            )
-        elif len(mod_name) < LIMITS.mod.name_min:
-            return PlainTextResponse(
-                status_code=411, content="Название слишком короткое!"
-            )
-        elif not await tools.check_game_exists(mod_game):
-            return PlainTextResponse(
-                status_code=412, content="Такой игры не существует!"
-            )
-
-        # Выполнение запроса
-        session = sessionmaker(bind=account.engine)()
-        user_req = session.query(account.Account).filter_by(id=user_id).first()
-
-        async def mini():
-            if user_req.admin:
-                return True
-            else:
-                if without_author:
-                    return False
-                elif user_req.mute_until and user_req.mute_until > datetime.now():
-                    return False
-                elif user_req.publish_mods:
-                    return True
-            return False
-
-        if await mini():
-            session.close()
-
-            if mod_file.size >= LIMITS.mod.file_max_bytes:
-                return JSONResponse(status_code=413, content="The file is too large.")
-
-            real_mod_file = io.BytesIO(await mod_file.read())
-            real_mod_file.name = mod_file.filename
-
-            if mod_public not in [0, 1, 2]:
-                mod_public = 0
-
-            Session = sessionmaker(bind=catalog.engine)
-            session = Session()
-            # Create the insert statement
-            insert_statement = insert(catalog.Mod)
-            insert_statement = insert_statement.values(
-                name=mod_name,
-                short_description=mod_short_description,
-                description=mod_description,
-                size=mod_file.size,
-                condition=1,
-                public=mod_public,
-                date_creation=datetime.now(),
-                date_update_file=datetime.now(),
-                date_edit=datetime.now(),
-                source=mod_source,
-                downloads=0,
-                game=mod_game,
-            )
-
-            # If mod_id is given, update the insert statement
-            if mod_source_id > 0 and mod_source != "local":
-                insert_statement = insert_statement.values(source_id=mod_source_id)
-
-                tsession = sessionmaker(bind=catalog.engine)()
-                result = (
-                    tsession.query(catalog.Mod)
-                    .filter_by(source=mod_source, source_id=mod_source_id)
-                    .first()
-                )
-                tsession.close()
-                if result:
-                    return PlainTextResponse(
-                        status_code=412, content="Такая source-связка уже существует!"
-                    )
-
-            result = session.execute(insert_statement)
-            rid = result.lastrowid  # Получаем ID последней вставленной строки
-
-            session.commit()
-
-            # Указываем авторство, если пользователь не запросил обратного
-            if not without_author:
-                session = sessionmaker(bind=account.engine)()
-                session.execute(
-                    account.mod_and_author.insert().values(
-                        mod_id=rid, user_id=user_id, owner=True
-                    )
-                )
-                session.commit()
-
-            session.close()
-
-            file_ext = mod_file.filename.split(".")[-1]
-            result_upload_code, result_content, result_upload = (
-                await tools.storage_file_upload(
-                    type="archive",
-                    path=f"mods/{rid}/main.{file_ext}",
-                    file=real_mod_file,
-                )
-            )
-
-            session = Session()
-            if result_upload:
-                session.query(catalog.Mod).filter_by(id=rid).update({"condition": 0})
-                session.query(catalog.Game).filter_by(id=mod_game).update(
-                    {
-                        catalog.Game.mods_count: func.coalesce(
-                            catalog.Game.mods_count, 0
-                        )
-                        + 1
-                    }
-                )
-                session.commit()
-
-                session.close()
-                return JSONResponse(
-                    status_code=201, content=rid
-                )  # Возвращаем значение `id`
-            else:
-                session.query(catalog.Mod).filter_by(id=rid).delete()
-                session.commit()
-                session.close()
-
-                session = sessionmaker(bind=account.engine)()
-                session.query(account.mod_and_author).filter_by(mod_id=rid).delete()
-                session.commit()
-                session.close()
-
-                return JSONResponse(
-                    status_code=result_upload_code,
-                    content=f"Не удалось загрузить файл! {result_content}",
-                )
-        else:
-            session.close()
-            return JSONResponse(status_code=403, content="Заблокировано!")
-    else:
-        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
-
 
 @router.post(
     MAIN_URL + "/edit/mod",
@@ -1215,9 +1638,6 @@ async def edit_mod(
     mod_game: int = Form(None, description="ID игры-владельца."),
     mod_public: int = Form(
         None, description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."
-    ),
-    mod_file: UploadFile = File(
-        None, description="Файл мода. Максимальный размер 838860800 байт (800 мб)."
     ),
 ):
     access_result = await tools.access_mods(
@@ -1282,35 +1702,13 @@ async def edit_mod(
             if mod_public in [0, 1, 2]:
                 body["public"] = mod_public
 
-        if len(body) <= 0 and mod_file is None:
+        if len(body) <= 0:
             return PlainTextResponse(
                 status_code=411, content="Ничего не было изменено!"
             )
 
         if len(body) > 0:
             body["date_edit"] = datetime.now()
-
-        if mod_file:
-            real_mod_file = io.BytesIO(await mod_file.read())
-            real_mod_file.name = mod_file.filename
-            url = f"mods/{mod_id}/main.{mod_file.filename.split('.')[-1]}"
-
-            body["date_update_file"] = datetime.now()
-            file_size = mod_file.size
-            if file_size is None:
-                file_size = real_mod_file.getbuffer().nbytes
-            body["size"] = file_size
-
-            result_file_update_code, result_file_update, result_file_status = (
-                await tools.storage_file_upload(
-                    type="archive", path=url, file=real_mod_file
-                )
-            )
-            if not result_file_status:
-                return PlainTextResponse(
-                    status_code=result_file_update_code,
-                    content=f"Не удалось обновить файл! {result_file_update}",
-                )
 
         session = sessionmaker(bind=catalog.engine)()
         session.query(catalog.Mod).filter_by(id=mod_id).update(body)
@@ -1361,9 +1759,6 @@ async def edit_mod_rest(
     mod_public: int = Form(
         None, description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."
     ),
-    mod_file: UploadFile = File(
-        None, description="Файл мода. Максимальный размер 838860800 байт (800 мб)."
-    ),
 ):
     return await edit_mod(
         response=response,
@@ -1376,7 +1771,6 @@ async def edit_mod_rest(
         mod_source_id=mod_source_id,
         mod_game=mod_game,
         mod_public=mod_public,
-        mod_file=mod_file,
     )
 
 
