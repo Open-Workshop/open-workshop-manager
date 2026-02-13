@@ -7,3 +7,8 @@ gunicorn[standard]
 pymysql
 Pillow
 PyJWT
+opentelemetry-sdk
+opentelemetry-exporter-otlp-proto-http
+opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-aiohttp-client

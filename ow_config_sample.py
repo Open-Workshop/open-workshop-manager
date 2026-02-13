@@ -49,3 +49,14 @@ LOCALHOST_CORS_ORIGINS = [
     "http://localhost:6660",
     "http://127.0.0.1:6660",
 ]
+
+
+# Optional telemetry settings (recommended to set via environment variables)
+# UPTRACE_DSN = "https://<token>@api.uptrace.dev/<project_id>"
+# OTEL_SERVICE_NAME = "open-workshop-manager"
+# OTEL_SERVICE_VERSION = "1.0.0"
+# OTEL_DEPLOYMENT_ENVIRONMENT = "production"
+# UPTRACE_OTLP_PROTOCOL = "grpc"  # or "http"
+# UPTRACE_FASTAPI_EXCLUDED_URLS = "^.*/docs$,^.*/openapi\\.json$,^/favicon\\.ico$,^/robots\\.txt$"
+# UPTRACE_OTLP_TRACES_URL = "https://api.uptrace.dev/v1/traces"
+# UPTRACE_OTLP_GRPC_URL = "https://api.uptrace.dev:4317"
