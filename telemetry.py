@@ -65,32 +65,38 @@ def _dsn_to_otlp_grpc_endpoint(dsn: str) -> str:
 
 
 def _fastapi_server_request_hook(span: object, scope: dict) -> None:
-    """Add route details to FastAPI server spans."""
+    """Add useful attributes to FastAPI server spans."""
     try:
         if not span or not span.is_recording():
             return
 
-        method = str(scope.get("method", "HTTP")).upper()
         path = str(scope.get("path", "/"))
         query_bytes = scope.get("query_string", b"")
         target = path
         if isinstance(query_bytes, (bytes, bytearray)) and query_bytes:
             target = f"{path}?{query_bytes.decode('latin-1')}"
 
-        route = scope.get("route")
-        route_path = getattr(route, "path", None)
-        span_route = route_path or path
-
         endpoint = scope.get("endpoint")
         endpoint_name = getattr(endpoint, "__name__", None) if endpoint else None
 
-        span.update_name(f"{method} {span_route}")
-        span.set_attribute("http.route", span_route)
-        span.set_attribute("http_route", span_route)
         span.set_attribute("http.target", target)
-        span.set_attribute("fastapi.endpoint", endpoint_name or "unknown")
+        if endpoint_name:
+            span.set_attribute("fastapi.endpoint", endpoint_name)
     except Exception:
         _LOG.exception("Failed to enrich FastAPI request span.")
+
+
+def _parse_fastapi_exclude_spans(value: str | None) -> list[str] | None:
+    if value is None:
+        return ["receive", "send"]
+
+    normalized = [item.strip().lower() for item in value.split(",") if item.strip()]
+    allowed = []
+    for item in normalized:
+        if item in {"receive", "send"} and item not in allowed:
+            allowed.append(item)
+
+    return allowed or None
 
 
 def _aiohttp_span_name(params: object) -> str:
@@ -147,6 +153,9 @@ def setup_uptrace_telemetry(app: FastAPI) -> bool:
         "UPTRACE_FASTAPI_EXCLUDED_URLS",
         _DEFAULT_FASTAPI_EXCLUDED_URLS,
     )
+    fastapi_exclude_spans = _parse_fastapi_exclude_spans(
+        _read_setting("UPTRACE_FASTAPI_EXCLUDE_SPANS", "receive,send")
+    )
 
     try:
         from opentelemetry import trace
@@ -200,10 +209,15 @@ def setup_uptrace_telemetry(app: FastAPI) -> bool:
                 app,
                 excluded_urls=fastapi_excluded_urls,
                 server_request_hook=_fastapi_server_request_hook,
+                exclude_spans=fastapi_exclude_spans,
             )
         except TypeError:
-            # Compatibility with older instrumentation versions.
-            fastapi_instrumentor.instrument_app(app, excluded_urls=fastapi_excluded_urls)
+            # Compatibility with versions without `exclude_spans`.
+            fastapi_instrumentor.instrument_app(
+                app,
+                excluded_urls=fastapi_excluded_urls,
+                server_request_hook=_fastapi_server_request_hook,
+            )
 
         aiohttp_instrumentor = AioHttpClientInstrumentor()
         try:

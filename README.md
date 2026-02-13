@@ -26,6 +26,7 @@ export OTEL_SERVICE_VERSION="1.0.0"
 export OTEL_DEPLOYMENT_ENVIRONMENT="production"
 # export UPTRACE_OTLP_PROTOCOL="grpc"   # or "http"
 # export UPTRACE_FASTAPI_EXCLUDED_URLS="^.*/docs$,^.*/openapi\\.json$,^/favicon\\.ico$,^/robots\\.txt$"
+# export UPTRACE_FASTAPI_EXCLUDE_SPANS="receive,send"
 uvicorn main:app --host 127.0.0.1 --port 7776
 ```
 

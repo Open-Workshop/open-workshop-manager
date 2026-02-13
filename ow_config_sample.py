@@ -58,5 +58,6 @@ LOCALHOST_CORS_ORIGINS = [
 # OTEL_DEPLOYMENT_ENVIRONMENT = "production"
 # UPTRACE_OTLP_PROTOCOL = "grpc"  # or "http"
 # UPTRACE_FASTAPI_EXCLUDED_URLS = "^.*/docs$,^.*/openapi\\.json$,^/favicon\\.ico$,^/robots\\.txt$"
+# UPTRACE_FASTAPI_EXCLUDE_SPANS = "receive,send"  # hide noisy ASGI internal spans
 # UPTRACE_OTLP_TRACES_URL = "https://api.uptrace.dev/v1/traces"
 # UPTRACE_OTLP_GRPC_URL = "https://api.uptrace.dev:4317"
