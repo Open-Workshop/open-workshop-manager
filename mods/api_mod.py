@@ -196,13 +196,27 @@ async def add_mod_from_file(
                 insert_statement = insert_statement.values(source_id=mod_source_id)
 
                 tsession = sessionmaker(bind=catalog.engine)()
-                result = (
+                source_conflicts = (
                     tsession.query(catalog.Mod)
                     .filter_by(source=mod_source, source_id=mod_source_id)
-                    .first()
+                    .all()
                 )
                 tsession.close()
-                if result:
+
+                for conflict_mod in source_conflicts:
+                    # Игнорируем конфликт только для незавершенного мода того же автора.
+                    if conflict_mod.condition != 0:
+                        asession = sessionmaker(bind=account.engine)()
+                        same_author = (
+                            asession.query(account.mod_and_author)
+                            .filter_by(mod_id=conflict_mod.id, user_id=user_id)
+                            .first()
+                        )
+                        asession.close()
+                        if same_author:
+                            continue
+
+                    session.close()
                     return PlainTextResponse(
                         status_code=412, content="Такая source-связка уже существует!"
                     )
@@ -687,6 +701,51 @@ async def storage_transfer_complete(
     if mod.condition == 0:
         session.close()
         return PlainTextResponse(status_code=200, content="Already finalized")
+
+    if mod.source != "local" and mod.source_id is not None and mod.source_id > 0:
+        source_conflict = (
+            session.query(catalog.Mod.id)
+            .filter(catalog.Mod.id != mod_id)
+            .filter(catalog.Mod.condition == 0)
+            .filter(catalog.Mod.source == mod.source)
+            .filter(catalog.Mod.source_id == mod.source_id)
+            .first()
+        )
+        if source_conflict:
+            logger.warning(
+                "transfer finalize conflict job_id=%s mod_id=%s source=%s source_id=%s conflict_mod_id=%s",
+                job_id,
+                mod_id,
+                mod.source,
+                mod.source_id,
+                source_conflict.id,
+            )
+
+            session.execute(
+                catalog.mods_dependencies.delete().where(
+                    (catalog.mods_dependencies.c.mod_id == mod_id)
+                    | (catalog.mods_dependencies.c.dependence == mod_id)
+                )
+            )
+            session.execute(
+                catalog.mods_tags.delete().where(catalog.mods_tags.c.mod_id == mod_id)
+            )
+            session.query(catalog.Mod).filter_by(id=mod_id).delete()
+            session.commit()
+            session.close()
+
+            asession = sessionmaker(bind=account.engine)()
+            asession.execute(
+                account.mod_and_author.delete().where(
+                    account.mod_and_author.c.mod_id == mod_id
+                )
+            )
+            asession.commit()
+            asession.close()
+
+            return PlainTextResponse(
+                status_code=412, content="Такая source-связка уже существует!"
+            )
 
     session.query(catalog.Mod).filter_by(id=mod_id).update(
         {

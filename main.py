@@ -32,7 +32,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 CLEANUP_INTERVAL_SECONDS = 600
-CLEANUP_STALE_SECONDS = 24 * 60 * 60
+CLEANUP_STALE_SECONDS = 2 * 60 * 60
 _cleanup_task: asyncio.Task | None = None
 
 
