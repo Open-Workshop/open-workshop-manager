@@ -8,7 +8,7 @@ from fastapi.responses import (
 from sql_logic import sql_account as account
 import json
 
-# from yandexid import AsyncYandexOAuth, AsyncYandexID
+from yandexid import AsyncYandexOAuth, AsyncYandexID
 from google_auth_oauthlib.flow import Flow
 import logging
 import bcrypt
@@ -50,11 +50,11 @@ flow = Flow.from_client_config(
 )
 
 # Создаем объект YandexOAuth
-# yandex_oauth = AsyncYandexOAuth(
-#    client_id=config.yandex_client_id,
-#    client_secret=config.yandex_client_secret,
-#    redirect_uri="https://openworkshop.su/api/manager/session/yandex/complite"
-# )
+yandex_oauth = AsyncYandexOAuth(
+    client_id=config.yandex_client_id,
+    client_secret=config.yandex_client_secret,
+    redirect_uri="https://openworkshop.su/api/manager/session/yandex/complite"
+)
 
 
 @router.get(
@@ -91,10 +91,7 @@ async def yandex_send_link():
     """
     Получение ссылки на авторизацию через YandexID
     """
-    return 500
-
-
-#    return RedirectResponse(url=yandex_oauth.get_authorization_url())
+    return RedirectResponse(url=yandex_oauth.get_authorization_url())
 
 
 @router.get(
@@ -447,90 +444,87 @@ async def yandex_complite(
 
     Если не передать действующий access_token то создаётся новый аккаунт OW. С Yandex будет взят аватар и никнейм.
     """
-    return 500
+    token = await yandex_oauth.get_token_from_code(str(code))
+    user_data = await AsyncYandexID(oauth_token=token.access_token).get_user_info_json()
 
+    # Создание сессии
+    session = sessionmaker(bind=account.engine)()
 
-#    token = await yandex_oauth.get_token_from_code(str(code))
-#    user_data = await AsyncYandexID(oauth_token=token.access_token).get_user_info_json()
+    # Выполнение запроса
+    rows = session.query(account.Account.id).filter(account.Account.yandex_id == user_data.id).first()
 
-# Создание сессии
-#    session = sessionmaker(bind=account.engine)()
+    if not rows:
+        if session.query(account.blocked_account_creation).filter_by(yandex_id=user_data.id).first():
+            return PlainTextResponse(status_code=410, content="Этот аккаунт Yandex использовался в недавно удаленном аккаунте Open Workshop!")
 
-# Выполнение запроса
-#    rows = session.query(account.Account.id).filter(account.Account.yandex_id == user_data.id).first()
+        access_result = await account.check_access(request=request, response=response)
 
-#    if not rows:
-#        if session.query(account.blocked_account_creation).filter_by(yandex_id=user_data.id).first():
-#            return PlainTextResponse(status_code=410, content="Этот аккаунт Yandex использовался в недавно удаленном аккаунте Open Workshop!")
+        if access_result and access_result.get("owner_id", -1) >= 0:
+            row_connect = session.query(account.Account).filter_by(yandex_id=None, id=access_result.get("owner_id", -1))
+            row_connect_result = row_connect.first()
 
-#        access_result = await account.check_access(request=request, response=response)
+            if row_connect_result:
+                row_connect.update({"yandex_id": user_data.id})
+                session.commit()
+                rid = row_connect_result.id
+            else:
+                session.close()
+                return PlainTextResponse(status_code=409, content="К аккаунту пользователя уже подключен Yandex ID")
+        else:
+            dtime = datetime.datetime.now()
+            print(dtime, type(dtime))
+            insert_statement = insert(account.Account).values(
+                yandex_id=user_data.id,
 
-#        if access_result and access_result.get("owner_id", -1) >= 0:
-#            row_connect = session.query(account.Account).filter_by(yandex_id=None, id=access_result.get("owner_id", -1))
-#            row_connect_result = row_connect.first()
+                username=user_data.login,
 
-#            if row_connect_result:
-#                row_connect.update({"yandex_id": user_data.id})
-#                session.commit()
-#                id = row_connect_result.id
-#            else:
-#                session.close()
-#                return PlainTextResponse(status_code=409, content="К аккаунту пользователя уже подключен Yandex ID")
-#        else:
-#            dtime = datetime.datetime.now()
-#            print(dtime, type(dtime))
-#            insert_statement = insert(account.Account).values(
-#                yandex_id=user_data.id,
+                comments=0,
+                author_mods=0,
 
-#                username=user_data.login,
+                registration_date=dtime,
 
-#                comments=0,
-#                author_mods=0,
+                reputation=0
+            )
+            # Выполнение операции INSERT
+            result = session.execute(insert_statement)
+            rid = result.lastrowid
 
-#                registration_date=dtime,
+            if not user_data.is_avatar_empty:
+                session.commit()
+                session.close()
 
-#                reputation=0
-#            )
-# Выполнение операции INSERT
-#            result = session.execute(insert_statement)
-#            id = result.lastrowid
+                async with aiohttp.ClientSession() as NETsession:
+                    async with NETsession.get(f"https://avatars.yandex.net/get-yapic/{user_data.default_avatar_id}/islands-200") as resp:
+                        if resp.status == 200:
+                            # Чтобы узнать расширение файла из ответа сервера: resp.headers['Content-Type']
+                            # может содержать: image/jpeg, image/png, image/gif, image/bmp, image/webp
+                            format_name = resp.headers['Content-Type'].split("/")[1]
+                            # Тут еще sfu обновлен но апи юзается старое
+                            result_upload_code, result_upload = await tools.storage_file_upload(type="avatar", path=f"{rid}.{format_name}", file=BytesIO(await resp.read()))
+                            if result_upload != False:
+                                 # Помечаем в БД пользователя, что у него есть аватар
+                                session.query(account.Account).filter(account.Account.id == rid).update({"avatar_url": f"local.{format_name}"})
+                                session.commit()
+                            else:
+                                print("Яндекс регистрация: во время загрузки аватара произошла ошибка!")
+                        else:
+                            print("Яндекс регистрация: во время получения аватара произошла ошибка!")
+    else:
+        rid = rows.id
 
-#            if not user_data.is_avatar_empty:
-#                session.commit()
-#                session.close()
+    sessions_data = await account.gen_session(user_id=rid, session=session, login_method="yandex")
 
-#                async with aiohttp.ClientSession() as NETsession:
-#                    async with NETsession.get(f"https://avatars.yandex.net/get-yapic/{user_data.default_avatar_id}/islands-200") as resp:
-#                        if resp.status == 200:
-#                            # Чтобы узнать расширение файла из ответа сервера: resp.headers['Content-Type']
-#                            # может содержать: image/jpeg, image/png, image/gif, image/bmp, image/webp
-#                            format_name = resp.headers['Content-Type'].split("/")[1]
-# Тут еще sfu обновлен но апи юзается старое
-#                            result_upload_code, result_upload = await tools.storage_file_upload(type="avatar", path=f"{id}.{format_name}", file=BytesIO(await resp.read()))
-#                            if result_upload != False:
-#                                # Помечаем в БД пользователя, что у него есть аватар
-#                                session.query(account.Account).filter(account.Account.id == id).update({"avatar_url": f"local.{format_name}"})
-#                                session.commit()
-#                            else:
-#                                print("Яндекс регистрация: во время загрузки аватара произошла ошибка!")
-#                        else:
-#                            print("Яндекс регистрация: во время получения аватара произошла ошибка!")
-#    else:
-#        id = rows.id
+    session.commit()
+    session.close()
 
-#    sessions_data = await account.gen_session(user_id=id, session=session, login_method="yandex")
+    response.set_cookie(key='accessToken', value=sessions_data["access"]["token"], httponly=True, secure=True, max_age=2100)
+    response.set_cookie(key='refreshToken', value=sessions_data["refresh"]["token"], httponly=True, secure=True, max_age=5184000)
 
-#    session.commit()
-#    session.close()
+    response.set_cookie(key='loginJS', value=sessions_data["refresh"]["end"].strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
+    response.set_cookie(key='accessJS', value=sessions_data["access"]["end"].strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
+    response.set_cookie(key='userID', value=rid, secure=True, max_age=5184000)
 
-#    response.set_cookie(key='accessToken', value=sessions_data["access"]["token"], httponly=True, secure=True, max_age=2100)
-#    response.set_cookie(key='refreshToken', value=sessions_data["refresh"]["token"], httponly=True, secure=True, max_age=5184000)
-
-#    response.set_cookie(key='loginJS', value=sessions_data["refresh"]["end"].strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
-#    response.set_cookie(key='accessJS', value=sessions_data["access"]["end"].strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
-#    response.set_cookie(key='userID', value=id, secure=True, max_age=5184000)
-
-#    return "Если это окно не закрылось автоматически, можете закрыть его сами :)"
+    return "Если это окно не закрылось автоматически, можете закрыть его сами :)"
 
 
 @router.delete(
