@@ -53,7 +53,7 @@ flow = Flow.from_client_config(
 yandex_oauth = AsyncYandexOAuth(
     client_id=config.yandex_client_id,
     client_secret=config.yandex_client_secret,
-    redirect_uri=f"https://api.openworkshop.miskler.su{MAIN_URL}/session/yandex/complite"
+    redirect_uri=f"https://api.openworkshop.miskler.ru{MAIN_URL}/session/yandex/complite"
 )
 
 
