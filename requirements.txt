@@ -1,6 +1,7 @@
 fastapi[standard]
 SQLAlchemy
 google-auth-oauthlib
+yandexid-new
 bcrypt
 aiohttp
 gunicorn[standard]
