@@ -3,6 +3,7 @@ yandex_client_secret = "..."
 
 STORAGE_URL = "http://127.0.0.1:7070"
 MAIN_URL = "/api/accounts"
+API_BASE_URL = "https://api.openworkshop.miskler.ru"
 TRANSFER_JWT_SECRET = ""
 TRANSFER_JWT_TTL_SECONDS = 900
 STORAGE_TIMEOUT_SECONDS = 1800

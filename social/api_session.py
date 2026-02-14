@@ -53,7 +53,7 @@ flow = Flow.from_client_config(
 yandex_oauth = AsyncYandexOAuth(
     client_id=config.yandex_client_id,
     client_secret=config.yandex_client_secret,
-    redirect_uri=f"https://api.openworkshop.miskler.ru{MAIN_URL}/session/yandex/complite"
+    redirect_uri=f"{config.API_BASE_URL.rstrip('/')}{MAIN_URL}/session/yandex/complite",
 )
 
 
@@ -437,14 +437,14 @@ async def google_complite(
 async def yandex_complite(
     response: Response,
     request: Request,
-    code: int = Query(description="Код доступа к Yandex OAuth API"),
+    code: str = Query(description="Код доступа к Yandex OAuth API"),
 ):
     """
     Если данный аккаунт Yandex не привязан ни к одному из аккаунтов OW и при этом передать действующий access_token то произойдет коннект.
 
     Если не передать действующий access_token то создаётся новый аккаунт OW. С Yandex будет взят аватар и никнейм.
     """
-    token = await yandex_oauth.get_token_from_code(str(code))
+    token = await yandex_oauth.get_token_from_code(code)
     user_data = await AsyncYandexID(oauth_token=token.access_token).get_user_info_json()
 
     # Создание сессии
