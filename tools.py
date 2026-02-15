@@ -587,13 +587,13 @@ def sort_mods(sort_by: str):
         case "iCREATION_DATE":
             return desc(catalog.Mod.date_creation)
         case "UPDATE_DATE":
-            return catalog.Mod.date_update
+            return catalog.Mod.date_update_file
         case "iUPDATE_DATE":
-            return desc(catalog.Mod.date_update)
-        case "REQUEST_DATE":
-            return catalog.Mod.date_request
-        case "iREQUEST_DATE":
-            return desc(catalog.Mod.date_request)
+            return desc(catalog.Mod.date_update_file)
+        case "EDIT_DATE":
+            return catalog.Mod.date_edit
+        case "iEDIT_DATE":
+            return desc(catalog.Mod.date_edit)
         case "SOURCE":
             return catalog.Mod.source
         case "iSOURCE":
