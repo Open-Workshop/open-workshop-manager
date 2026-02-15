@@ -1030,6 +1030,9 @@ async def public_mods(
         413: {
             "description": "Слишком сложный запрос ИЛИ page_size вне диапазона.",
         },
+        400: {
+            "description": "Неккоректная комбинация или формат фильтров.",
+        },
     },
 )
 async def mod_list(
@@ -1054,6 +1057,14 @@ async def mod_list(
     ),
     independents: bool = Query(
         False, description="Не передавать моды с зависимостями."
+    ),
+    dependencies=Query(
+        [],
+        description=(
+            "Массив ID модов, которые должны быть в зависимостях у результата."
+            " Применяется по логике И."
+        ),
+        examples={"example": {"value": "[1, 2, 3]"}},
     ),
     primary_sources=Query(
         [],
@@ -1111,24 +1122,54 @@ async def mod_list(
     5. EDIT_DATE - сортировка по дате редактирования.
     6. SOURCE - сортировка по источнику.
     7. MOD_DOWNLOADS *(по умолчанию)* - сортировка по количеству загрузок.
+
+    О фильтрации по зависимостям:
+    `dependencies` принимает массив ID модов и применяет логику `И`.
+    Одновременное использование `dependencies` и `independents=true` запрещено.
     """
     tags = tools.str_to_list(tags)
+    dependencies = tools.str_to_list(dependencies)
     primary_sources = tools.str_to_list(primary_sources)
     allowed_ids = tools.str_to_list(allowed_ids)
     allowed_sources_ids = tools.str_to_list(allowed_sources_ids)
+
+    if len(dependencies) > 0:
+        try:
+            dependencies = [int(dependence_id) for dependence_id in dependencies]
+        except (TypeError, ValueError):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "message": "dependencies filter should contain integer IDs",
+                    "error_id": 3,
+                },
+            )
+        dependencies = list(dict.fromkeys(dependencies))
 
     if page_size > LIMITS.page.max or page_size < LIMITS.page.min:
         return JSONResponse(
             status_code=413, content={"message": "incorrect page size", "error_id": 1}
         )
     elif (
-        len(tags) + len(primary_sources) + len(allowed_ids) + len(allowed_sources_ids)
+        len(tags)
+        + len(dependencies)
+        + len(primary_sources)
+        + len(allowed_ids)
+        + len(allowed_sources_ids)
     ) > LIMITS.mod.filters_max:
         return JSONResponse(
             status_code=413,
             content={
                 "message": "the maximum complexity of filters is 90 elements in sum",
                 "error_id": 2,
+            },
+        )
+    elif independents and len(dependencies) > 0:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "message": "independents filter conflicts with dependencies filter",
+                "error_id": 4,
             },
         )
 
@@ -1205,6 +1246,21 @@ async def mod_list(
             catalog.mods_dependencies,
             catalog.Mod.id == catalog.mods_dependencies.c.mod_id,
         ).filter(catalog.mods_dependencies.c.mod_id.is_(None))
+    elif len(dependencies) > 0:
+        mods_with_dependencies = (
+            session.query(catalog.mods_dependencies.c.mod_id)
+            .filter(catalog.mods_dependencies.c.dependence.in_(dependencies))
+            .group_by(catalog.mods_dependencies.c.mod_id)
+            .having(
+                func.count(func.distinct(catalog.mods_dependencies.c.dependence))
+                == len(dependencies)
+            )
+            .subquery()
+        )
+        query = query.join(
+            mods_with_dependencies,
+            catalog.Mod.id == mods_with_dependencies.c.mod_id,
+        )
 
     # Фильтрация по имени
     if len(name) > 0:
