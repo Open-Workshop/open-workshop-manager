@@ -21,6 +21,7 @@ from social.api_reaction import router as reaction_router
 from social.api_black_list import router as black_list_router
 from social.api_forum import router as forum_router
 from social.api_forum_comment import router as forum_comment_router
+from app.api_catalog_statistics import router as catalog_statistics_router
 from starlette.types import ASGIApp, Receive, Scope, Send
 from logging_setup import setup_logging
 from sql_logic import sql_catalog as catalog
@@ -255,3 +256,4 @@ app.include_router(reaction_router)
 app.include_router(black_list_router)
 app.include_router(forum_router)
 app.include_router(forum_comment_router)
+app.include_router(catalog_statistics_router)
