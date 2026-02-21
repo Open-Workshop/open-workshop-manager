@@ -330,30 +330,19 @@ async def google_complite(
                 async with aiohttp.ClientSession() as NETsession:
                     async with NETsession.get(user_data["picture"]) as resp:
                         if resp.status == 200:
-                            raw_bytes = await resp.read()
-                            try:
-                                webp_bytes = tools.image_bytes_to_webp(raw_bytes)
-                                format_name = "webp"
-                                upload_bytes = webp_bytes
-                            except ValueError:
-                                # Fallback to original bytes if conversion failed.
-                                format_name = resp.headers.get(
-                                    "Content-Type", "image/jpeg"
-                                ).split("/")[-1]
-                                upload_bytes = raw_bytes
-
                             result_upload_code, result_upload, result_response = (
                                 await tools.storage_file_upload(
                                     type="avatar",
-                                    path=f"{id}.{format_name}",
-                                    file=BytesIO(upload_bytes),
+                                    path=f"{id}.webp",
+                                    file=BytesIO(await resp.read()),
+                                    file_kind="img",
                                 )
                             )
                             if result_response is not False:
                                 # Помечаем в БД пользователя, что у него есть аватар
                                 session.query(account.Account).filter(
                                     account.Account.id == id
-                                ).update({"avatar_url": f"local.{format_name}"})
+                                ).update({"avatar_url": "local.webp"})
                                 session.commit()
                             else:
                                 logger.warning(
@@ -496,19 +485,29 @@ async def yandex_complite(
                 async with aiohttp.ClientSession() as NETsession:
                     async with NETsession.get(f"https://avatars.yandex.net/get-yapic/{user_data.default_avatar_id}/islands-200") as resp:
                         if resp.status == 200:
-                            # Чтобы узнать расширение файла из ответа сервера: resp.headers['Content-Type']
-                            # может содержать: image/jpeg, image/png, image/gif, image/bmp, image/webp
-                            format_name = resp.headers['Content-Type'].split("/")[1]
-                            # Тут еще sfu обновлен но апи юзается старое
-                            result_upload_code, result_upload = await tools.storage_file_upload(type="avatar", path=f"{rid}.{format_name}", file=BytesIO(await resp.read()))
-                            if result_upload != False:
+                            result_upload_code, result_upload, result_status = (
+                                await tools.storage_file_upload(
+                                    type="avatar",
+                                    path=f"{rid}.webp",
+                                    file=BytesIO(await resp.read()),
+                                    file_kind="img",
+                                )
+                            )
+                            if result_status:
                                  # Помечаем в БД пользователя, что у него есть аватар
-                                session.query(account.Account).filter(account.Account.id == rid).update({"avatar_url": f"local.{format_name}"})
+                                session.query(account.Account).filter(account.Account.id == rid).update({"avatar_url": "local.webp"})
                                 session.commit()
                             else:
-                                print("Яндекс регистрация: во время загрузки аватара произошла ошибка!")
+                                logger.warning(
+                                    "Яндекс регистрация: ошибка загрузки аватара code=%s detail=%s",
+                                    result_upload_code,
+                                    result_upload,
+                                )
                         else:
-                            print("Яндекс регистрация: во время получения аватара произошла ошибка!")
+                            logger.warning(
+                                "Яндекс регистрация: ошибка получения аватара status=%s",
+                                resp.status,
+                            )
     else:
         rid = rows.id
 

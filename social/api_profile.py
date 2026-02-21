@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Request, Response, Form, Query, Path, UploadFile, File
-from fastapi.responses import RedirectResponse, PlainTextResponse
-from io import BytesIO
+from fastapi import APIRouter, Request, Response, Form, Query, Path
+from fastapi.responses import RedirectResponse, PlainTextResponse, JSONResponse
 import logging
 import bcrypt
 import tools
 from ow_config import MAIN_URL
 import datetime
 import ow_config as config
+import uuid
+from urllib.parse import quote
 from limits import LIMITS
 from sqlalchemy import insert
 from sqlalchemy.orm import sessionmaker
@@ -203,6 +204,121 @@ async def avatar_profile(
         return PlainTextResponse(status_code=404, content="User not found!")
 
 
+@router.post(
+    MAIN_URL + "/profiles/{user_id}/avatar/upload",
+    tags=["Profile"],
+    summary="Инициализация загрузки аватара (файл напрямую на Storage)",
+    status_code=307,
+    responses={
+        200: {"description": "JSON с transfer_url/ws_url для прямой загрузки"},
+        307: {"description": "Redirect на Storage transfer/upload"},
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Пользователь не найден."},
+        425: {"description": "Временное ограничение социальной активности."},
+        500: {"description": "Не настроен JWT секрет."},
+    },
+)
+@router.post(
+    MAIN_URL + "/profile/avatar/upload/{user_id}",
+    tags=["Profile"],
+    summary="Инициализация загрузки аватара (файл напрямую на Storage)",
+    status_code=307,
+    responses={
+        200: {"description": "JSON с transfer_url/ws_url для прямой загрузки"},
+        307: {"description": "Redirect на Storage transfer/upload"},
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Пользователь не найден."},
+        425: {"description": "Временное ограничение социальной активности."},
+        500: {"description": "Не настроен JWT секрет."},
+    },
+)
+async def init_avatar_upload(
+    response: Response,
+    request: Request,
+    user_id: int = Path(description="ID профиля."),
+):
+    access_result = await account.check_access(request=request, response=response)
+    if not access_result or access_result.get("owner_id", -1) < 0:
+        return PlainTextResponse(status_code=403, content="Недействительный ключ сессии!")
+    owner_id = access_result.get("owner_id", -1)
+
+    session = sessionmaker(bind=account.engine)()
+    user = session.query(account.Account).filter_by(id=user_id).first()
+    if not user:
+        session.close()
+        return PlainTextResponse(status_code=404, content="Пользователь не найден!")
+
+    owner = session.query(account.Account).filter_by(id=owner_id).first()
+    if not owner:
+        session.close()
+        return PlainTextResponse(status_code=403, content="Доступ запрещен!")
+
+    now = datetime.datetime.now()
+    if owner_id != user_id:
+        if not owner.admin:
+            session.close()
+            return PlainTextResponse(status_code=403, content="Доступ запрещен!")
+    elif not owner.admin:
+        if owner.mute_until and owner.mute_until > now:
+            session.close()
+            return PlainTextResponse(
+                status_code=425,
+                content="Вам выдано временное ограничение на социальную активность :(",
+            )
+        if not owner.change_avatar:
+            session.close()
+            return PlainTextResponse(
+                status_code=403,
+                content="Вам по какой-то причине запрещено менять аватар!",
+            )
+    session.close()
+
+    if not getattr(config, "TRANSFER_JWT_SECRET", None):
+        return PlainTextResponse(status_code=500, content="JWT secret missing")
+
+    job_id = uuid.uuid4().hex
+    ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
+    try:
+        ttl_seconds = int(ttl_raw)
+    except (TypeError, ValueError):
+        ttl_seconds = 900
+
+    payload = {
+        "job_id": job_id,
+        "transfer_kind": "img",
+        "storage_type": "avatar",
+        "file_kind": "img",
+        "max_bytes": LIMITS.profile.avatar_max_bytes,
+        "callback_action": "avatar_set",
+        "callback_context": {"user_id": user_id},
+        "target_path": f"{user_id}.webp",
+    }
+    token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
+    if not token:
+        return PlainTextResponse(status_code=500, content="JWT secret missing")
+
+    transfer_url = f"{config.STORAGE_URL}/transfer/upload?token={quote(token)}&job_id={job_id}"
+    wants_json = (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or "application/json" in (request.headers.get("Accept", "") or "")
+    )
+    if wants_json:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "job_id": job_id,
+                "user_id": user_id,
+                "transfer_url": transfer_url,
+                "ws_url": f"{config.STORAGE_URL}/transfer/ws/{job_id}?token={quote(token)}",
+            },
+        )
+
+    out = RedirectResponse(url=transfer_url, status_code=307)
+    out.headers["X-Upload-Job"] = job_id
+    out.headers["X-Progress-WS"] = f"{config.STORAGE_URL}/transfer/ws/{job_id}"
+    return out
+
+
 @router.patch(
     MAIN_URL + "/profiles/{user_id}",
     tags=["Profile"],
@@ -216,9 +332,7 @@ async def avatar_profile(
         411: {
             "description": "Недостигнута длина *(слишком короткий никнейм/грейд/пароль)*, либо указанная дата мута уже прошла."
         },
-        413: {
-            "desctiption": "Превышена длина *(никнейм/обо мне/грейд/пароль)*, либо загружаемый аватар превышает 2 мб."
-        },
+        413: {"desctiption": "Превышена длина *(никнейм/обо мне/грейд/пароль)*."},
         425: {
             "description": "Отказано в изменении, т.к. запрашивающий в муте *(узнать о длине мута можно в /profile/info/)*, либо слишком часто меняется пароль/никнейм *(в таком случае в теле ответа возвращается дата снятия ограничения)*"
         },
@@ -241,9 +355,7 @@ async def avatar_profile(
         411: {
             "description": "Недостигнута длина *(слишком короткий никнейм/грейд/пароль)*, либо указанная дата мута уже прошла."
         },
-        413: {
-            "desctiption": "Превышена длина *(никнейм/обо мне/грейд/пароль)*, либо загружаемый аватар превышает 2 мб."
-        },
+        413: {"desctiption": "Превышена длина *(никнейм/обо мне/грейд/пароль)*."},
         425: {
             "description": "Отказано в изменении, т.к. запрашивающий в муте *(узнать о длине мута можно в /profile/info/)*, либо слишком часто меняется пароль/никнейм *(в таком случае в теле ответа возвращается дата снятия ограничения)*"
         },
@@ -265,10 +377,6 @@ async def edit_profile(
     ),
     about: str | None = Form(
         None, description="Новое описание профиля.", max_length=LIMITS.profile.about_max
-    ),
-    avatar: UploadFile | None = File(
-        None,
-        description="Новый аватар профиля *(ограничение 2097152 байт т.е. 2 мегабайта)*.",
     ),
     empty_avatar: bool | None = Form(
         None, description="Удалить аватар профиля *(приоритетней установки аватара)*."
@@ -329,7 +437,6 @@ async def edit_profile(
             for i in [
                 username,
                 about,
-                avatar,
                 empty_avatar,
                 grade,
                 off_password,
@@ -408,7 +515,7 @@ async def edit_profile(
                             row.last_username_reset + datetime.timedelta(days=30)
                         ).strftime(account.STANDART_STR_TIME),
                     )
-            if avatar is not None or empty_avatar is not None:
+            if empty_avatar is not None:
                 if not row.change_avatar:
                     session.close()
                     return PlainTextResponse(
@@ -530,45 +637,6 @@ async def edit_profile(
                     status_code=523,
                     content="Что-то пошло не так при удалении аватара из системы.",
                 )
-    elif (
-        avatar is not None
-    ):  # Проверка на аватар в самом конце, т.к. он приводит к изменениям в файловой системе
-        if avatar.size >= LIMITS.profile.avatar_max_bytes:
-            session.close()
-            return PlainTextResponse(
-                status_code=413, content="Вес аватара не должен превышать 2 МБ."
-            )
-
-        raw_bytes = await avatar.read()
-        try:
-            webp_bytes = tools.image_bytes_to_webp(raw_bytes)
-        except ValueError:
-            session.close()
-            return PlainTextResponse(
-                status_code=400, content="Аватар должен быть изображением."
-            )
-
-        format_name = "webp"
-        query_update["avatar_url"] = f"local.{format_name}"
-
-        result_upload_code, result_upload, result_status = (
-            await tools.storage_file_upload(
-                type="avatar",
-                path=f"{user.id}.{format_name}",
-                file=BytesIO(webp_bytes),
-            )
-        )
-        if not result_status:
-            logger.warning(
-                "Google регистрация: во время загрузки аватара произошла ошибка! "
-                "code=%s detail=%s",
-                result_upload_code,
-                result_upload,
-            )
-            return PlainTextResponse(
-                status_code=result_upload_code,
-                content=f"Что-то пошло не так при обработке аватара ._. {result_upload}",
-            )
 
     # Выполняем запрошенную операцию
     user_query.update(query_update)

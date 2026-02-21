@@ -602,6 +602,152 @@ async def add_mod_from_url(
         return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
 
 
+async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
+    status = payload.get("status")
+    job_id = str(payload.get("job_id") or "")
+    callback_action = str(payload.get("callback_action") or "")
+    storage_type = str(payload.get("storage_type") or "")
+    target_path = str(payload.get("target_path") or "")
+    callback_context = payload.get("callback_context")
+    if not isinstance(callback_context, dict):
+        callback_context = {}
+    resource_id_cleanup = 0
+    if callback_action == "resource_add":
+        try:
+            resource_id_cleanup = int(callback_context.get("resource_id"))
+        except (TypeError, ValueError):
+            resource_id_cleanup = 0
+
+    if not job_id or not callback_action or not target_path:
+        return PlainTextResponse(status_code=400, content="Invalid payload")
+    if storage_type not in {"avatar", "resource"}:
+        return PlainTextResponse(status_code=400, content="Invalid payload")
+    if callback_action not in {"avatar_set", "resource_add", "resource_edit"}:
+        return PlainTextResponse(status_code=400, content="Invalid payload")
+
+    if callback_action == "avatar_set" and storage_type != "avatar":
+        return PlainTextResponse(status_code=400, content="Invalid payload")
+    if callback_action in {"resource_add", "resource_edit"} and storage_type != "resource":
+        return PlainTextResponse(status_code=400, content="Invalid payload")
+
+    if status != "success":
+        logger.warning(
+            "transfer img failed job_id=%s action=%s status=%s",
+            job_id,
+            callback_action,
+            status,
+        )
+        if resource_id_cleanup > 0:
+            session = sessionmaker(bind=catalog.engine)()
+            session.query(catalog.Resource).filter_by(id=resource_id_cleanup).delete()
+            session.commit()
+            session.close()
+        return PlainTextResponse(status_code=202, content="Transfer failed")
+
+    move_start = datetime.now()
+    try:
+        move_code, move_payload, move_ok = await tools.storage_job_move(
+            job_id=job_id, type=storage_type, path=target_path
+        )
+    except Exception:
+        logger.exception(
+            "transfer img move exception job_id=%s action=%s path=%s",
+            job_id,
+            callback_action,
+            target_path,
+        )
+        if resource_id_cleanup > 0:
+            session = sessionmaker(bind=catalog.engine)()
+            session.query(catalog.Resource).filter_by(id=resource_id_cleanup).delete()
+            session.commit()
+            session.close()
+        return PlainTextResponse(status_code=504, content="Move timeout")
+    if not move_ok:
+        logger.warning(
+            "transfer img move failed job_id=%s action=%s status=%s body=%s",
+            job_id,
+            callback_action,
+            move_code,
+            move_payload,
+        )
+        if resource_id_cleanup > 0:
+            session = sessionmaker(bind=catalog.engine)()
+            session.query(catalog.Resource).filter_by(id=resource_id_cleanup).delete()
+            session.commit()
+            session.close()
+        return PlainTextResponse(status_code=500, content="Move failed")
+    move_duration = (datetime.now() - move_start).total_seconds()
+    logger.info(
+        "transfer img move done job_id=%s action=%s type=%s duration=%.2fs",
+        job_id,
+        callback_action,
+        storage_type,
+        move_duration,
+    )
+
+    if callback_action == "avatar_set":
+        user_id = callback_context.get("user_id")
+        try:
+            user_id = int(user_id)
+        except (TypeError, ValueError):
+            return PlainTextResponse(status_code=400, content="Invalid payload")
+
+        session = sessionmaker(bind=account.engine)()
+        user_query = session.query(account.Account).filter_by(id=user_id)
+        user = user_query.first()
+        if not user:
+            session.close()
+            await tools.storage_file_delete(type="avatar", path=target_path)
+            return PlainTextResponse(status_code=404, content="User not found")
+        old_avatar_url = str(user.avatar_url or "")
+        user_query.update({"avatar_url": "local.webp"})
+        session.commit()
+        session.close()
+
+        if old_avatar_url.startswith("local"):
+            try:
+                old_ext = old_avatar_url.split(".", 1)[1]
+            except IndexError:
+                old_ext = "webp"
+            old_path = f"{user_id}.{old_ext}"
+            if old_path != target_path:
+                await tools.storage_file_delete(type="avatar", path=old_path)
+        return PlainTextResponse(status_code=200, content="OK")
+
+    if callback_action in {"resource_add", "resource_edit"}:
+        resource_id = callback_context.get("resource_id")
+        try:
+            resource_id = int(resource_id)
+        except (TypeError, ValueError):
+            return PlainTextResponse(status_code=400, content="Invalid payload")
+
+        session = sessionmaker(bind=catalog.engine)()
+        resource_query = session.query(catalog.Resource).filter_by(id=resource_id)
+        resource = resource_query.first()
+        if not resource:
+            session.close()
+            await tools.storage_file_delete(type="resource", path=target_path)
+            return PlainTextResponse(status_code=404, content="Resource not found")
+
+        old_url = str(resource.url or "")
+        resource_query.update(
+            {
+                "url": f"local/{target_path}",
+                "date_event": datetime.now(),
+            }
+        )
+        session.commit()
+        session.close()
+
+        if callback_action == "resource_edit" and old_url.startswith("local/"):
+            old_path = old_url.replace("local/", "", 1)
+            if old_path != target_path:
+                await tools.storage_file_delete(type="resource", path=old_path)
+        return PlainTextResponse(status_code=200, content="OK")
+
+    return PlainTextResponse(status_code=400, content="Invalid payload")
+
+
 @router.post(
     MAIN_URL + "/storage/transfer/complete",
     include_in_schema=False,
@@ -616,6 +762,10 @@ async def storage_transfer_complete(
     payload = tools.decode_transfer_jwt(token, audience="manager")
     if not payload:
         return PlainTextResponse(status_code=403, content="Access denied")
+
+    transfer_kind = str(payload.get("transfer_kind") or "archive").strip().lower()
+    if transfer_kind == "img":
+        return await _storage_transfer_complete_img(payload)
 
     status = payload.get("status")
     job_id = payload.get("job_id")

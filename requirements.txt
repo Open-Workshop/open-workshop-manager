@@ -6,7 +6,6 @@ bcrypt
 aiohttp
 gunicorn[standard]
 pymysql
-Pillow
 PyJWT
 opentelemetry-sdk
 opentelemetry-exporter-otlp-proto-http

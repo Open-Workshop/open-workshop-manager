@@ -8,7 +8,6 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import desc
 import aiohttp
-from PIL import Image, UnidentifiedImageError
 import datetime
 import json
 import bcrypt
@@ -125,38 +124,6 @@ def str_to_list(string: str | list) -> list:
         return []
 
     return parsed if isinstance(parsed, list) else []
-
-
-def image_bytes_to_webp(data: bytes, quality: int = 80) -> bytes:
-    """
-    Convert image bytes to WebP. Raises ValueError if bytes are not an image.
-    """
-    try:
-        with Image.open(BytesIO(data)) as img:
-            img.load()
-            if img.mode in ("RGBA", "LA") or (
-                img.mode == "P" and "transparency" in img.info
-            ):
-                img = img.convert("RGBA")
-            else:
-                img = img.convert("RGB")
-
-            out = BytesIO()
-            img.save(out, format="WEBP", quality=quality, method=6)
-            return out.getvalue()
-    except (UnidentifiedImageError, OSError) as exc:
-        raise ValueError("not an image") from exc
-
-
-def maybe_image_bytes_to_webp(data: bytes, quality: int = 80) -> tuple[bytes, bool]:
-    """
-    Try converting image bytes to WebP. Returns (bytes, True) if converted,
-    otherwise returns original bytes and False.
-    """
-    try:
-        return image_bytes_to_webp(data, quality=quality), True
-    except ValueError:
-        return data, False
 
 
 async def resources_serialize(
@@ -368,7 +335,7 @@ async def check_game_exists(game_id: int) -> bool:
 
 
 async def storage_file_upload(
-    type: str, path: str, file: BytesIO
+    type: str, path: str, file: BytesIO, file_kind: str = "bin"
 ) -> tuple[int, str, bool]:
     """
     Uploads a file to the storage service.
@@ -387,7 +354,14 @@ async def storage_file_upload(
 
     async with aiohttp.ClientSession() as session:
         async with session.post(
-            real_url, data={"file": file, "type": type, "path": path, "token": config.storage_upload_token}
+            real_url,
+            data={
+                "file": file,
+                "type": type,
+                "path": path,
+                "file_kind": file_kind,
+                "token": config.storage_upload_token,
+            },
         ) as resp:
             return resp.status, str(await resp.text()), resp.status == 201
 

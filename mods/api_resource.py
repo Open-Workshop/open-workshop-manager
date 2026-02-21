@@ -1,16 +1,47 @@
-from fastapi import APIRouter, Request, Response, Form, Query, Path, UploadFile, File
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi import APIRouter, Request, Response, Form, Query, Path
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 import tools
-import io
+import uuid
+from urllib.parse import quote
 from sql_logic import sql_catalog as catalog
 from sqlalchemy import insert
 from sqlalchemy.orm import sessionmaker
 from ow_config import MAIN_URL
+import ow_config as config
 from limits import LIMITS
 from datetime import datetime
 import standarts
 
 router = APIRouter()
+
+
+def _transfer_init_response(
+    request: Request,
+    job_id: str,
+    token: str,
+    extra: dict[str, object] | None = None,
+):
+    transfer_url = f"{config.STORAGE_URL}/transfer/upload?token={quote(token)}&job_id={job_id}"
+    ws_url = f"{config.STORAGE_URL}/transfer/ws/{job_id}?token={quote(token)}"
+    payload = {
+        "job_id": job_id,
+        "transfer_url": transfer_url,
+        "ws_url": ws_url,
+    }
+    if extra:
+        payload.update(extra)
+
+    wants_json = (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or "application/json" in (request.headers.get("Accept", "") or "")
+    )
+    if wants_json:
+        return JSONResponse(status_code=200, content=payload)
+
+    out = RedirectResponse(url=transfer_url, status_code=307)
+    out.headers["X-Upload-Job"] = job_id
+    out.headers["X-Progress-WS"] = f"{config.STORAGE_URL}/transfer/ws/{job_id}"
+    return out
 
 
 @router.get(
@@ -95,9 +126,7 @@ async def list_resources_rest(
             "description": "Возвращает ID созданного ресурса.",
             "content": {"application/json": {"example": 1}},
         },
-        400: {
-            "description": "Не передан файл и при этом передан неккоректны `resource_url`."
-        },
+        400: {"description": "Передан некорректный `resource_url`."},
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
         405: {"description": "Неизвестный тип ресурса-владельца."},
@@ -121,12 +150,11 @@ async def add_resource_rest(
     ),
     resource_url: str = Form(
         "",
-        description="URL ресурса *(если не передан файл)*.",
+        description="URL ресурса.",
         min_length=LIMITS.resource.url_min_create,
         max_length=LIMITS.resource.url_max,
     ),
     resource_owner_id: int = Form(..., description="ID ресурса-владельца."),
-    resource_file: UploadFile = File(None, description="Файл ресурса."),
 ):
     return await add_resource(
         response=response,
@@ -135,7 +163,6 @@ async def add_resource_rest(
         resource_type=resource_type,
         resource_url=resource_url,
         resource_owner_id=resource_owner_id,
-        resource_file=resource_file,
     )
 
 
@@ -170,9 +197,6 @@ async def edit_resource_rest(
         min_length=LIMITS.resource.url_min,
         max_length=LIMITS.resource.url_max,
     ),
-    resource_file: UploadFile = File(
-        None, description="Файл ресурса *(приоритетней `resource_url`)*."
-    ),
 ):
     return await edit_resource(
         response=response,
@@ -180,7 +204,258 @@ async def edit_resource_rest(
         resource_id=resource_id,
         resource_type=resource_type,
         resource_url=resource_url,
-        resource_file=resource_file,
+    )
+
+
+@router.post(
+    MAIN_URL + "/resources/upload-init",
+    tags=["Resource"],
+    summary="Инициализация загрузки файла ресурса напрямую на Storage",
+    status_code=307,
+    responses={
+        200: {"description": "JSON с transfer_url/ws_url"},
+        307: {"description": "Redirect на Storage transfer/upload"},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        405: {"description": "Неизвестный тип ресурса-владельца."},
+        500: {"description": "Не настроен JWT секрет."},
+    },
+)
+async def add_resource_upload_init(
+    response: Response,
+    request: Request,
+    owner_type: str = Form(
+        ...,
+        description="Тип ресурса-владельца.",
+        examples=["mods", "games"],
+        max_length=LIMITS.resource.owner_type_max,
+    ),
+    resource_type: str = Form(
+        ...,
+        description="Название типа ресурса.",
+        min_length=LIMITS.resource.type_min,
+        max_length=LIMITS.resource.type_max,
+    ),
+    resource_owner_id: int = Form(..., description="ID ресурса-владельца."),
+):
+    if owner_type not in ["mods", "games"]:
+        return PlainTextResponse(status_code=405, content="unknown owner_type")
+    elif owner_type == "mods":
+        access_result = await tools.access_mods(
+            response=response, request=request, mods_ids=[resource_owner_id], edit=True
+        )
+    else:
+        access_result = await tools.access_admin(response=response, request=request)
+    if access_result is not True:
+        return access_result
+
+    if not getattr(config, "TRANSFER_JWT_SECRET", None):
+        return PlainTextResponse(status_code=500, content="JWT secret missing")
+
+    session = sessionmaker(bind=catalog.engine)()
+    insert_statement = insert(catalog.Resource).values(
+        type=resource_type,
+        url="",
+        date_event=datetime.now(),
+        owner_type=owner_type,
+        owner_id=resource_owner_id,
+    )
+    result = session.execute(insert_statement)
+    resource_id = int(result.lastrowid)
+    session.commit()
+    session.close()
+
+    job_id = uuid.uuid4().hex
+    ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
+    try:
+        ttl_seconds = int(ttl_raw)
+    except (TypeError, ValueError):
+        ttl_seconds = 900
+
+    target_path = f"{owner_type}/{resource_owner_id}/{resource_id}.webp"
+    payload = {
+        "job_id": job_id,
+        "transfer_kind": "img",
+        "storage_type": "resource",
+        "file_kind": "img",
+        "callback_action": "resource_add",
+        "callback_context": {"resource_id": resource_id},
+        "target_path": target_path,
+    }
+    token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
+    if not token:
+        session = sessionmaker(bind=catalog.engine)()
+        session.query(catalog.Resource).filter_by(id=resource_id).delete()
+        session.commit()
+        session.close()
+        return PlainTextResponse(status_code=500, content="JWT secret missing")
+
+    return _transfer_init_response(
+        request=request,
+        job_id=job_id,
+        token=token,
+        extra={
+            "resource_id": resource_id,
+            "owner_type": owner_type,
+            "owner_id": resource_owner_id,
+        },
+    )
+
+
+@router.post(
+    MAIN_URL + "/add/resource/upload/{owner_type}",
+    tags=["Resource"],
+    summary="Инициализация загрузки файла ресурса напрямую на Storage",
+    status_code=307,
+    responses={
+        200: {"description": "JSON с transfer_url/ws_url"},
+        307: {"description": "Redirect на Storage transfer/upload"},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        405: {"description": "Неизвестный тип ресурса-владельца."},
+        500: {"description": "Не настроен JWT секрет."},
+    },
+)
+async def add_resource_upload_init_legacy(
+    response: Response,
+    request: Request,
+    owner_type: str = Path(
+        description="Тип ресурса-владельца.",
+        examples=["mods", "games"],
+        max_length=LIMITS.resource.owner_type_max,
+    ),
+    resource_type: str = Form(
+        ...,
+        description="Название типа ресурса.",
+        min_length=LIMITS.resource.type_min,
+        max_length=LIMITS.resource.type_max,
+    ),
+    resource_owner_id: int = Form(..., description="ID ресурса-владельца."),
+):
+    return await add_resource_upload_init(
+        response=response,
+        request=request,
+        owner_type=owner_type,
+        resource_type=resource_type,
+        resource_owner_id=resource_owner_id,
+    )
+
+
+@router.post(
+    MAIN_URL + "/resources/{resource_id}/upload-init",
+    tags=["Resource"],
+    summary="Инициализация обновления файла ресурса напрямую на Storage",
+    status_code=307,
+    responses={
+        200: {"description": "JSON с transfer_url/ws_url"},
+        307: {"description": "Redirect на Storage transfer/upload"},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Ресурс не найден."},
+        500: {"description": "Не настроен JWT секрет."},
+    },
+)
+async def edit_resource_upload_init(
+    response: Response,
+    request: Request,
+    resource_id: int = Path(description="ID ресурса."),
+    resource_type: str | None = Form(
+        None,
+        description="Тип ресурса.",
+        min_length=LIMITS.resource.type_min,
+        max_length=LIMITS.resource.type_max,
+    ),
+):
+    session = sessionmaker(bind=catalog.engine)()
+    resource_query = session.query(catalog.Resource).filter_by(id=resource_id)
+    resource = resource_query.first()
+    if not resource:
+        session.close()
+        return PlainTextResponse(status_code=404, content="not found")
+
+    if resource.owner_type == "mods":
+        access_result = await tools.access_mods(
+            response=response,
+            request=request,
+            mods_ids=[resource.owner_id],
+            edit=True,
+        )
+    else:
+        access_result = await tools.access_admin(response=response, request=request)
+    if access_result is not True:
+        session.close()
+        return access_result
+
+    if resource_type:
+        resource_query.update({"type": resource_type})
+        session.commit()
+
+    owner_type = str(resource.owner_type)
+    owner_id = int(resource.owner_id)
+    session.close()
+
+    if not getattr(config, "TRANSFER_JWT_SECRET", None):
+        return PlainTextResponse(status_code=500, content="JWT secret missing")
+
+    job_id = uuid.uuid4().hex
+    ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
+    try:
+        ttl_seconds = int(ttl_raw)
+    except (TypeError, ValueError):
+        ttl_seconds = 900
+
+    target_path = f"{owner_type}/{owner_id}/{resource_id}.webp"
+    payload = {
+        "job_id": job_id,
+        "transfer_kind": "img",
+        "storage_type": "resource",
+        "file_kind": "img",
+        "callback_action": "resource_edit",
+        "callback_context": {"resource_id": resource_id},
+        "target_path": target_path,
+    }
+    token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
+    if not token:
+        return PlainTextResponse(status_code=500, content="JWT secret missing")
+
+    return _transfer_init_response(
+        request=request,
+        job_id=job_id,
+        token=token,
+        extra={"resource_id": resource_id, "owner_type": owner_type, "owner_id": owner_id},
+    )
+
+
+@router.post(
+    MAIN_URL + "/edit/resource/upload",
+    tags=["Resource"],
+    summary="Инициализация обновления файла ресурса напрямую на Storage",
+    status_code=307,
+    responses={
+        200: {"description": "JSON с transfer_url/ws_url"},
+        307: {"description": "Redirect на Storage transfer/upload"},
+        401: standarts.responses[401],
+        403: standarts.responses["non-admin"][403],
+        404: {"description": "Ресурс не найден."},
+        500: {"description": "Не настроен JWT секрет."},
+    },
+)
+async def edit_resource_upload_init_legacy(
+    response: Response,
+    request: Request,
+    resource_id: int = Form(..., description="ID ресурса."),
+    resource_type: str | None = Form(
+        None,
+        description="Тип ресурса.",
+        min_length=LIMITS.resource.type_min,
+        max_length=LIMITS.resource.type_max,
+    ),
+):
+    return await edit_resource_upload_init(
+        response=response,
+        request=request,
+        resource_id=resource_id,
+        resource_type=resource_type,
     )
 
 
@@ -392,9 +667,7 @@ async def list_resources(
             "description": "Возвращает ID созданного ресурса.",
             "content": {"application/json": {"example": 1}},
         },
-        400: {
-            "description": "Не передан файл и при этом передан неккоректны `resource_url`."
-        },
+        400: {"description": "Передан некорректный `resource_url`."},
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
         405: {"description": "Неизвестный тип ресурса-владельца."},
@@ -417,16 +690,12 @@ async def add_resource(
     ),
     resource_url: str = Form(
         "",
-        description="URL ресурса *(если не передан файл)*.",
+        description="URL ресурса.",
         min_length=LIMITS.resource.url_min_create,
         max_length=LIMITS.resource.url_max,
     ),
     resource_owner_id: int = Form(..., description="ID ресурса-владельца."),
-    resource_file: UploadFile = File(None, description="Файл ресурса."),
 ):
-    """
-    `resource_url` не учитывается если передан `resource_file`
-    """
     if owner_type not in ["mods", "games"]:
         return PlainTextResponse(status_code=405, content="unknown owner_type")
     elif owner_type == "mods":
@@ -437,39 +706,14 @@ async def add_resource(
         access_result = await tools.access_admin(response=response, request=request)
 
     if access_result is True:
-        real_url = resource_url
-
-        if resource_file:
-            raw_bytes = await resource_file.read()
-            converted_bytes, is_image = tools.maybe_image_bytes_to_webp(raw_bytes)
-
-            filename = resource_file.filename or "resource"
-            if is_image:
-                name_stem = filename.rsplit(".", 1)[0] or "resource"
-                filename = f"{name_stem}.webp"
-
-            real_file = io.BytesIO(converted_bytes)
-            real_path = f"{owner_type}/{resource_owner_id}/{filename}"
-
-            result_code, result_upload, result_status = await tools.storage_file_upload(
-                type="resource", path=real_path, file=real_file
-            )
-            if not result_status:
-                return PlainTextResponse(
-                    status_code=result_code, content=f"Upload error ({result_upload})"
-                )
-            else:
-                real_url = f"local/{result_upload}"
-        elif len(resource_url) > LIMITS.resource.url_max or not resource_url.startswith(
-            "http"
-        ):
+        if len(resource_url) > LIMITS.resource.url_max or not resource_url.startswith("http"):
             return PlainTextResponse(status_code=400, content="Incorrect URL")
 
         session = sessionmaker(bind=catalog.engine)()
 
         insert_statement = insert(catalog.Resource).values(
             type=resource_type,
-            url=real_url,
+            url=resource_url,
             date_event=datetime.now(),
             owner_type=owner_type,
             owner_id=resource_owner_id,
@@ -517,9 +761,6 @@ async def edit_resource(
         min_length=LIMITS.resource.url_min,
         max_length=LIMITS.resource.url_max,
     ),
-    resource_file: UploadFile = File(
-        None, description="Файл ресурса *(приоритетней `resource_url`)*."
-    ),
 ):
     session = sessionmaker(bind=catalog.engine)()
 
@@ -544,50 +785,20 @@ async def edit_resource(
         if resource_type:
             data_edit["type"] = resource_type
 
-        if resource_file or resource_url:
-            if not resource_file and resource_url:
-                if (
-                    len(resource_url) < LIMITS.resource.url_min
-                    or len(resource_url) > LIMITS.resource.url_max
-                    or not resource_url.startswith("http")
-                ):
-                    return PlainTextResponse(status_code=400, content="Incorrect URL")
-
+        if resource_url:
+            if (
+                len(resource_url) < LIMITS.resource.url_min
+                or len(resource_url) > LIMITS.resource.url_max
+                or not resource_url.startswith("http")
+            ):
+                return PlainTextResponse(status_code=400, content="Incorrect URL")
             if got_resource.url.startswith(
                 "local/"
             ) and not await tools.storage_file_delete(
                 type="resource", path=got_resource.url.replace("local/", "")
             ):
                 return JSONResponse(status_code=500, content="delete old file error")
-
-            if resource_file:
-                raw_bytes = await resource_file.read()
-                converted_bytes, is_image = tools.maybe_image_bytes_to_webp(raw_bytes)
-
-                filename = resource_file.filename or "resource"
-                if is_image:
-                    name_stem = filename.rsplit(".", 1)[0] or "resource"
-                    filename = f"{name_stem}.webp"
-
-                real_file = io.BytesIO(converted_bytes)
-                real_path = (
-                    f"{got_resource.owner_type}/{got_resource.owner_id}/{filename}"
-                )
-
-                result_upload_code, result_upload, result_status = (
-                    await tools.storage_file_upload(
-                        type="resource", path=real_path, file=real_file
-                    )
-                )
-                if not result_status:
-                    return JSONResponse(
-                        status_code=result_upload_code,
-                        content=f"Upload error ({result_upload})",
-                    )
-                else:
-                    data_edit["url"] = f"local/{result_upload}"
-            else:
-                data_edit["url"] = resource_url
+            data_edit["url"] = resource_url
 
         if len(data_edit) <= 0:
             return JSONResponse(status_code=418, content="The request is empty")
