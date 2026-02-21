@@ -84,6 +84,7 @@ class Mod(base):  # Таблица "моды"
     description = Column(Text)
 
     size = Column(BigInteger)
+    size_unpacked = Column(BigInteger, nullable=True)
 
     condition = Column(Integer)  # 0 - загружен, 1 - загружается
     public = Column(
@@ -118,6 +119,7 @@ class Resource(base):  # Ресурсы (скриншоты и лого)
     # Если начинается с local/, то по факту можно заменить на {config.STORAGE_URL}/(действие)/resource/...
     # При возвращении юзеру обязательно перерабатывать url в фактический (с точки зрения юзера)
     url = Column(String(512))
+    size = Column(BigInteger, nullable=True)
 
     @property
     def real_url(self, action="download"):

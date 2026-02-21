@@ -149,6 +149,7 @@ async def resources_serialize(
                     "id": resource.id,
                     "type": resource.type,
                     "url": resource.real_url,
+                    "size": resource.size,
                     "owner_id": resource.owner_id,
                     "owner_type": resource.owner_type,
                     "date_event": resource.date_event,

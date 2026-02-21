@@ -648,6 +648,15 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
         storage_type,
         move_duration,
     )
+    resource_size = None
+    if isinstance(move_payload, dict):
+        raw_resource_size = move_payload.get("final_bytes")
+        try:
+            parsed_resource_size = int(raw_resource_size)
+        except (TypeError, ValueError):
+            parsed_resource_size = None
+        if parsed_resource_size is not None and parsed_resource_size >= 0:
+            resource_size = parsed_resource_size
 
     if callback_action == "avatar_set":
         user_id = callback_context.get("user_id")
@@ -694,12 +703,13 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
             return PlainTextResponse(status_code=404, content="Resource not found")
 
         old_url = str(resource.url or "")
-        resource_query.update(
-            {
-                "url": f"local/{target_path}",
-                "date_event": datetime.now(),
-            }
-        )
+        update_values = {
+            "url": f"local/{target_path}",
+            "date_event": datetime.now(),
+        }
+        if resource_size is not None:
+            update_values["size"] = resource_size
+        resource_query.update(update_values)
         session.commit()
         session.close()
 
@@ -749,10 +759,11 @@ async def storage_transfer_complete(
         return PlainTextResponse(status_code=202, content="Transfer failed")
 
     logger.info(
-        "transfer callback received job_id=%s mod_id=%s bytes=%s update_only=%s",
+        "transfer callback received job_id=%s mod_id=%s bytes=%s unpacked=%s update_only=%s",
         job_id,
         mod_id,
         payload.get("bytes"),
+        payload.get("unpacked_bytes"),
         update_only,
     )
     logger.info(
@@ -794,6 +805,20 @@ async def storage_transfer_complete(
         final_size = move_payload.get("final_bytes")
     if final_size is None:
         final_size = payload.get("bytes", 0)
+    try:
+        final_size = int(final_size)
+    except (TypeError, ValueError):
+        final_size = 0
+    if final_size < 0:
+        final_size = 0
+
+    unpacked_size = payload.get("unpacked_bytes")
+    try:
+        unpacked_size = int(unpacked_size) if unpacked_size is not None else None
+    except (TypeError, ValueError):
+        unpacked_size = None
+    if unpacked_size is not None and unpacked_size < 0:
+        unpacked_size = None
 
     Session = sessionmaker(bind=catalog.engine)
     session = Session()
@@ -802,12 +827,13 @@ async def storage_transfer_complete(
         session.close()
         return PlainTextResponse(status_code=404, content="Mod not found")
     if update_only:
-        session.query(catalog.Mod).filter_by(id=mod_id).update(
-            {
-                "size": final_size,
-                "date_update_file": datetime.now(),
-            }
-        )
+        update_values = {
+            "size": final_size,
+            "date_update_file": datetime.now(),
+        }
+        if unpacked_size is not None:
+            update_values["size_unpacked"] = unpacked_size
+        session.query(catalog.Mod).filter_by(id=mod_id).update(update_values)
         session.commit()
         session.close()
         return PlainTextResponse(status_code=200, content="OK")
@@ -861,12 +887,13 @@ async def storage_transfer_complete(
                 status_code=412, content="Такая source-связка уже существует!"
             )
 
-    session.query(catalog.Mod).filter_by(id=mod_id).update(
-        {
-            "condition": 0,
-            "size": final_size,
-        }
-    )
+    update_values = {
+        "condition": 0,
+        "size": final_size,
+    }
+    if unpacked_size is not None:
+        update_values["size_unpacked"] = unpacked_size
+    session.query(catalog.Mod).filter_by(id=mod_id).update(update_values)
     session.query(catalog.Game).filter_by(id=mod.game).update(
         {catalog.Game.mods_count: func.coalesce(catalog.Game.mods_count, 0) + 1}
     )
@@ -1276,6 +1303,7 @@ async def mod_list(
         query = query.add_columns(
             catalog.Mod.name,
             catalog.Mod.size,
+            catalog.Mod.size_unpacked,
             catalog.Mod.source,
             catalog.Mod.source_id,
             catalog.Mod.downloads,
@@ -1374,6 +1402,7 @@ async def mod_list(
             if general:
                 out["name"] = mod.name
                 out["size"] = mod.size
+                out["size_unpacked"] = mod.size_unpacked
                 out["source"] = mod.source
                 out["source_id"] = mod.source_id
                 out["downloads"] = mod.downloads
@@ -1471,6 +1500,7 @@ async def info_mod(
         query = query.add_columns(
             catalog.Mod.name,
             catalog.Mod.size,
+            catalog.Mod.size_unpacked,
             catalog.Mod.source,
             catalog.Mod.source_id,
             catalog.Mod.downloads,
@@ -1533,6 +1563,7 @@ async def info_mod(
     if general:
         output["result"]["name"] = output["pre_result"].name
         output["result"]["size"] = output["pre_result"].size
+        output["result"]["size_unpacked"] = output["pre_result"].size_unpacked
         output["result"]["source"] = output["pre_result"].source
         output["result"]["source_id"] = output["pre_result"].source_id
         output["result"]["downloads"] = output["pre_result"].downloads
