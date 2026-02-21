@@ -72,24 +72,6 @@ router = APIRouter()
         500: routers_edit_mod_response[500],
     },
 )
-@router.post(
-    MAIN_URL + "/add/mod/from-file",
-    tags=["Mod"],
-    summary="Добавление мода (файл напрямую на Storage)",
-    status_code=307,
-    responses={
-        307: {"description": "Перенаправление на Storage для загрузки"},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
-        411: routers_edit_mod_response[411],
-        412: {
-            "description": "Неккоректный ID выбранной игры ИЛИ source-связка уже занята.",
-            "content": {"text/plain": {"example": "Такой игры не существует!"}},
-        },
-        413: routers_edit_mod_response[413],
-        500: routers_edit_mod_response[500],
-    },
-)
 async def add_mod_from_file(
     response: Response,
     request: Request,
@@ -376,24 +358,6 @@ async def update_mod_file(
 
 @router.post(
     MAIN_URL + "/mods/from-url",
-    tags=["Mod"],
-    summary="Добавление мода по ссылке",
-    status_code=307,
-    responses={
-        307: {"description": "Перенаправление на Storage для загрузки"},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
-        411: routers_edit_mod_response[411],
-        412: {
-            "description": "Неккоректный ID выбранной игры ИЛИ source-связка уже занята.",
-            "content": {"text/plain": {"example": "Такой игры не существует!"}},
-        },
-        413: routers_edit_mod_response[413],
-        500: routers_edit_mod_response[500],
-    },
-)
-@router.post(
-    MAIN_URL + "/add/mod/from-url",
     tags=["Mod"],
     summary="Добавление мода по ссылке",
     status_code=307,
@@ -926,20 +890,6 @@ async def storage_transfer_complete(
         },
     },
 )
-@router.get(
-    MAIN_URL + "/download/{mod_id}",
-    tags=["Mod"],
-    summary="Скачивание мода",
-    status_code=307,
-    responses={
-        307: {
-            "description": "Перенаправление на фактический адрес скачивания мода",
-        },
-        404: {
-            "description": "Мод не найден",
-        },
-    },
-)
 async def download_mod(
     mod_id: int = Path(description="ID мода"),
 ):
@@ -984,7 +934,7 @@ async def download_mod(
 
 
 @router.get(
-    MAIN_URL + "/list/mods/access/{ids_array}",
+    MAIN_URL + "/mods/access/{ids_array}",
     tags=["Mod"],
     summary="Проверка прав доступа к модам",
     status_code=200,
@@ -1055,7 +1005,7 @@ async def access_to_mods(
 
 
 @router.get(
-    MAIN_URL + "/list/mods/public/{ids_array}",
+    MAIN_URL + "/mods/public/{ids_array}",
     tags=["Mod"],
     summary="Список публичных модов",
     status_code=200,
@@ -1142,46 +1092,6 @@ async def public_mods(
         },
         413: {
             "description": "Слишком сложный запрос ИЛИ page_size вне диапазона.",
-        },
-    },
-)
-@router.get(
-    MAIN_URL + "/list/mods/",
-    tags=["Mod"],
-    summary="Список модов",
-    status_code=200,
-    responses={
-        200: {
-            "description": "Массив словарей с информацией о модах",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "database_size": 123,
-                        "offset": 123,
-                        "results": [
-                            {
-                                "id": 1,
-                                "name": "name",
-                                "date_creation": "1984-01-01 00:00:00",
-                                "date_update": "1984-01-01 00:00:00",
-                            },
-                            "Access denied (hide info)",
-                            {
-                                "id": 3,
-                                "name": "name",
-                                "date_creation": "1984-01-01 00:00:00",
-                                "date_update": "1984-01-01 00:00:00",
-                            },
-                        ],
-                    }
-                }
-            },
-        },
-        413: {
-            "description": "Слишком сложный запрос ИЛИ page_size вне диапазона.",
-        },
-        400: {
-            "description": "Неккоректная комбинация или формат фильтров.",
         },
     },
 )
@@ -1524,47 +1434,6 @@ async def mod_list(
         },
     },
 )
-@router.get(
-    MAIN_URL + "/info/mod/{mod_id}",
-    tags=["Mod"],
-    summary="Информация о моде",
-    status_code=200,
-    responses={
-        200: {
-            "description": "OK",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "dependencies": [1, 2, 3],
-                        "dependencies_count": 3,
-                        "authors": {1: {"owner": True}, 2: {"owner": False}},
-                        "result": {
-                            "condition": 0,
-                            "description": "Some description",
-                            "short_description": "Some short description",
-                            "date_update_file": "1984-05-22T02:42:42",
-                            "date_edit": "1984-07-12T15:77:12",
-                            "date_creation": "1984-01-01T15:11:40",
-                            "name": "Some name",
-                            "size": 123456789,
-                            "source": "local",
-                            "source_id": None,
-                            "downloads": 42,
-                            "public": 0,
-                            "game": {"id": 1, "name": "game"},
-                        },
-                    }
-                }
-            },
-        },
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
-        404: {
-            "description": "Not found",
-            "content": {"text/plain": {"example": "Mod not found."}},
-        },
-    },
-)
 async def info_mod(
     response: Response,
     request: Request,
@@ -1864,23 +1733,6 @@ async def mod_dependencies(
 
 
 
-@router.post(
-    MAIN_URL + "/edit/mod",
-    tags=["Mod"],
-    summary="Редактирование мода",
-    status_code=201,
-    responses={
-        201: {"description": "Изменения успешно выполнены."},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
-        411: routers_edit_mod_response[411],
-        412: {
-            "description": "Такой игры не существует или такая source-связка занята."
-        },
-        413: routers_edit_mod_response[413],
-        500: routers_edit_mod_response[500],
-    },
-)
 async def edit_mod(
     response: Response,
     request: Request,
@@ -2039,8 +1891,8 @@ async def edit_mod_rest(
     )
 
 
-@router.post(
-    MAIN_URL + "/edit/mod/authors",
+@router.patch(
+    MAIN_URL + "/mods/{mod_id}/authors",
     tags=["Mod"],
     summary="Редактирование авторов мода",
     status_code=202,
@@ -2053,7 +1905,7 @@ async def edit_mod_rest(
 async def edit_authors_mod(
     response: Response,
     request: Request,
-    mod_id: int = Form(..., description="ID мода для редактирования."),
+    mod_id: int = Path(description="ID мода для редактирования."),
     mode: bool = Form(..., description="Добавить*(True)* или удалить*(False)* автора?"),
     author: int = Form(..., description="ID автора."),
     owner: bool = Form(
@@ -2146,7 +1998,7 @@ async def edit_authors_mod(
 
 
 @router.delete(
-    MAIN_URL + "/delete/mod",
+    MAIN_URL + "/mods/{mod_id}",
     tags=["Mod"],
     summary="Удаление мода",
     status_code=200,
@@ -2163,7 +2015,7 @@ async def edit_authors_mod(
 async def delete_mod(
     response: Response,
     request: Request,
-    mod_id: int = Form(..., description="ID мода для удаления."),
+    mod_id: int = Path(description="ID мода для удаления."),
 ):
     access_result = await account.check_access(request=request, response=response)
     logger.info("Delete mod request received mod_id=%s", mod_id)

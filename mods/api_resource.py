@@ -303,45 +303,6 @@ async def add_resource_upload_init(
 
 
 @router.post(
-    MAIN_URL + "/add/resource/upload/{owner_type}",
-    tags=["Resource"],
-    summary="Инициализация загрузки файла ресурса напрямую на Storage",
-    status_code=307,
-    responses={
-        200: {"description": "JSON с transfer_url/ws_url"},
-        307: {"description": "Redirect на Storage transfer/upload"},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
-        405: {"description": "Неизвестный тип ресурса-владельца."},
-        500: {"description": "Не настроен JWT секрет."},
-    },
-)
-async def add_resource_upload_init_legacy(
-    response: Response,
-    request: Request,
-    owner_type: str = Path(
-        description="Тип ресурса-владельца.",
-        examples=["mods", "games"],
-        max_length=LIMITS.resource.owner_type_max,
-    ),
-    resource_type: str = Form(
-        ...,
-        description="Название типа ресурса.",
-        min_length=LIMITS.resource.type_min,
-        max_length=LIMITS.resource.type_max,
-    ),
-    resource_owner_id: int = Form(..., description="ID ресурса-владельца."),
-):
-    return await add_resource_upload_init(
-        response=response,
-        request=request,
-        owner_type=owner_type,
-        resource_type=resource_type,
-        resource_owner_id=resource_owner_id,
-    )
-
-
-@router.post(
     MAIN_URL + "/resources/{resource_id}/upload-init",
     tags=["Resource"],
     summary="Инициализация обновления файла ресурса напрямую на Storage",
@@ -426,39 +387,6 @@ async def edit_resource_upload_init(
     )
 
 
-@router.post(
-    MAIN_URL + "/edit/resource/upload",
-    tags=["Resource"],
-    summary="Инициализация обновления файла ресурса напрямую на Storage",
-    status_code=307,
-    responses={
-        200: {"description": "JSON с transfer_url/ws_url"},
-        307: {"description": "Redirect на Storage transfer/upload"},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
-        404: {"description": "Ресурс не найден."},
-        500: {"description": "Не настроен JWT секрет."},
-    },
-)
-async def edit_resource_upload_init_legacy(
-    response: Response,
-    request: Request,
-    resource_id: int = Form(..., description="ID ресурса."),
-    resource_type: str | None = Form(
-        None,
-        description="Тип ресурса.",
-        min_length=LIMITS.resource.type_min,
-        max_length=LIMITS.resource.type_max,
-    ),
-):
-    return await edit_resource_upload_init(
-        response=response,
-        request=request,
-        resource_id=resource_id,
-        resource_type=resource_type,
-    )
-
-
 @router.delete(
     MAIN_URL + "/resources/{resource_id}",
     tags=["Resource"],
@@ -510,53 +438,6 @@ async def delete_resource_rest(
     return PlainTextResponse(status_code=500, content="Unknown error")
 
 
-@router.get(
-    MAIN_URL + "/list/resources/{owner_type}/{owner_ids}",
-    tags=["Resource", "Game", "Mod", "Association"],
-    status_code=200,
-    summary="Список ресурсов",
-    responses={
-        200: {
-            "description": "Обычный ответ",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "database_size": 123,
-                        "offset": 123,
-                        "results": [
-                            {
-                                "id": 1,
-                                "type": "logo",
-                                "url": "https://example.com/logo.png",
-                                "owner_id": 1,
-                                "owner_type": "games",
-                                "date_event": "2022-01-01 10:22:42",
-                            },
-                            {
-                                "id": 2,
-                                "type": "screenshot",
-                                "url": "https://example.com/screenshot.jpg",
-                                "owner_id": 1,
-                                "owner_type": "games",
-                                "date_event": "2022-02-01 11:41:28",
-                            },
-                        ],
-                    }
-                }
-            },
-        },
-        403: standarts.responses["non-admin"][403],
-        405: {"description": "Неизвестный `owner_type`."},
-        413: {
-            "description": "Неккоректный диапазон параметров *(размеров)*. Либо суммарно списковые фильтры > 120 элементов, либо неккоректный диапазон `page_size`/`page`",
-            "content": {
-                "application/json": {
-                    "example": {"message": "incorrect page size", "error_id": 2}
-                }
-            },
-        },
-    },
-)
 async def list_resources(
     response: Response,
     request: Request,
@@ -657,23 +538,6 @@ async def list_resources(
     }
 
 
-@router.post(
-    MAIN_URL + "/add/resource/{owner_type}",
-    tags=["Resource"],
-    summary="Добавление ресурса",
-    status_code=202,
-    responses={
-        202: {
-            "description": "Возвращает ID созданного ресурса.",
-            "content": {"application/json": {"example": 1}},
-        },
-        400: {"description": "Передан некорректный `resource_url`."},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
-        405: {"description": "Неизвестный тип ресурса-владельца."},
-        500: {"description": "Произошла ошибка на стороне Storage сервера."},
-    },
-)
 async def add_resource(
     response: Response,
     request: Request,
@@ -730,21 +594,6 @@ async def add_resource(
         return access_result
 
 
-@router.post(
-    MAIN_URL + "/edit/resource",
-    tags=["Resource"],
-    summary="Редактирование ресурса",
-    status_code=202,
-    responses={
-        202: {"description": "Успешное редактирование"},
-        400: {"description": "Передан неккоректный `resource_url`."},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
-        404: {"description": "Ресурс не найден."},
-        418: {"description": "Пустой запрос."},
-        500: {"description": "Произошла ошибка на стороне Storage сервера."},
-    },
-)
 async def edit_resource(
     response: Response,
     request: Request,
@@ -815,56 +664,3 @@ async def edit_resource(
         session.close()
         return access_result
 
-
-@router.delete(
-    MAIN_URL + "/delete/resource/{owner_type}",
-    tags=["Resource"],
-    summary="Удаление ресурса",
-    status_code=200,
-    responses={
-        200: {"description": "Успешное удаление"},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
-        404: {"description": "Ресурс не найден."},
-        405: {
-            "description": "Неккоректный `owner_type`. Доступные значения: `mods`, `games`."
-        },
-        500: {"description": "Произошла ошибка на стороне Storage сервера."},
-    },
-)
-async def delete_resource(
-    response: Response,
-    request: Request,
-    owner_type: str = Path(
-        description="Тип ресурса.",
-        examples=["mods", "games"],
-        max_length=LIMITS.resource.owner_type_max,
-    ),
-    resource_id: int = Form(..., description="ID ресурса для удаления."),
-):
-    if owner_type not in ["mods", "games"]:
-        return PlainTextResponse(status_code=405, content="unknown owner_type")
-    elif owner_type == "mods":
-        session = sessionmaker(bind=catalog.engine)()
-        query = session.query(catalog.Resource)
-        query = query.filter_by(owner_type=owner_type, owner_id=resource_id).first()
-        session.close()
-
-        if query:
-            access_result = await tools.access_mods(
-                response=response, request=request, mods_ids=[query.owner_id], edit=True
-            )
-        else:
-            return PlainTextResponse(status_code=404, content="not found")
-    else:
-        access_result = await tools.access_admin(response=response, request=request)
-
-    if access_result is True:
-        if await tools.delete_resources(
-            owner_type=owner_type, resources_ids=[resource_id]
-        ):
-            return PlainTextResponse(status_code=200, content="Complite!")
-        else:
-            return PlainTextResponse(status_code=500, content="Unknown error")
-    else:
-        return access_result

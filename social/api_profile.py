@@ -33,20 +33,6 @@ router = APIRouter()
         404: {"description": "Профиль не найден."},
     },
 )
-@router.get(
-    MAIN_URL + "/profile/info/{user_id}",
-    tags=["Profile"],
-    summary="Информация о профиле",
-    status_code=200,
-    responses={
-        200: {
-            "description": "Возвращает информацию о профиле по запрошенным разделам."
-        },
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
-        404: {"description": "Профиль не найден."},
-    },
-)
 async def info_profile(
     response: Response,
     request: Request,
@@ -168,17 +154,6 @@ async def info_profile(
         404: {"description": "Пользователь не найден."},
     },
 )
-@router.get(
-    MAIN_URL + "/profile/avatar/{user_id}",
-    tags=["Profile"],
-    summary="Аватар профиля",
-    status_code=307,
-    responses={
-        207: {"description": "Пользователь не назначил аватар."},
-        307: {"description": "Перенаправляет на аватар*(файл)* пользователя."},
-        404: {"description": "Пользователь не найден."},
-    },
-)
 async def avatar_profile(
     user_id: int = Path(description="ID профиля."),
 ):
@@ -206,20 +181,6 @@ async def avatar_profile(
 
 @router.post(
     MAIN_URL + "/profiles/{user_id}/avatar/upload",
-    tags=["Profile"],
-    summary="Инициализация загрузки аватара (файл напрямую на Storage)",
-    status_code=307,
-    responses={
-        200: {"description": "JSON с transfer_url/ws_url для прямой загрузки"},
-        307: {"description": "Redirect на Storage transfer/upload"},
-        403: standarts.responses["non-admin"][403],
-        404: {"description": "Пользователь не найден."},
-        425: {"description": "Временное ограничение социальной активности."},
-        500: {"description": "Не настроен JWT секрет."},
-    },
-)
-@router.post(
-    MAIN_URL + "/profile/avatar/upload/{user_id}",
     tags=["Profile"],
     summary="Инициализация загрузки аватара (файл напрямую на Storage)",
     status_code=307,
@@ -334,30 +295,7 @@ async def init_avatar_upload(
         },
         413: {"desctiption": "Превышена длина *(никнейм/обо мне/грейд/пароль)*."},
         425: {
-            "description": "Отказано в изменении, т.к. запрашивающий в муте *(узнать о длине мута можно в /profile/info/)*, либо слишком часто меняется пароль/никнейм *(в таком случае в теле ответа возвращается дата снятия ограничения)*"
-        },
-        500: {
-            "description": "Неизвестная ошибка при подготовке изменений *(детали в теле ответа)*."
-        },
-        523: {"description": "Ошибка на стороне файлового сервера."},
-    },
-)
-@router.post(
-    MAIN_URL + "/profile/edit/{user_id}",
-    tags=["Profile"],
-    summary="Редактирование профиля",
-    status_code=202,
-    responses={
-        202: {"description": "Профиль успешно отредактирован."},
-        400: {"description": "Нельзя замутить самого себя."},
-        403: standarts.responses["non-admin"][403],
-        404: {"description": "Пользователь не найден."},
-        411: {
-            "description": "Недостигнута длина *(слишком короткий никнейм/грейд/пароль)*, либо указанная дата мута уже прошла."
-        },
-        413: {"desctiption": "Превышена длина *(никнейм/обо мне/грейд/пароль)*."},
-        425: {
-            "description": "Отказано в изменении, т.к. запрашивающий в муте *(узнать о длине мута можно в /profile/info/)*, либо слишком часто меняется пароль/никнейм *(в таком случае в теле ответа возвращается дата снятия ограничения)*"
+            "description": "Отказано в изменении, т.к. запрашивающий в муте *(узнать о длине мута можно в GET /profiles/{user_id})*, либо слишком часто меняется пароль/никнейм *(в таком случае в теле ответа возвращается дата снятия ограничения)*"
         },
         500: {
             "description": "Неизвестная ошибка при подготовке изменений *(детали в теле ответа)*."
@@ -659,18 +597,6 @@ async def edit_profile(
         404: {"description": "Профиль не найден."},
     },
 )
-@router.post(
-    MAIN_URL + "/profile/edit/rights/{user_id}",
-    tags=["Profile"],
-    summary="Редактирование прав профиля",
-    status_code=202,
-    responses={
-        202: {"description": "Изменения приняты."},
-        401: standarts.responses[401],
-        403: standarts.responses["admin"][403],
-        404: {"description": "Профиль не найден."},
-    },
-)
 async def edit_profile_rights(
     response: Response,
     request: Request,
@@ -796,23 +722,10 @@ async def edit_profile_rights(
         },
     },
 )
-@router.delete(
-    MAIN_URL + "/profile/delete",
-    tags=["Profile"],
-    summary="Удаление аккаунта",
-    status_code=200,
-    responses={
-        200: {"description": "Удален успешно."},
-        401: standarts.responses[401],
-        523: {
-            "description": "Не удалось удалить аватар пользователя *(удаление прервано)*."
-        },
-    },
-)
 async def delete_account(
     response: Response,
     request: Request,
-    user_id: int | None = None,
+    user_id: int = Path(description="ID профиля для удаления."),
 ):
     """
     Удаление аккаунта. Сделать это может только сам пользователь, при этом удаляются только персональные данные пользователя.
