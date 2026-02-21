@@ -80,11 +80,6 @@ def parse_args() -> argparse.Namespace:
         help="DB update batch size (default: 500).",
     )
     parser.add_argument(
-        "--allow-content-length-fallback",
-        action="store_true",
-        help="Allow fallback to Content-Length when unpacked header is missing.",
-    )
-    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Probe only, do not write DB.",
@@ -153,7 +148,6 @@ async def probe_mod(
     session: aiohttp.ClientSession,
     storage_base: str,
     mod_id: int,
-    allow_content_length_fallback: bool,
     semaphore: asyncio.Semaphore,
 ) -> ProbeResult:
     url = f"{storage_base}/download/archive/mods/{mod_id}/main.zip"
@@ -191,12 +185,6 @@ async def probe_mod(
                         unpacked = candidate
                         unpacked_header = key
                         break
-
-                if unpacked is None and allow_content_length_fallback:
-                    fallback = _parse_positive_int(response.headers.get("Content-Length"))
-                    if fallback is not None:
-                        unpacked = fallback
-                        unpacked_header = "Content-Length"
 
                 if unpacked is None:
                     return ProbeResult(
@@ -260,7 +248,6 @@ async def run(args: argparse.Namespace) -> int:
                     session=session,
                     storage_base=storage_base,
                     mod_id=mod_id,
-                    allow_content_length_fallback=bool(args.allow_content_length_fallback),
                     semaphore=semaphore,
                 )
             )

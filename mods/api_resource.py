@@ -256,6 +256,7 @@ async def add_resource_upload_init(
     insert_statement = insert(catalog.Resource).values(
         type=resource_type,
         url="",
+        size=None,
         date_event=datetime.now(),
         owner_type=owner_type,
         owner_id=resource_owner_id,
@@ -578,6 +579,7 @@ async def add_resource(
         insert_statement = insert(catalog.Resource).values(
             type=resource_type,
             url=resource_url,
+            size=None,
             date_event=datetime.now(),
             owner_type=owner_type,
             owner_id=resource_owner_id,
@@ -648,6 +650,7 @@ async def edit_resource(
             ):
                 return JSONResponse(status_code=500, content="delete old file error")
             data_edit["url"] = resource_url
+            data_edit["size"] = None
 
         if len(data_edit) <= 0:
             return JSONResponse(status_code=418, content="The request is empty")
@@ -663,4 +666,3 @@ async def edit_resource(
     else:
         session.close()
         return access_result
-

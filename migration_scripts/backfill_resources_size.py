@@ -155,41 +155,55 @@ async def probe_resource(
     encoded_rel_path = quote(rel_path, safe="/")
     url = f"{storage_base}/download/resource/{encoded_rel_path}"
 
+    def parse_response(
+        response: aiohttp.ClientResponse,
+        *,
+        method: str,
+    ) -> ResourceProbeResult:
+        status = response.status
+        if status == 404:
+            return ResourceProbeResult(
+                resource_id=resource_id,
+                status="not_found",
+                http_status=status,
+                details=f"{method}: {rel_path}",
+            )
+        if status >= 400 and status != 416:
+            return ResourceProbeResult(
+                resource_id=resource_id,
+                status="http_error",
+                http_status=status,
+                details=f"{method}: status={status}",
+            )
+
+        size_bytes = _parse_non_negative(response.headers.get("Content-Length"))
+        if size_bytes is None:
+            return ResourceProbeResult(
+                resource_id=resource_id,
+                status="header_missing",
+                http_status=status,
+                details=f"{method}: no size headers",
+            )
+        if size_bytes <= 0:
+            return ResourceProbeResult(
+                resource_id=resource_id,
+                status="zero_size",
+                http_status=status,
+                details=f"{method}: size={size_bytes}",
+            )
+
+        return ResourceProbeResult(
+            resource_id=resource_id,
+            status="ok",
+            size_bytes=size_bytes,
+            http_status=status,
+            details=f"{method}: {rel_path}",
+        )
+
     async with semaphore:
         try:
             async with session.head(url, allow_redirects=True) as response:
-                status = response.status
-                if status == 404:
-                    return ResourceProbeResult(
-                        resource_id=resource_id,
-                        status="not_found",
-                        http_status=status,
-                        details=rel_path,
-                    )
-                if status >= 400:
-                    return ResourceProbeResult(
-                        resource_id=resource_id,
-                        status="http_error",
-                        http_status=status,
-                        details=f"status={status}",
-                    )
-
-                content_length = _parse_non_negative(response.headers.get("Content-Length"))
-                if content_length is None:
-                    return ResourceProbeResult(
-                        resource_id=resource_id,
-                        status="header_missing",
-                        http_status=status,
-                        details="Content-Length missing",
-                    )
-
-                return ResourceProbeResult(
-                    resource_id=resource_id,
-                    status="ok",
-                    size_bytes=content_length,
-                    http_status=status,
-                    details=rel_path,
-                )
+                return parse_response(response, method="HEAD")
         except asyncio.TimeoutError:
             return ResourceProbeResult(
                 resource_id=resource_id,
@@ -231,6 +245,7 @@ async def run(args: argparse.Namespace) -> int:
         "non_local": 0,
         "not_found": 0,
         "header_missing": 0,
+        "zero_size": 0,
         "timeout": 0,
         "client_error": 0,
         "http_error": 0,

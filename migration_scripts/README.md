@@ -13,7 +13,7 @@
 1. `backfill_mods_size_unpacked.py`
 - Ищет моды с `mods.size_unpacked IS NULL`.
 - Делает `HEAD /download/archive/mods/{mod_id}/main.zip`.
-- Берет размер из `X-Unpacked-Bytes` (или совместимых заголовков).
+- Берет размер из `X-Unpacked-Bytes`.
 - Обновляет `mods.size_unpacked`.
 
 2. `backfill_resources_size.py`

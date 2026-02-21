@@ -655,7 +655,7 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
             parsed_resource_size = int(raw_resource_size)
         except (TypeError, ValueError):
             parsed_resource_size = None
-        if parsed_resource_size is not None and parsed_resource_size >= 0:
+        if parsed_resource_size is not None and parsed_resource_size > 0:
             resource_size = parsed_resource_size
 
     if callback_action == "avatar_set":
@@ -693,6 +693,15 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
             resource_id = int(resource_id)
         except (TypeError, ValueError):
             return PlainTextResponse(status_code=400, content="Invalid payload")
+        if resource_size is None:
+            logger.warning(
+                "resource size unresolved job_id=%s action=%s resource_id=%s target=%s move_payload=%s",
+                job_id,
+                callback_action,
+                resource_id,
+                target_path,
+                move_payload,
+            )
 
         session = sessionmaker(bind=catalog.engine)()
         resource_query = session.query(catalog.Resource).filter_by(id=resource_id)
