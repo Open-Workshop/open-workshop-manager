@@ -695,13 +695,20 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
             return PlainTextResponse(status_code=400, content="Invalid payload")
         if resource_size is None:
             logger.warning(
-                "resource size unresolved job_id=%s action=%s resource_id=%s target=%s move_payload=%s",
+                "resource transfer rejected (invalid final_bytes) job_id=%s action=%s resource_id=%s target=%s move_payload=%s",
                 job_id,
                 callback_action,
                 resource_id,
                 target_path,
                 move_payload,
             )
+            await tools.storage_file_delete(type="resource", path=target_path)
+            if callback_action == "resource_add":
+                session = sessionmaker(bind=catalog.engine)()
+                session.query(catalog.Resource).filter_by(id=resource_id).delete()
+                session.commit()
+                session.close()
+            return PlainTextResponse(status_code=202, content="Invalid file size")
 
         session = sessionmaker(bind=catalog.engine)()
         resource_query = session.query(catalog.Resource).filter_by(id=resource_id)
