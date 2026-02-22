@@ -573,7 +573,7 @@ def sort_mods(sort_by: str):
             return catalog.Mod.source
         case "iSOURCE":
             return desc(catalog.Mod.source)
-        case "iMOD_DOWNLOADS":
+        case "DOWNLOADS":
             return desc(catalog.Mod.downloads)
         case _:
             return catalog.Mod.downloads  # По умолчанию сортируем по загрузкам
@@ -601,7 +601,7 @@ def sort_games(sort_by: str):
             return catalog.Game.mods_count
         case "iMODS_COUNT":
             return desc(catalog.Game.mods_count)
-        case "MOD_DOWNLOADS":
-            return catalog.Game.mods_downloads
-        case _:
+        case "DOWNLOADS":
             return desc(catalog.Game.mods_downloads)
+        case _:
+            return catalog.Game.mods_downloads
