@@ -27,7 +27,7 @@ from logging_setup import setup_logging
 from sql_logic import sql_catalog as catalog
 from sql_logic import sql_account as account
 from sqlalchemy.orm import sessionmaker
-from telemetry import setup_uptrace_telemetry
+#from telemetry import setup_uptrace_telemetry
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -145,7 +145,7 @@ app = FastAPI(
     redoc_url=MAIN_URL + "/",
     docs_url=MAIN_URL + "/docs",
 )
-setup_uptrace_telemetry(app)
+#setup_uptrace_telemetry(app)
 
 
 @app.middleware("http")
