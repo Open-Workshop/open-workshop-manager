@@ -57,7 +57,6 @@ def main() -> None:
         workers=workers,
         log_level=log_level,
         log_access=access_log,
-        process_name="open-workshop-manager",
     ).serve()
 
 
