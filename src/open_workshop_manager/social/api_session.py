@@ -193,7 +193,7 @@ async def yandex_send_link():
 )
 async def oauth_link(
     request: Request,
-    service: str = Path(description="OAuth сервис", example=["google", "yandex"]),
+    service: str = Path(description="OAuth сервис", examples=["google", "yandex"]),
 ):
     service = service.lower()
     if service == "google":
@@ -755,7 +755,7 @@ async def disconnect_service(
     request: Request,
     service_name: str = Path(
         description="Сервис, который необходимо отключить",
-        example=["yandex", "google"],
+        examples=["yandex", "google"],
     ),
 ):
     """

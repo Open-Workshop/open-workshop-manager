@@ -87,7 +87,7 @@ async def list_tags(
         "", description="Поиск по названию.", max_length=LIMITS.tag.name_max
     ),
     tags_ids=Query(
-        [], description="Фильтрация по id тегов *(массив id)*.", example="[1, 2, 3]"
+        [], description="Фильтрация по id тегов *(массив id)*.", examples=["[1, 2, 3]"]
     ),
 ):
     """
@@ -150,12 +150,12 @@ async def list_tags_for_mods(
     request: Request,
     mods_ids_list=Path(
         description="Список модов к которым нужно вернуть ассоциации.",
-        example="[1, 2, 3]",
+        examples=["[1, 2, 3]"],
     ),
     tags=Query(
         [],
         description="Список тегов ассоциации с которыми интересуют.",
-        example="[1, 2, 3]",
+        examples=["[1, 2, 3]"],
     ),
     only_ids: bool = Query(
         False,
@@ -242,12 +242,12 @@ async def list_tags_for_mods(
 async def list_genres_for_games(
     request: Request,
     games_ids_list=Path(
-        ..., description="Список ID запрошенных игр.", example="[1, 2, 3]"
+        ..., description="Список ID запрошенных игр.", examples=["[1, 2, 3]"]
     ),
     genres=Query(
         [],
         description="Фильтрация по ID жанров (т.е. если жанра нет в переденном списке, он не передается). Неактивен если пуст.",
-        example="[1, 2, 3]",
+        examples=["[1, 2, 3]"],
     ),
     only_ids: bool = Query(
         False,

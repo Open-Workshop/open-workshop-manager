@@ -1271,9 +1271,9 @@ async def mod_list(
     sort: str = Query(
         "DOWNLOADS", description="Сортировка. Подробнее в полном описании функции."
     ),
-    tags=Query([], description="Массив ID тегов", example="[1, 2, 3]"),
+    tags=Query([], description="Массив ID тегов", examples=["[1, 2, 3]"]),
     game: int = Query(-1, description="ID игры."),
-    allowed_ids=Query([], description="Массив ID разрешенных модов.", example="[1, 2, 3]"),
+    allowed_ids=Query([], description="Массив ID разрешенных модов.", examples=["[1, 2, 3]"]),
     independents: bool = Query(
         False, description="Не передавать моды с зависимостями."
     ),
@@ -1283,17 +1283,17 @@ async def mod_list(
             "Массив ID модов, которые должны быть в зависимостях у результата."
             " Применяется по логике И."
         ),
-        example="[1, 2, 3]",
+        examples=["[1, 2, 3]"],
     ),
     primary_sources=Query(
         [],
         description="Массив разрешенных источников.",
-        example="['local', 'steam']",
+        examples=["['local', 'steam']"],
     ),
     allowed_sources_ids=Query(
         [],
         description="Массив ID модов в разрешенных источниках. Обязательно передать `primary_sources`.",
-        example="[1, 2, 3]",
+        examples=["[1, 2, 3]"],
     ),
     name: str = Query("", description="Поиск по названию."),
     user: int = Query(
@@ -1683,7 +1683,7 @@ async def mod_resources(
     resources_list_id=Query(
         [],
         description="Список ID-ресурсов.",
-        example="[1, 2, 3]",
+        examples=["[1, 2, 3]"],
     ),
     page_size: int = Query(
         LIMITS.page.default,
@@ -1693,7 +1693,7 @@ async def mod_resources(
     types_resources=Query(
         [],
         description="Фильтрация по типу ресурсов *(массив типов)*.",
-        example='["logo", "screenshot"]',
+        examples=['["logo", "screenshot"]'],
     ),
     only_urls: bool = Query(
         False, description="Возвращать только ссылки или полную информацию."

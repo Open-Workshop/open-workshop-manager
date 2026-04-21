@@ -94,25 +94,25 @@ async def games_list(
     type_app=Query(
         [],
         description="Фильтр по типу *(`game` и/или `app`)*.",
-        example="['game','app']",
+        examples=["['game','app']"],
     ),
     genres=Query(
         [],
         description="Фильтр по жанрам. Передать id интересующих жанров.",
-        example="[1,2]",
+        examples=["[1,2]"],
     ),
     primary_sources=Query(
         [],
         description="Фильтр по источникам. Передать названия источников.",
-        example="['local','steam']",
+        examples=["['local','steam']"],
     ),
     allowed_sources_ids=Query(
         [],
         description="Фильтр по source_id. Передать id в источниках (не работает если не передан `primary_sources`).",
-        example="[1,2]",
+        examples=["[1,2]"],
     ),
     allowed_ids=Query(
-        [], description="Фильтр по id. Передать id игр.", example="[1,2]"
+        [], description="Фильтр по id. Передать id игр.", examples=["[1,2]"]
     ),
     short_description: bool = Query(
         False, description="Отправлять ли короткое описание."

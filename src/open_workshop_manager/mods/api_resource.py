@@ -78,12 +78,12 @@ async def list_resources_rest(
     owner_ids=Query(
         None,
         description="Список ID-владельцев в формате JSON списка.",
-        example="[1, 2, 3]",
+        examples=["[1, 2, 3]"],
     ),
     owner_id: int | None = Query(
         None, description="ID владельца (альтернатива owner_ids)."
     ),
-    resources_list_id=Query([], description="Список ID-ресурсов.", example="[1, 2, 3]"),
+    resources_list_id=Query([], description="Список ID-ресурсов.", examples=["[1, 2, 3]"]),
     page_size: int = Query(
         LIMITS.page.default,
         description="Размер 1 страницы. Диапазон - 1...50 элементов.",
@@ -92,7 +92,7 @@ async def list_resources_rest(
     types_resources=Query(
         [],
         description="Фильтрация по типу ресурсов *(массив типов)*.",
-        example='["logo", "screenshot"]',
+        examples=['["logo", "screenshot"]'],
     ),
     only_urls: bool = Query(
         False, description="Возвращать только ссылки или полную информацию."
@@ -471,8 +471,8 @@ async def list_resources(
         examples=["mods", "games"],
         max_length=LIMITS.resource.owner_type_max,
     ),
-    owner_ids=Path(description="Список ID-владельцев.", example="[1, 2, 3]"),
-    resources_list_id=Query([], description="Список ID-ресурсов.", example="[1, 2, 3]"),
+    owner_ids=Path(description="Список ID-владельцев.", examples=["[1, 2, 3]"]),
+    resources_list_id=Query([], description="Список ID-ресурсов.", examples=["[1, 2, 3]"]),
     page_size: int = Query(
         LIMITS.page.default,
         description="Размер 1 страницы. Диапазон - 1...50 элементов.",
@@ -481,7 +481,7 @@ async def list_resources(
     types_resources=Query(
         [],
         description="Фильтрация по типу ресурсов *(массив типов)*.",
-        example='["logo", "screenshot"]',
+        examples=['["logo", "screenshot"]'],
     ),
     only_urls: bool = Query(
         False, description="Возвращать только ссылки или полную информацию."
