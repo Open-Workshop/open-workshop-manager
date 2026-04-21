@@ -19,8 +19,11 @@ from fastapi.responses import (
     RedirectResponse,
 )
 from google_auth_oauthlib.flow import Flow
+from httpx import HTTPStatusError
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, update
 from yandexid import AsyncYandexID, AsyncYandexOAuth
+from yandexid.errors.yandexoauth import YandexOAuthError
 
 from open_workshop_manager import settings as config
 from open_workshop_manager import standarts, tools
@@ -45,6 +48,14 @@ class _GoogleWebConfig(TypedDict):
 
 class _GoogleConfig(TypedDict):
     web: _GoogleWebConfig
+
+
+class _GoogleTokenResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    access_token: str | None = None
+    error: str | None = None
+    error_description: str | None = None
 
 
 router = APIRouter()
@@ -273,6 +284,7 @@ async def password_authorization(
     summary="Завершение авторизации (Google)",
     responses={
         200: {"description": "Авторизация прошла успешно."},
+        400: {"description": "Не удалось получить access token Google OAuth."},
         409: {"description": "К аккаунту пользователя уже подлючен Google ID."},
         410: {
             "description": "Аккаунт Google использовался в недавно удаленном аккаунте OW *(подождать)*."
@@ -315,12 +327,41 @@ async def google_complite(
         async with NETsession.post(
             "https://oauth2.googleapis.com/token", data=data_complite
         ) as token_response:
-            google_access = await token_response.json()
+            try:
+                google_access = _GoogleTokenResponse.model_validate(
+                    await token_response.json()
+                )
+            except (aiohttp.ContentTypeError, json.JSONDecodeError, ValueError) as exc:
+                logger.error(
+                    "Google token endpoint returned malformed payload: status=%s",
+                    token_response.status,
+                )
+                raise standarts.InternalServerError(
+                    detail="Google OAuth returned malformed token response",
+                    instance=str(request.url),
+                ) from exc
+
             logger.debug("Google token response received")
+
+            if google_access.error:
+                raise standarts.BadRequestError(
+                    detail=google_access.error_description or google_access.error,
+                    instance=str(request.url),
+                )
+
+            if not google_access.access_token:
+                logger.error(
+                    "Google token response is missing access_token: %s",
+                    google_access.model_dump(exclude_none=True),
+                )
+                raise standarts.BadRequestError(
+                    detail="Google OAuth did not return an access token",
+                    instance=str(request.url),
+                )
 
             async with NETsession.get(
                 "https://www.googleapis.com/oauth2/v1/userinfo",
-                headers={"Authorization": f'Bearer {google_access["access_token"]}'},
+                headers={"Authorization": f"Bearer {google_access.access_token}"},
             ) as user_info_response:
                 user_data = await user_info_response.json()
 
@@ -494,13 +535,32 @@ async def yandex_complite(
     response: Response,
     request: Request,
     code: str = Query(description="Код доступа к Yandex OAuth API"),
+    cid: str | None = Query(
+        default=None,
+        description="Идентификатор устройства, если Yandex передал его в callback.",
+    ),
 ):
     """
     Если данный аккаунт Yandex не привязан ни к одному из аккаунтов OW и при этом передать действующий access_token то произойдет коннект.
 
     Если не передать действующий access_token то создаётся новый аккаунт OW. С Yandex будет взят аватар и никнейм.
     """
-    token = await yandex_oauth.get_token_from_code(code)
+    device_id = cid if cid and 6 <= len(cid) <= 50 and cid.isalnum() else None
+
+    try:
+        token = await yandex_oauth.get_token_from_code(code, device_id=device_id)
+    except (HTTPStatusError, YandexOAuthError) as exc:
+        logger.warning(
+            "Yandex token exchange failed: url=%s cid=%s error=%s",
+            request.url.path,
+            cid or "-",
+            exc,
+        )
+        raise standarts.BadRequestError(
+            detail=str(exc),
+            instance=str(request.url),
+        ) from exc
+
     user_data = await AsyncYandexID(oauth_token=token.access_token).get_user_info_json()
 
     async with account.AsyncSessionLocal() as session:
