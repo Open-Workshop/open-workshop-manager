@@ -46,36 +46,66 @@ class ProfileRightsPayload(BaseModel):
     vote_for_reputation: bool
 
 
-def _profile_private_payload(row: account.Account) -> dict[str, object]:
-    return {
-        "last_username_reset": row.last_username_reset,
-        "last_password_reset": row.last_password_reset,
-        "yandex": bool(row.yandex_id),
-        "google": bool(row.google_id),
-    }
+class ProfilePrivatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    last_username_reset: datetime.datetime | None = None
+    last_password_reset: datetime.datetime | None = None
+    yandex: bool
+    google: bool
 
 
-def _profile_rights_payload(row: account.Account) -> dict[str, object]:
-    return ProfileRightsPayload.model_validate(row, from_attributes=True).model_dump(
-        mode="json"
+class ProfileGeneralPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    username: str
+    about: str
+    avatar_url: str
+    grade: str
+    comments: int
+    author_mods: int
+    registration_date: datetime.datetime
+    reputation: int
+    mute: datetime.datetime | bool
+
+
+class ProfileResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    general: ProfileGeneralPayload | None = None
+    private: ProfilePrivatePayload | None = None
+    rights: ProfileRightsPayload | None = None
+
+
+def _profile_private_payload(row: account.Account) -> ProfilePrivatePayload:
+    return ProfilePrivatePayload(
+        last_username_reset=row.last_username_reset,
+        last_password_reset=row.last_password_reset,
+        yandex=bool(row.yandex_id),
+        google=bool(row.google_id),
     )
+
+
+def _profile_rights_payload(row: account.Account) -> ProfileRightsPayload:
+    return ProfileRightsPayload.model_validate(row, from_attributes=True)
 
 
 def _profile_general_payload(
     row: account.Account, now: datetime.datetime
-) -> dict[str, object]:
-    return {
-        "id": row.id,
-        "username": row.username,
-        "about": row.about,
-        "avatar_url": row.avatar_url,
-        "grade": row.grade,
-        "comments": row.comments,
-        "author_mods": row.author_mods,
-        "registration_date": row.registration_date,
-        "reputation": row.reputation,
-        "mute": row.mute_until if row.mute_until and row.mute_until > now else False,
-    }
+) -> ProfileGeneralPayload:
+    return ProfileGeneralPayload(
+        id=row.id,
+        username=row.username,
+        about=row.about,
+        avatar_url=row.avatar_url,
+        grade=row.grade,
+        comments=row.comments,
+        author_mods=row.author_mods,
+        registration_date=row.registration_date,
+        reputation=row.reputation,
+        mute=row.mute_until if row.mute_until and row.mute_until > now else False,
+    )
 
 
 @router.get(
@@ -83,6 +113,8 @@ def _profile_general_payload(
     tags=["Profile"],
     summary="Информация о профиле",
     status_code=200,
+    response_model=ProfileResponse,
+    response_model_exclude_none=True,
     responses={
         200: {
             "description": "Возвращает информацию о профиле по запрошенным разделам."
@@ -106,7 +138,7 @@ async def info_profile(
         description="Вернуть ли скрытую информацию *(должен быть владельцем аккаунта или админом)*.",
     ),
 ):
-    result: dict[str, dict[str, object]] = {}
+    result = ProfileResponse()
     async with account.AsyncSessionLocal() as session:
         row = await session.get(account.Account, user_id)
         if not row:
@@ -134,15 +166,15 @@ async def info_profile(
                         )
 
                 if private:
-                    result["private"] = _profile_private_payload(row)
+                    result.private = _profile_private_payload(row)
 
                 if rights:
-                    result["rights"] = _profile_rights_payload(row)
+                    result.rights = _profile_rights_payload(row)
             else:
                 raise standarts.UnauthorizedError(instance=str(request.url))
 
         if general:
-            result["general"] = _profile_general_payload(row, datetime.datetime.now())
+            result.general = _profile_general_payload(row, datetime.datetime.now())
 
     return result
 
