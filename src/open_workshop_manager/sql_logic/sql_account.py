@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+from typing import TypedDict
 
 import bcrypt
 from fastapi import Request, Response
@@ -211,7 +212,21 @@ class Reaction(Base):  # Жанры для игр
     update_date: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
 
-async def gen_session(user_id: int, session: AsyncSession, login_method: str = "unknown"):
+class _SessionTokenEntry(TypedDict):
+    token: str
+    end: datetime.datetime
+
+
+class SessionTokens(TypedDict):
+    access: _SessionTokenEntry
+    refresh: _SessionTokenEntry
+
+
+async def gen_session(
+    user_id: int,
+    session: AsyncSession,
+    login_method: str = "unknown",
+) -> SessionTokens:
     ddate = datetime.datetime.now()
     result = await session.execute(
         select(Session).where(
@@ -255,6 +270,11 @@ async def gen_session(user_id: int, session: AsyncSession, login_method: str = "
             end_date_refresh=end_refresh,
         )
     )
+
+    return {
+        "access": {"token": access_token, "end": end_access},
+        "refresh": {"token": refresh_token, "end": end_refresh},
+    }
 
 
 async def no_from_russia(request: Request) -> str | None:
