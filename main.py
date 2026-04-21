@@ -17,10 +17,6 @@ from association.api_association_control import router as association_control_ro
 from association.api_association_getter import router as association_getter_router
 from social.api_profile import router as profile_router
 from social.api_session import router as session_router
-from social.api_reaction import router as reaction_router
-from social.api_black_list import router as black_list_router
-from social.api_forum import router as forum_router
-from social.api_forum_comment import router as forum_comment_router
 from app.api_catalog_statistics import router as catalog_statistics_router
 from starlette.types import ASGIApp, Receive, Scope, Send
 from logging_setup import setup_logging
@@ -252,8 +248,4 @@ app.include_router(association_control_router)
 app.include_router(association_getter_router)
 app.include_router(profile_router)
 app.include_router(session_router)
-app.include_router(reaction_router)
-app.include_router(black_list_router)
-app.include_router(forum_router)
-app.include_router(forum_comment_router)
 app.include_router(catalog_statistics_router)
