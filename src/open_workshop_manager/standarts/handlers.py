@@ -204,4 +204,3 @@ def install_exception_handlers(app: FastAPI) -> None:
         exc: RequestValidationError,
     ) -> JSONResponse:
         return problem_response(_validation_problem(request, exc))
-

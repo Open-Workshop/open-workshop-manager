@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Form, Path, Query, Request, Response
@@ -8,6 +9,8 @@ from open_workshop_manager import standarts, tools
 from open_workshop_manager.limits import LIMITS
 from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.sql_logic import sql_catalog as catalog
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -229,7 +232,7 @@ async def game_info(
         False,
         description="Отправлять ли статистику (количество модов и их общее количество скачиваний).",
     ),
-    ):
+):
     async with catalog.AsyncSessionLocal() as session:
         stmt = select(catalog.Game).where(catalog.Game.id == game_id)
         row = (await session.execute(stmt)).scalar_one_or_none()

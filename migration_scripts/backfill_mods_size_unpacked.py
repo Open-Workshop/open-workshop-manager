@@ -31,7 +31,6 @@ if str(SRC_DIR) not in sys.path:
 from open_workshop_manager import settings as config  # noqa: E402
 from open_workshop_manager.sql_logic import sql_catalog as catalog  # noqa: E402
 
-
 DEFAULT_UNPACKED_HEADERS = (
     "X-Unpacked-Bytes",
     "X-Archive-Unpacked-Bytes",

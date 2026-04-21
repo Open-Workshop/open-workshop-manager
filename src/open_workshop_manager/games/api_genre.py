@@ -1,12 +1,11 @@
-from fastapi import APIRouter, Request, Response, Form, Query
+from fastapi import APIRouter, Form, Query, Request, Response
 from fastapi.responses import JSONResponse
-from open_workshop_manager import tools
-from open_workshop_manager.settings import MAIN_URL
+from sqlalchemy import delete, func, insert, select
+
+from open_workshop_manager import standarts, tools
 from open_workshop_manager.limits import LIMITS
-from sqlalchemy import delete, insert
+from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.sql_logic import sql_catalog as catalog
-from open_workshop_manager import standarts
-from sqlalchemy import select, func
 
 router = APIRouter()
 

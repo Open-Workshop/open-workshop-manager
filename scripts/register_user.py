@@ -9,9 +9,9 @@ resolves by username and would be ambiguous otherwise.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import datetime as dt
 import getpass
-import asyncio
 import sys
 from pathlib import Path
 
@@ -26,8 +26,8 @@ if str(SRC_DIR) not in sys.path:
 import bcrypt  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
-from open_workshop_manager.sql_logic import sql_account as account  # noqa: E402
 from open_workshop_manager.limits import LIMITS  # noqa: E402
+from open_workshop_manager.sql_logic import sql_account as account  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:

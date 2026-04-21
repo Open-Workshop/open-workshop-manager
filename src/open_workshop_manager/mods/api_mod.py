@@ -1,28 +1,29 @@
-from fastapi import (
-    APIRouter,
-    Request,
-    Response,
-    Form,
-    Path,
-    Query,
-    Header,
-)
-from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
-from open_workshop_manager.sql_logic import sql_account as account
-from open_workshop_manager import tools
 import logging
 import re
 import uuid
-from urllib.parse import urlparse, quote
 from datetime import datetime
-from sqlalchemy import delete, func, insert, select, update
 from typing import Optional
+from urllib.parse import quote, urlparse
+
+from fastapi import (
+    APIRouter,
+    Form,
+    Header,
+    Path,
+    Query,
+    Request,
+    Response,
+)
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from sqlalchemy import delete, func, insert, select, update
+
+from open_workshop_manager import settings as config
+from open_workshop_manager import standarts, tools
+from open_workshop_manager.limits import LIMITS
+from open_workshop_manager.settings import MAIN_URL
+from open_workshop_manager.sql_logic import sql_account as account
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 from open_workshop_manager.sql_logic import sql_statistics as statistics
-from open_workshop_manager.settings import MAIN_URL
-from open_workshop_manager import settings as config
-from open_workshop_manager.limits import LIMITS
-from open_workshop_manager import standarts
 
 logger = logging.getLogger(__name__)
 
@@ -600,7 +601,9 @@ async def add_mod_from_url(
         raise standarts.UnauthorizedError(instance=str(request.url))
 
 
-async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
+async def _storage_transfer_complete_img(
+    request: Request, payload: dict
+) -> PlainTextResponse:
     status = payload.get("status")
     job_id = str(payload.get("job_id") or "")
     callback_action = str(payload.get("callback_action") or "")
@@ -833,7 +836,7 @@ async def storage_transfer_complete(
 
     transfer_kind = str(payload.get("transfer_kind") or "archive").strip().lower()
     if transfer_kind == "img":
-        return await _storage_transfer_complete_img(payload)
+        return await _storage_transfer_complete_img(request=request, payload=payload)
 
     status = payload.get("status")
     job_id = payload.get("job_id")
@@ -1170,6 +1173,7 @@ async def access_to_mods(
     },
 )
 async def public_mods(
+    request: Request,
     ids_array=Path(description="Массив ID модов (максимум 50 штук)"),
     in_catalog: bool = Query(
         False, description="Возвращает только полностью публичные моды"
@@ -1826,7 +1830,6 @@ async def mod_dependencies(
         ).scalars().all()
 
     return {"count": len(dependencies), "results": dependencies}
-
 
 
 async def edit_mod(

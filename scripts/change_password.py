@@ -9,9 +9,9 @@ immediately.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import datetime as dt
 import getpass
-import asyncio
 import sys
 from pathlib import Path
 

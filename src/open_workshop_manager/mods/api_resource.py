@@ -1,15 +1,16 @@
-from fastapi import APIRouter, Request, Response, Form, Query, Path
-from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
-from open_workshop_manager import tools
 import uuid
-from urllib.parse import quote
-from open_workshop_manager.sql_logic import sql_catalog as catalog
-from sqlalchemy import func, insert, select
-from open_workshop_manager.settings import MAIN_URL
-from open_workshop_manager import settings as config
-from open_workshop_manager.limits import LIMITS
 from datetime import datetime
-from open_workshop_manager import standarts
+from urllib.parse import quote
+
+from fastapi import APIRouter, Form, Path, Query, Request, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from sqlalchemy import func, insert, select
+
+from open_workshop_manager import settings as config
+from open_workshop_manager import standarts, tools
+from open_workshop_manager.limits import LIMITS
+from open_workshop_manager.settings import MAIN_URL
+from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
 
@@ -337,7 +338,7 @@ async def edit_resource_upload_init(
         min_length=LIMITS.resource.type_min,
         max_length=LIMITS.resource.type_max,
     ),
-    ):
+):
     async with catalog.AsyncSessionLocal() as session:
         resource = await session.get(catalog.Resource, resource_id)
         if not resource:

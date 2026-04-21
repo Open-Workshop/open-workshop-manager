@@ -5,8 +5,8 @@ from __future__ import annotations
 import importlib
 import json
 import os
-from urllib.parse import quote
 from typing import Any
+from urllib.parse import quote
 
 try:
     _LEGACY_CONFIG = importlib.import_module("ow_config")
@@ -110,6 +110,7 @@ def mysql_url(database: str) -> str:
     else:
         auth = ""
     return f"mysql+aiomysql://{auth}{MYSQL_HOST}:{MYSQL_PORT}/{safe_database}"
+
 
 access_mods_check_anonymous = _read_str(
     "ACCESS_MODS_CHECK_ANONYMOUS", "", "access_mods_check_anonymous"

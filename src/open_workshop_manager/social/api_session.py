@@ -1,32 +1,31 @@
-from fastapi import APIRouter, Request, Response, Form, Query, Path
-from fastapi.responses import (
-    HTMLResponse,
-    RedirectResponse,
-    JSONResponse,
-    PlainTextResponse,
-)
-from open_workshop_manager.sql_logic import sql_account as account
-import json
-import os
-from functools import lru_cache
-from pathlib import Path as FilePath
-
-from yandexid import AsyncYandexOAuth, AsyncYandexID
-from google_auth_oauthlib.flow import Flow
-import logging
-import bcrypt
-from urllib import parse
 import datetime
+import json
+import logging
+import os
 import random
 import string
-from open_workshop_manager import tools
+from functools import lru_cache
 from io import BytesIO
-from open_workshop_manager.settings import MAIN_URL
-from open_workshop_manager.limits import LIMITS
-from open_workshop_manager import settings as config
+from pathlib import Path as FilePath
+from urllib import parse
+
 import aiohttp
+import bcrypt
+from fastapi import APIRouter, Form, Path, Query, Request, Response
+from fastapi.responses import (
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
+from google_auth_oauthlib.flow import Flow
 from sqlalchemy import insert, select, update
-from open_workshop_manager import standarts
+from yandexid import AsyncYandexID, AsyncYandexOAuth
+
+from open_workshop_manager import settings as config
+from open_workshop_manager import standarts, tools
+from open_workshop_manager.limits import LIMITS
+from open_workshop_manager.settings import MAIN_URL
+from open_workshop_manager.sql_logic import sql_account as account
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +167,7 @@ async def oauth_link(
 )
 async def password_authorization(
     response: Response,
+    request: Request,
     login: str = Form(
         ...,
         description="Логин *(имя пользователя)*",

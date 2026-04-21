@@ -1,17 +1,18 @@
-from fastapi import APIRouter, Request, Response, Form, Query, Path
-from fastapi.responses import RedirectResponse, PlainTextResponse, JSONResponse
-import logging
-import bcrypt
-from open_workshop_manager import tools
-from open_workshop_manager.settings import MAIN_URL
 import datetime
-from open_workshop_manager import settings as config
+import logging
 import uuid
 from urllib.parse import quote
-from open_workshop_manager.limits import LIMITS
+
+import bcrypt
+from fastapi import APIRouter, Form, Path, Query, Request, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from sqlalchemy import insert, select, update
+
+from open_workshop_manager import settings as config
+from open_workshop_manager import standarts, tools
+from open_workshop_manager.limits import LIMITS
+from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.sql_logic import sql_account as account
-from open_workshop_manager import standarts
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ async def info_profile(
         False,
         description="Вернуть ли скрытую информацию *(должен быть владельцем аккаунта или админом)*.",
     ),
-    ):
+):
     result: dict[str, dict[str, object]] = {}
     async with account.AsyncSessionLocal() as session:
         row = await session.get(account.Account, user_id)

@@ -1,6 +1,5 @@
 from fastapi import APIRouter
-from sqlalchemy import func
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.sql_logic import sql_account as account

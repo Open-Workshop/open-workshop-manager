@@ -165,4 +165,3 @@ class AvatarDeletionFailedError(StandardAPIError):
     title = AVATAR_DELETION_FAILED_TITLE
     detail = AVATAR_DELETION_FAILED_DETAIL
     code = AVATAR_DELETION_FAILED_CODE
-

@@ -75,4 +75,3 @@ class SuccessResponse(BaseModel, Generic[T]):
         default=None,
         description="Optional extra response metadata.",
     )
-

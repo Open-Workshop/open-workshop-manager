@@ -1,37 +1,37 @@
-import logging
-import time
 import asyncio
 import datetime
+import logging
+import time
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from open_workshop_manager.settings import MAIN_URL
-from open_workshop_manager import settings as config
+from sqlalchemy import delete, select
+from starlette.types import ASGIApp, Receive, Scope, Send
 
-from open_workshop_manager.games.api_game import router as game_router
-from open_workshop_manager.mods.api_mod import router as mod_router
-from open_workshop_manager.games.api_genre import router as genre_router
-from open_workshop_manager.mods.api_tag import router as tag_router
-from open_workshop_manager.mods.api_resource import router as resource_router
+from open_workshop_manager import settings as config
+from open_workshop_manager import standarts
+from open_workshop_manager.app.api_catalog_statistics import (
+    router as catalog_statistics_router,
+)
 from open_workshop_manager.association.api_association_control import (
     router as association_control_router,
 )
 from open_workshop_manager.association.api_association_getter import (
     router as association_getter_router,
 )
+from open_workshop_manager.games.api_game import router as game_router
+from open_workshop_manager.games.api_genre import router as genre_router
+from open_workshop_manager.logging_setup import setup_logging
+from open_workshop_manager.mods.api_mod import router as mod_router
+from open_workshop_manager.mods.api_resource import router as resource_router
+from open_workshop_manager.mods.api_tag import router as tag_router
+from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.social.api_profile import router as profile_router
 from open_workshop_manager.social.api_session import router as session_router
-from open_workshop_manager.app.api_catalog_statistics import (
-    router as catalog_statistics_router,
-)
-from open_workshop_manager import standarts
-from starlette.types import ASGIApp, Receive, Scope, Send
-from open_workshop_manager.logging_setup import setup_logging
-from open_workshop_manager.telemetry import setup_uptrace_telemetry
-from open_workshop_manager.sql_logic import sql_catalog as catalog
 from open_workshop_manager.sql_logic import sql_account as account
+from open_workshop_manager.sql_logic import sql_catalog as catalog
 from open_workshop_manager.sql_logic import sql_statistics as statistics
-from sqlalchemy import delete, select
+from open_workshop_manager.telemetry import setup_uptrace_telemetry
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -141,7 +141,7 @@ app = FastAPI(
     redoc_url=MAIN_URL + "/",
     docs_url=MAIN_URL + "/docs",
 )
-#setup_uptrace_telemetry(app)
+# setup_uptrace_telemetry(app)
 standarts.install_exception_handlers(app)
 
 

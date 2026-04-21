@@ -1,3 +1,7 @@
+"""Public standard API exports."""
+
+# flake8: noqa
+
 from .constants import (
     AVATAR_DELETION_FAILED_CODE,
     AVATAR_DELETION_FAILED_DETAIL,
@@ -43,4 +47,3 @@ from .handlers import (
     responses,
 )
 from .schemas import ProblemDetails, SuccessResponse, ValidationIssue
-

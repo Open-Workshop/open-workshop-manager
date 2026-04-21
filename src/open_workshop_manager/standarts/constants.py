@@ -37,4 +37,3 @@ UNSUPPORTED_OWNER_TYPE_CODE: Final[str] = "unsupported_owner_type"
 AVATAR_DELETION_FAILED_TITLE: Final[str] = "Ошибка удаления аватара"
 AVATAR_DELETION_FAILED_DETAIL: Final[str] = "Не удалось удалить аватар пользователя."
 AVATAR_DELETION_FAILED_CODE: Final[str] = "avatar_delete_failed"
-

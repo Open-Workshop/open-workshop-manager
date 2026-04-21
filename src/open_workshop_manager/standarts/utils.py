@@ -21,4 +21,3 @@ def status_code_name(status_code: int) -> str:
         return HTTPStatus(status_code).name.lower()
     except ValueError:
         return f"http_{status_code}"
-

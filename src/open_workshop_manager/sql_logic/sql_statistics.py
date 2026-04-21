@@ -4,7 +4,8 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime
 from typing import AsyncIterator
 
-from sqlalchemy import Column, Date, DateTime, Integer, String, insert, update
+from sqlalchemy import Column, Date, DateTime, Integer, String, insert
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -91,7 +92,7 @@ async def _increment_stat(
     name: str,
 ) -> None:
     result = await session.execute(
-        update(model)
+        sa_update(model)
         .where(
             time_field == time_value,
             model.type == str(entity_type),
