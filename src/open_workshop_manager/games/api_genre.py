@@ -1,3 +1,7 @@
+"""Genre management routes."""
+
+from typing import Any
+
 from fastapi import APIRouter, Form, Query, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import delete, func, insert, select
@@ -102,7 +106,7 @@ async def add_genre(
         async with catalog.AsyncSessionLocal() as session:
             insert_statement = insert(catalog.Genre).values(name=genre_name)
 
-            result = await session.execute(insert_statement)
+            result: Any = await session.execute(insert_statement)
             genre_id = result.lastrowid  # Получаем ID последней вставленной строки
 
             await session.commit()

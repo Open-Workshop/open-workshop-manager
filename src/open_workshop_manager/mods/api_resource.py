@@ -1,5 +1,8 @@
+"""Resource management routes."""
+
 import uuid
 from datetime import datetime
+from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, Path, Query, Request, Response
@@ -23,7 +26,7 @@ def _transfer_init_response(
 ):
     transfer_url = f"{config.STORAGE_URL}/transfer/upload?token={quote(token)}&job_id={job_id}"
     ws_url = f"{config.STORAGE_URL}/transfer/ws/{job_id}?token={quote(token)}"
-    payload = {
+    payload: dict[str, object] = {
         "job_id": job_id,
         "transfer_url": transfer_url,
         "ws_url": ws_url,
@@ -267,7 +270,7 @@ async def add_resource_upload_init(
             owner_type=owner_type,
             owner_id=resource_owner_id,
         )
-        result = await session.execute(insert_statement)
+        result: Any = await session.execute(insert_statement)
         resource_id = int(result.lastrowid)
         await session.commit()
 
@@ -617,7 +620,7 @@ async def add_resource(
                 owner_id=resource_owner_id,
             )
 
-            result = await session.execute(insert_statement)
+            result: Any = await session.execute(insert_statement)
             id = result.lastrowid  # Получаем ID последней вставленной строки
 
             await session.commit()

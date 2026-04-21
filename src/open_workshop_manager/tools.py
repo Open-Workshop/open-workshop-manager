@@ -2,6 +2,7 @@ import datetime
 import json
 import logging
 from io import BytesIO
+from typing import Literal, Sequence, overload
 
 import aiohttp
 import bcrypt
@@ -130,7 +131,7 @@ def str_to_list(string: str | list) -> list:
 
 
 async def resources_serialize(
-    resources: list[catalog.Resource], only_urls: bool = False
+    resources: Sequence[catalog.Resource], only_urls: bool = False
 ) -> list[dict] | list[str]:
     """
     Serializes a list of `catalog.Resource` objects into a list of dictionaries or a list of strings.
@@ -161,10 +162,31 @@ async def resources_serialize(
     return real_resources
 
 
+@overload
 async def anonymous_access_mods(
     user_id: int,
     mods_ids: list[int] | int,
     edit: bool = False,
+    *,
+    check_mode: Literal[True],
+) -> list[int]: ...
+
+
+@overload
+async def anonymous_access_mods(
+    user_id: int,
+    mods_ids: list[int] | int,
+    edit: bool = False,
+    *,
+    check_mode: Literal[False] = False,
+) -> bool: ...
+
+
+async def anonymous_access_mods(
+    user_id: int,
+    mods_ids: list[int] | int,
+    edit: bool = False,
+    *,
     check_mode: bool = False,
 ) -> bool | list[int]:
     """
@@ -187,6 +209,19 @@ async def anonymous_access_mods(
             select(account.Account).where(account.Account.id == user_id)
         )
         user_req = result.scalar_one_or_none()
+        if user_req is None:
+            if edit:
+                return [] if check_mode else False
+            async with catalog.AsyncSessionLocal() as session_catalog:
+                result_mods = await session_catalog.execute(
+                    select(catalog.Mod.id).where(
+                        catalog.Mod.id.in_(mods_ids), catalog.Mod.public <= 1
+                    )
+                )
+                public_mod_ids: list[int] = list(result_mods.scalars().all())
+                if check_mode:
+                    return public_mod_ids
+                return len(mods_ids) == len(public_mod_ids)
 
         async def mini() -> list[int]:
             if user_req.admin:
@@ -241,12 +276,34 @@ async def anonymous_access_mods(
                     catalog.Mod.id.in_(mods_ids), catalog.Mod.public <= 1
                 )
             )
-            mods = result_mods.scalars().all()
+            allowed_public_mod_ids: list[int] = list(result_mods.scalars().all())
             if check_mode:
-                if len(mods) == 0:
+                if len(allowed_public_mod_ids) == 0:
                     return []
-                return mods
-            return len(mods_ids) == len(mods)
+                return allowed_public_mod_ids
+            return len(mods_ids) == len(allowed_public_mod_ids)
+
+
+@overload
+async def access_mods(
+    response: Response,
+    request: Request,
+    mods_ids: list[int] | int,
+    edit: bool = False,
+    *,
+    check_mode: Literal[True],
+) -> list[int]: ...
+
+
+@overload
+async def access_mods(
+    response: Response,
+    request: Request,
+    mods_ids: list[int] | int,
+    edit: bool = False,
+    *,
+    check_mode: Literal[False] = False,
+) -> bool: ...
 
 
 async def access_mods(
@@ -254,6 +311,7 @@ async def access_mods(
     request: Request,
     mods_ids: list[int] | int,
     edit: bool = False,
+    *,
     check_mode: bool = False,
 ) -> bool | list[int]:
     """
@@ -282,15 +340,18 @@ async def access_mods(
     uid = access_result.get("owner_id", -1) if access_result else -1
 
     if not edit or (access_result and uid >= 0):
-        mini_result = await anonymous_access_mods(
-            user_id=uid, mods_ids=mods_ids, edit=edit, check_mode=check_mode
+        if check_mode:
+            allowed_mod_ids = await anonymous_access_mods(
+                user_id=uid, mods_ids=mods_ids, edit=edit, check_mode=True
+            )
+            return allowed_mod_ids
+
+        has_access = await anonymous_access_mods(
+            user_id=uid, mods_ids=mods_ids, edit=edit, check_mode=False
         )
 
-        if mini_result is not False:
-            return mini_result
-
-        if check_mode:
-            return []
+        if has_access:
+            return True
 
         raise standarts.ForbiddenError(instance=str(request.url))
 

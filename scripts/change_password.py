@@ -129,7 +129,7 @@ async def main() -> int:
             .where(account.Session.owner_id == user.id, account.Session.broken.is_(None))
             .values(broken="password changed")
         )
-        revoked_sessions = revoked_sessions_result.rowcount or 0
+        revoked_sessions = int(getattr(revoked_sessions_result, "rowcount", 0) or 0)
 
         await session.commit()
 

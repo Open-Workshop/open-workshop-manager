@@ -2,6 +2,8 @@ import asyncio
 import datetime
 import logging
 import time
+from collections.abc import MutableMapping
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -95,7 +97,7 @@ class CookieDefaultsMiddleware:
             await self.app(scope, receive, send)
             return
 
-        async def send_wrapper(message: dict) -> None:
+        async def send_wrapper(message: MutableMapping[str, Any]) -> None:
             if message["type"] == "http.response.start":
                 headers = message.get("headers", [])
                 new_headers = []

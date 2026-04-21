@@ -1,8 +1,10 @@
+"""Mod management routes."""
+
 import logging
 import re
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional, cast
 from urllib.parse import quote, urlparse
 
 from fastapi import (
@@ -216,7 +218,7 @@ async def add_mod_from_file(
                             instance=str(request.url),
                         )
 
-                result = await session.execute(insert_statement)
+                result: Any = await session.execute(insert_statement)
                 rid = result.lastrowid
                 await session.commit()
 
@@ -521,20 +523,20 @@ async def add_mod_from_url(
                     insert_statement = insert_statement.values(source_id=mod_source_id)
 
                     async with catalog.AsyncSessionLocal() as tsession:
-                        result = await tsession.scalar(
+                        source_conflict = await tsession.scalar(
                             select(catalog.Mod).where(
                                 catalog.Mod.source == mod_source,
                                 catalog.Mod.source_id == mod_source_id,
                             )
                         )
-                    if result:
+                    if source_conflict:
                         raise standarts.PreconditionFailedError(
                             detail="Такая source-связка уже существует!",
                             instance=str(request.url),
                         )
 
-                result = await session.execute(insert_statement)
-                rid = result.lastrowid
+                insert_result: Any = await session.execute(insert_statement)
+                rid = insert_result.lastrowid
                 await session.commit()
 
             if not without_author:
@@ -615,7 +617,11 @@ async def _storage_transfer_complete_img(
     resource_id_cleanup = 0
     if callback_action == "resource_add":
         try:
-            resource_id_cleanup = int(callback_context.get("resource_id"))
+            resource_id_cleanup_raw = cast(
+                int | str | None, callback_context.get("resource_id")
+            )
+            if resource_id_cleanup_raw is not None:
+                resource_id_cleanup = int(resource_id_cleanup_raw)
         except (TypeError, ValueError):
             resource_id_cleanup = 0
 
@@ -717,18 +723,26 @@ async def _storage_transfer_complete_img(
     )
     resource_size = None
     if isinstance(move_payload, dict):
-        raw_resource_size = move_payload.get("final_bytes")
+        raw_resource_size = cast(int | str | None, move_payload.get("final_bytes"))
         try:
-            parsed_resource_size = int(raw_resource_size)
+            if raw_resource_size is None:
+                parsed_resource_size = None
+            else:
+                parsed_resource_size = int(raw_resource_size)
         except (TypeError, ValueError):
             parsed_resource_size = None
         if parsed_resource_size is not None and parsed_resource_size > 0:
             resource_size = parsed_resource_size
 
     if callback_action == "avatar_set":
-        user_id = callback_context.get("user_id")
+        user_id_raw = cast(int | str | None, callback_context.get("user_id"))
+        if user_id_raw is None:
+            raise standarts.BadRequestError(
+                detail="Invalid payload",
+                instance=str(request.url),
+            )
         try:
-            user_id = int(user_id)
+            user_id = int(user_id_raw)
         except (TypeError, ValueError):
             raise standarts.BadRequestError(
                 detail="Invalid payload",
@@ -758,9 +772,14 @@ async def _storage_transfer_complete_img(
         return PlainTextResponse(status_code=200, content="OK")
 
     if callback_action in {"resource_add", "resource_edit"}:
-        resource_id = callback_context.get("resource_id")
+        resource_id_raw = cast(int | str | None, callback_context.get("resource_id"))
+        if resource_id_raw is None:
+            raise standarts.BadRequestError(
+                detail="Invalid payload",
+                instance=str(request.url),
+            )
         try:
-            resource_id = int(resource_id)
+            resource_id = int(resource_id_raw)
         except (TypeError, ValueError):
             raise standarts.BadRequestError(
                 detail="Invalid payload",
@@ -1250,15 +1269,9 @@ async def mod_list(
     sort: str = Query(
         "DOWNLOADS", description="Сортировка. Подробнее в полном описании функции."
     ),
-    tags=Query(
-        [], description="Массив ID тегов", examples={"example": {"value": "[1, 2, 3]"}}
-    ),
+    tags=Query([], description="Массив ID тегов", example="[1, 2, 3]"),
     game: int = Query(-1, description="ID игры."),
-    allowed_ids=Query(
-        [],
-        description="Массив ID разрешенных модов.",
-        examples={"example": {"value": "[1, 2, 3]"}},
-    ),
+    allowed_ids=Query([], description="Массив ID разрешенных модов.", example="[1, 2, 3]"),
     independents: bool = Query(
         False, description="Не передавать моды с зависимостями."
     ),
@@ -1268,17 +1281,17 @@ async def mod_list(
             "Массив ID модов, которые должны быть в зависимостях у результата."
             " Применяется по логике И."
         ),
-        examples={"example": {"value": "[1, 2, 3]"}},
+        example="[1, 2, 3]",
     ),
     primary_sources=Query(
         [],
         description="Массив разрешенных источников.",
-        examples={"example": {"value": "['local', 'steam']"}},
+        example="['local', 'steam']",
     ),
     allowed_sources_ids=Query(
         [],
         description="Массив ID модов в разрешенных источниках. Обязательно передать `primary_sources`.",
-        examples={"example": {"value": "[1, 2, 3]"}},
+        example="[1, 2, 3]",
     ),
     name: str = Query("", description="Поиск по названию."),
     user: int = Query(
@@ -1555,7 +1568,7 @@ async def info_mod(
     game: bool = Query(False, description="Передать ли информацию о игре мода."),
     authors: bool = Query(False, description="Передать ли список авторов мода."),
 ):
-    output = {}
+    output: dict[str, Any] = {}
 
     async with catalog.AsyncSessionLocal() as session:
         output["pre_result"] = await session.get(catalog.Mod, mod_id)
@@ -1662,7 +1675,7 @@ async def mod_resources(
     resources_list_id=Query(
         [],
         description="Список ID-ресурсов.",
-        examples={"example": {"value": "[1, 2, 3]"}},
+        example="[1, 2, 3]",
     ),
     page_size: int = Query(
         LIMITS.page.default,
@@ -1672,7 +1685,7 @@ async def mod_resources(
     types_resources=Query(
         [],
         description="Фильтрация по типу ресурсов *(массив типов)*.",
-        examples={"example": {"value": '["logo", "screenshot"]'}},
+        example='["logo", "screenshot"]',
     ),
     only_urls: bool = Query(
         False, description="Возвращать только ссылки или полную информацию."

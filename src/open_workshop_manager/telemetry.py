@@ -1,8 +1,10 @@
 """OpenTelemetry setup for exporting traces to Uptrace."""
+
 from __future__ import annotations
 
 import atexit
 import logging
+from typing import Any, Literal, cast
 from urllib.parse import parse_qs, urlparse
 
 from fastapi import FastAPI
@@ -54,7 +56,10 @@ def _dsn_to_otlp_grpc_endpoint(dsn: str) -> str:
     return f"{parsed.scheme}://{host}"
 
 
-def _fastapi_server_request_hook(span: object, scope: dict) -> None:
+FastAPIExcludeSpan = Literal["receive", "send"]
+
+
+def _fastapi_server_request_hook(span: Any, scope: dict[str, Any]) -> None:
     """Add useful attributes to FastAPI server spans."""
     try:
         if not span or not span.is_recording():
@@ -76,20 +81,20 @@ def _fastapi_server_request_hook(span: object, scope: dict) -> None:
         _LOG.exception("Failed to enrich FastAPI request span.")
 
 
-def _parse_fastapi_exclude_spans(value: str | None) -> list[str] | None:
+def _parse_fastapi_exclude_spans(value: str | None) -> list[FastAPIExcludeSpan] | None:
     if value is None:
         return ["receive", "send"]
 
     normalized = [item.strip().lower() for item in value.split(",") if item.strip()]
-    allowed = []
+    allowed: list[FastAPIExcludeSpan] = []
     for item in normalized:
         if item in {"receive", "send"} and item not in allowed:
-            allowed.append(item)
+            allowed.append(cast(FastAPIExcludeSpan, item))
 
     return allowed or None
 
 
-def _aiohttp_span_name(params: object) -> str:
+def _aiohttp_span_name(params: Any) -> str:
     try:
         method = str(getattr(params, "method", "HTTP")).upper()
         url = getattr(params, "url", None)
@@ -99,7 +104,7 @@ def _aiohttp_span_name(params: object) -> str:
         return "HTTP"
 
 
-def _aiohttp_request_hook(span: object, params: object) -> None:
+def _aiohttp_request_hook(span: Any, params: Any) -> None:
     """Add route-like attributes for outbound aiohttp spans."""
     try:
         if not span or not span.is_recording():
@@ -133,9 +138,9 @@ def setup_uptrace_telemetry(app: FastAPI) -> bool:
         _LOG.info("UPTRACE_DSN is not configured, telemetry is disabled.")
         return False
 
-    service_name = _read_setting("OTEL_SERVICE_NAME", "open-workshop-manager")
-    service_version = _read_setting("OTEL_SERVICE_VERSION", "dev")
-    service_environment = _read_setting("OTEL_DEPLOYMENT_ENVIRONMENT", "production")
+    service_name = _read_setting("OTEL_SERVICE_NAME", "open-workshop-manager") or "open-workshop-manager"
+    service_version = _read_setting("OTEL_SERVICE_VERSION", "dev") or "dev"
+    service_environment = _read_setting("OTEL_DEPLOYMENT_ENVIRONMENT", "production") or "production"
     traces_endpoint = _read_setting("UPTRACE_OTLP_TRACES_URL")
     grpc_endpoint = _read_setting("UPTRACE_OTLP_GRPC_URL")
     protocol = (_read_setting("UPTRACE_OTLP_PROTOCOL") or "").lower().strip()
@@ -167,7 +172,7 @@ def setup_uptrace_telemetry(app: FastAPI) -> bool:
                 OTLPSpanExporter as OTLPGrpcSpanExporter,
             )
 
-            exporter = OTLPGrpcSpanExporter(
+            exporter: Any = OTLPGrpcSpanExporter(
                 endpoint=grpc_endpoint or _dsn_to_otlp_grpc_endpoint(dsn),
                 headers=(("uptrace-dsn", dsn),),
             )
@@ -183,7 +188,7 @@ def setup_uptrace_telemetry(app: FastAPI) -> bool:
         else:
             raise ValueError("UPTRACE_OTLP_PROTOCOL must be 'http' or 'grpc'.")
 
-        provider = TracerProvider(
+        provider: Any = TracerProvider(
             resource=Resource.create(
                 {
                     "service.name": service_name,
@@ -234,8 +239,8 @@ def setup_uptrace_telemetry(app: FastAPI) -> bool:
         return False
 
 
-def _shutdown_provider(provider: object) -> None:
+def _shutdown_provider(provider: Any) -> None:
     try:
-        provider.shutdown()  # type: ignore[attr-defined]
+        provider.shutdown()
     except Exception:
         _LOG.exception("Failed to shutdown telemetry provider cleanly.")

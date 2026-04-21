@@ -1,3 +1,5 @@
+"""Association lookup routes."""
+
 from fastapi import APIRouter, Path, Query, Request, Response
 from sqlalchemy import func, select
 
@@ -205,7 +207,7 @@ async def list_tags_for_mods(
             if len(tags) > 0:
                 query = query.where(catalog.Tag.id.in_(tags))
 
-            result_rows[mod_id] = (await session.execute(query)).scalars().all()
+            result_rows[mod_id] = list((await session.execute(query)).scalars().all())
 
         return result_rows
 
@@ -285,6 +287,6 @@ async def list_genres_for_games(
             if len(genres) > 0:
                 query = query.where(catalog.Genre.id.in_(genres))
 
-            result_rows[game_id] = (await session.execute(query)).scalars().all()
+            result_rows[game_id] = list((await session.execute(query)).scalars().all())
 
         return result_rows

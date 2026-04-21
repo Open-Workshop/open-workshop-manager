@@ -1,3 +1,7 @@
+"""Tag management routes."""
+
+from typing import Any
+
 from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy import delete, insert
@@ -37,7 +41,7 @@ async def add_tag(
         async with catalog.AsyncSessionLocal() as session:
             insert_statement = insert(catalog.Tag).values(name=tag_name)
 
-            result = await session.execute(insert_statement)
+            result: Any = await session.execute(insert_statement)
             tag_id = result.lastrowid  # Получаем ID последней вставленной строки
 
             await session.commit()

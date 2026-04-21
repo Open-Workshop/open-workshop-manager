@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from datetime import date, datetime
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from sqlalchemy import Column, Date, DateTime, Integer, String, insert
 from sqlalchemy import update as sa_update
@@ -22,51 +22,51 @@ async_engine: AsyncEngine = create_async_engine(
 )
 engine = async_engine
 AsyncSessionLocal = async_sessionmaker(async_engine, expire_on_commit=False)
-Base = declarative_base()
+Base: Any = declarative_base()
 
 
 class StatisticsHour(Base):
     __tablename__ = "statistics_hour"
-    id = Column(Integer, primary_key=True)
-    date_time = Column(DateTime)
+    id: Any = Column(Integer, primary_key=True)
+    date_time: Any = Column(DateTime)
 
     # user, mod, etc...
-    type = Column(String(32))
-    type_id = Column(Integer, default=None)
+    type: Any = Column(String(32))
+    type_id: Any = Column(Integer, default=None)
 
     # views, downloads, etc
-    name = Column(String(64))
+    name: Any = Column(String(64))
 
-    count = Column(Integer, default=0)
+    count: Any = Column(Integer, default=0)
 
 
 class StatisticsDay(Base):
     __tablename__ = "statistics_day"
-    id = Column(Integer, primary_key=True)
-    date = Column(Date)
+    id: Any = Column(Integer, primary_key=True)
+    date: Any = Column(Date)
 
     # user, mod, etc...
-    type = Column(String(32))
-    type_id = Column(Integer, default=None)
+    type: Any = Column(String(32))
+    type_id: Any = Column(Integer, default=None)
 
     # views, downloads, etc
-    name = Column(String(64))
+    name: Any = Column(String(64))
 
-    count = Column(Integer, default=0)
+    count: Any = Column(Integer, default=0)
 
 
 class ProcessingTime(Base):
     __tablename__ = "processing_time"
-    time = Column(DateTime, primary_key=True)
+    time: Any = Column(DateTime, primary_key=True)
 
     # user, mod, etc...
-    type = Column(String(32))
-    type_id = Column(Integer, default=None)
+    type: Any = Column(String(32))
+    type_id: Any = Column(Integer, default=None)
 
     # views, downloads, etc
-    name = Column(String(64))
+    name: Any = Column(String(64))
 
-    delay = Column(Integer)
+    delay: Any = Column(Integer)
 
 
 @asynccontextmanager
@@ -91,7 +91,7 @@ async def _increment_stat(
     entity_id: int | None,
     name: str,
 ) -> None:
-    result = await session.execute(
+    result: Any = await session.execute(
         sa_update(model)
         .where(
             time_field == time_value,

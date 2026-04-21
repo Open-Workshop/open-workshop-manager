@@ -5,11 +5,12 @@ from __future__ import annotations
 import importlib
 import json
 import os
-from typing import Any
+from types import ModuleType
+from typing import Any, Literal, cast
 from urllib.parse import quote
 
 try:
-    _LEGACY_CONFIG = importlib.import_module("ow_config")
+    _LEGACY_CONFIG: ModuleType | None = importlib.import_module("ow_config")
 except ModuleNotFoundError:  # pragma: no cover - legacy config is optional
     _LEGACY_CONFIG = None
 
@@ -121,7 +122,17 @@ storage_delete_token = _read_str("STORAGE_DELETE_TOKEN", "", "storage_delete_tok
 storage_manage_token = _read_str("STORAGE_MANAGE_TOKEN", "", "storage_manage_token")
 
 COOKIE_DOMAIN = _read_str("COOKIE_DOMAIN", ".openworkshop.miskler.ru")
-COOKIE_SAMESITE = _read_str("COOKIE_SAMESITE", "Lax")
+SameSite = Literal["lax", "strict", "none"]
+
+
+def _read_samesite(name: str, default: SameSite = "lax") -> SameSite:
+    value = _read_str(name, default).strip().lower()
+    if value in {"lax", "strict", "none"}:
+        return cast(SameSite, value)
+    return default
+
+
+COOKIE_SAMESITE: SameSite = _read_samesite("COOKIE_SAMESITE", "lax")
 COOKIE_SECURE = _read_bool("COOKIE_SECURE", True)
 
 CORS_ORIGINS = _read_list(

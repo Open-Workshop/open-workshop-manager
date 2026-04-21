@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -137,8 +137,10 @@ def _validation_problem(
 
 
 def _http_problem(request: Request, exc: StarletteHTTPException) -> ProblemDetails:
-    if isinstance(exc.detail, ProblemDetails):
-        problem = exc.detail.model_copy(deep=True)
+    detail_obj = cast(Any, exc.detail)
+
+    if isinstance(detail_obj, ProblemDetails):
+        problem = detail_obj.model_copy(deep=True)
         if problem.status != exc.status_code:
             problem = problem.model_copy(update={"status": exc.status_code})
         if not problem.instance:
@@ -147,17 +149,17 @@ def _http_problem(request: Request, exc: StarletteHTTPException) -> ProblemDetai
             problem = problem.model_copy(update={"code": status_code_name(exc.status_code)})
         return problem
 
-    if isinstance(exc.detail, dict):
+    if isinstance(detail_obj, dict):
         try:
-            problem = ProblemDetails.model_validate(exc.detail)
+            problem = ProblemDetails.model_validate(detail_obj)
         except ValidationError:
             return build_problem(
                 exc.status_code,
                 title=status_title(exc.status_code),
-                detail=str(exc.detail),
+                detail=str(detail_obj),
                 code=status_code_name(exc.status_code),
                 instance=str(request.url),
-                context={"detail": exc.detail},
+                context={"detail": detail_obj},
             )
 
         if problem.status != exc.status_code:
@@ -168,10 +170,10 @@ def _http_problem(request: Request, exc: StarletteHTTPException) -> ProblemDetai
             problem = problem.model_copy(update={"code": status_code_name(exc.status_code)})
         return problem
 
-    detail = exc.detail if isinstance(exc.detail, str) else None
+    detail = detail_obj if isinstance(detail_obj, str) else None
     context = None
-    if detail is None and exc.detail is not None:
-        context = {"detail": exc.detail}
+    if detail is None and detail_obj is not None:
+        context = {"detail": detail_obj}
 
     return build_problem(
         exc.status_code,

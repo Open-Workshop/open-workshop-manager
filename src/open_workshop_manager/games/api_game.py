@@ -1,5 +1,8 @@
+"""Game management routes."""
+
 import logging
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Form, Path, Query, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -305,7 +308,7 @@ async def add_game(
             source="local",
         )
 
-        result = await session.execute(insert_statement)
+        result: Any = await session.execute(insert_statement)
         game_id = result.lastrowid
         await session.commit()
 
@@ -342,10 +345,8 @@ async def edit_game(
         max_length=LIMITS.game.source_max,
     ),
     game_source_id: int = Form(None, description="ID игры в первоисточнике"),
-) -> JSONResponse:
-    access_result = await tools.access_admin(response=response, request=request)
-    if access_result is not True:
-        return access_result
+) -> Response:
+    await tools.access_admin(response=response, request=request)
 
     async with catalog.AsyncSessionLocal() as session:
         game = await session.get(catalog.Game, game_id)

@@ -1,6 +1,7 @@
 import datetime
 import logging
 import uuid
+from typing import Any
 from urllib.parse import quote
 
 import bcrypt
@@ -47,7 +48,7 @@ async def info_profile(
         description="Вернуть ли скрытую информацию *(должен быть владельцем аккаунта или админом)*.",
     ),
 ):
-    result: dict[str, dict[str, object]] = {}
+    result: dict[str, dict[str, Any]] = {}
     async with account.AsyncSessionLocal() as session:
         row = await session.get(account.Account, user_id)
         if not row:
@@ -68,8 +69,7 @@ async def info_profile(
 
                 if user_id != owner_id:
                     owner_row = await session.get(account.Account, owner_id)
-
-                    if not owner_row.admin:
+                    if owner_row is None or not owner_row.admin:
                         raise standarts.ForbiddenError(
                             detail="Вы не имеете доступа к этой информации!",
                             instance=str(request.url),
@@ -147,18 +147,17 @@ async def avatar_profile(
     Возвращает url, по которому можно получить аватар пользователя при условии, что он есть.
     """
     async with account.AsyncSessionLocal() as session:
-        avatar_url = await session.execute(
+        avatar_url = await session.scalar(
             select(account.Account.avatar_url).where(account.Account.id == user_id)
         )
-        avatar_url = avatar_url.first()
 
     if avatar_url:
-        if avatar_url[0].startswith("local"):
+        if avatar_url.startswith("local"):
             return RedirectResponse(
-                url=f'{config.STORAGE_URL}/download/avatar/{user_id}.{avatar_url[0].split(".")[1]}'
+                url=f'{config.STORAGE_URL}/download/avatar/{user_id}.{avatar_url.split(".")[1]}'
             )
-        if len(avatar_url[0]) > 0:
-            return RedirectResponse(url=avatar_url[0])
+        if len(avatar_url) > 0:
+            return RedirectResponse(url=avatar_url)
         return PlainTextResponse(status_code=204, content="Avatar not set.")
 
     raise standarts.NotFoundError(
@@ -358,6 +357,11 @@ async def edit_profile(
             )
 
         row = await session.get(account.Account, owner_id)
+        if row is None:
+            raise standarts.NotFoundError(
+                detail="Пользователь не найден!",
+                instance=str(request.url),
+            )
 
         if owner_id != user_id:
             if not row.admin:
@@ -444,7 +448,7 @@ async def edit_profile(
                         instance=str(request.url),
                     )
 
-        query_update: dict[str, object] = {}
+        query_update: dict[str, Any] = {}
 
         if username:
             if len(username) < LIMITS.profile.username_min:
@@ -614,13 +618,18 @@ async def edit_profile_rights(
                 )
 
             row = await session.get(account.Account, owner_id)
+            if row is None:
+                raise standarts.NotFoundError(
+                    detail="Пользователь не найден!",
+                    instance=str(request.url),
+                )
             if not row.admin:
                 raise standarts.ForbiddenError(
                     detail="Только админ может менять права!",
                     instance=str(request.url),
                 )
 
-            sample_query_update = {
+            sample_query_update: dict[str, bool | None] = {
                 "write_comments": write_comments,
                 "set_reactions": set_reactions,
                 "create_reactions": create_reactions,
@@ -643,10 +652,10 @@ async def edit_profile_rights(
                 "vote_for_reputation": vote_for_reputation,
             }
 
-            query_update: dict[str, object] = {}
-            for key in sample_query_update.keys():
-                if sample_query_update[key] is not None:
-                    query_update[key] = sample_query_update[key]
+            query_update: dict[str, Any] = {}
+            for key, value in sample_query_update.items():
+                if value is not None:
+                    query_update[key] = value
 
             for key, value in query_update.items():
                 setattr(user, key, value)
@@ -695,6 +704,11 @@ async def delete_account(
 
         async with account.AsyncSessionLocal() as session:
             row = await session.get(account.Account, user_id)
+            if row is None:
+                raise standarts.NotFoundError(
+                    detail="Пользователь не найден!",
+                    instance=str(request.url),
+                )
             insert_statement = insert(account.blocked_account_creation).values(
                 yandex_id=row.yandex_id,
                 google_id=row.google_id,

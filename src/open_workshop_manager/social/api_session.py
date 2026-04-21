@@ -7,6 +7,7 @@ import string
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path as FilePath
+from typing import Any, TypedDict, cast
 from urllib import parse
 
 import aiohttp
@@ -36,6 +37,16 @@ DEFAULT_GOOGLE_CREDENTIALS_PATH = (
 )
 
 
+class _GoogleWebConfig(TypedDict):
+    client_id: str
+    client_secret: str
+    redirect_uris: list[str]
+
+
+class _GoogleConfig(TypedDict):
+    web: _GoogleWebConfig
+
+
 router = APIRouter()
 
 yandex_oauth = AsyncYandexOAuth(
@@ -53,13 +64,13 @@ def _google_credentials_path() -> FilePath:
 
 
 @lru_cache(maxsize=1)
-def _google_config() -> dict[str, object]:
+def _google_config() -> _GoogleConfig:
     credentials_path = _google_credentials_path()
     if not credentials_path.exists():
         raise FileNotFoundError(credentials_path)
 
     with credentials_path.open("r", encoding="utf-8") as config_file:
-        return json.load(config_file)
+        return cast(_GoogleConfig, json.load(config_file))
 
 
 @lru_cache(maxsize=1)
@@ -376,7 +387,7 @@ async def google_complite(
                     reputation=0,
                 )
                 # Выполнение операции INSERT
-                result = await session.execute(insert_statement)
+                result: Any = await session.execute(insert_statement)
                 id = result.lastrowid
 
                 if len(user_data.get("picture", "")) > 0:
@@ -547,7 +558,7 @@ async def yandex_complite(
                     reputation=0,
                 )
                 # Выполнение операции INSERT
-                result = await session.execute(insert_statement)
+                result: Any = await session.execute(insert_statement)
                 rid = result.lastrowid
 
                 if not user_data.is_avatar_empty:

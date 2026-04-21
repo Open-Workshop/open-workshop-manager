@@ -1,3 +1,7 @@
+"""Association control routes."""
+
+from typing import Any
+
 from fastapi import APIRouter, Form, Path, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import insert, select
@@ -8,7 +12,7 @@ from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
 
-ASSOCIATION_RESPONSES = {
+ASSOCIATION_RESPONSES: dict[int | str, dict[str, Any]] = {
     202: {
         "description": "Запрос успешно обработан.",
         "content": {"application/json": {"example": "Complite"}},
@@ -27,8 +31,8 @@ ASSOCIATION_RESPONSES = {
     tags=["Association", "Game", "Genre"],
     summary="Создание ассоциации между игрой и жанром",
     status_code=202,
-    responses={
-        **ASSOCIATION_RESPONSES,
+    responses=ASSOCIATION_RESPONSES
+    | {
         401: standarts.responses[401],
         403: standarts.responses["admin"][403],
     },
@@ -86,8 +90,8 @@ async def association_game_with_genre(
     tags=["Association", "Mod"],
     summary="Добавление зависимости мода",
     status_code=202,
-    responses={
-        **ASSOCIATION_RESPONSES,
+    responses=ASSOCIATION_RESPONSES
+    | {
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
     },
@@ -112,8 +116,8 @@ async def mod_add_dependency(
     tags=["Association", "Mod"],
     summary="Удаление зависимости мода",
     status_code=202,
-    responses={
-        **ASSOCIATION_RESPONSES,
+    responses=ASSOCIATION_RESPONSES
+    | {
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
     },
@@ -138,8 +142,8 @@ async def mod_delete_dependency(
     tags=["Association", "Game", "Tag"],
     summary="Создание ассоциации между игрой и тегом",
     status_code=202,
-    responses={
-        **ASSOCIATION_RESPONSES,
+    responses=ASSOCIATION_RESPONSES
+    | {
         401: standarts.responses[401],
         403: standarts.responses["admin"][403],
     },
@@ -197,8 +201,8 @@ async def association_game_with_tag(
     tags=["Association", "Mod", "Tag"],
     summary="Создание ассоциации между модом и тегом",
     status_code=202,
-    responses={
-        **ASSOCIATION_RESPONSES,
+    responses=ASSOCIATION_RESPONSES
+    | {
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
     },
@@ -258,8 +262,8 @@ async def association_mod_with_tag(
     tags=["Association", "Mod", "Tag"],
     summary="Добавление тега модификации",
     status_code=202,
-    responses={
-        **ASSOCIATION_RESPONSES,
+    responses=ASSOCIATION_RESPONSES
+    | {
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
     },
@@ -284,8 +288,8 @@ async def mod_add_tag(
     tags=["Association", "Mod", "Tag"],
     summary="Удаление тега модификации",
     status_code=202,
-    responses={
-        **ASSOCIATION_RESPONSES,
+    responses=ASSOCIATION_RESPONSES
+    | {
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
     },
@@ -310,8 +314,8 @@ async def mod_delete_tag(
     tags=["Association", "Mod"],
     summary="Создание ассоциации между модом и зависимостью",
     status_code=202,
-    responses={
-        **ASSOCIATION_RESPONSES,
+    responses=ASSOCIATION_RESPONSES
+    | {
         401: standarts.responses[401],
         403: standarts.responses["non-admin"][403],
     },

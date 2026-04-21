@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+from typing import Any
 
 import bcrypt
 from fastapi import Request, Response
@@ -33,73 +34,72 @@ async_engine: AsyncEngine = create_async_engine(
 )
 engine = async_engine
 AsyncSessionLocal = async_sessionmaker(async_engine, expire_on_commit=False)
-base = declarative_base()
+base: Any = declarative_base()
 
 STANDART_STR_TIME = "%d.%m.%Y/%H:%M:%S"
 
 
 class Account(base):  # Аккаунты юзеров
     __tablename__ = "accounts"
-    id = Column(Integer, primary_key=True)
+    id: Any = Column(Integer, primary_key=True)
 
-    yandex_id = Column(Integer)
-    google_id = Column(String(512))
+    yandex_id: Any = Column(Integer)
+    google_id: Any = Column(String(512))
 
-    username = Column(String(128))
-    last_username_reset = Column(DateTime)
+    username: Any = Column(String(128))
+    last_username_reset: Any = Column(DateTime)
 
-    about = Column(String(512), default="")  # Ограничение 512 символов
+    about: Any = Column(String(512), default="")  # Ограничение 512 символов
     # если содержит "local" - обращаться к этому же серверу по id юзера, в ином случае содержит прямую ссылку, если пуст, то аватара нет
-    avatar_url = Column(
+    avatar_url: Any = Column(
         String(512), default=""
     )  # если "local", так же содержит после себя .расширение_файла, т.е. "local.png", "local.webp"
-    grade = Column(String(128), default="")
+    grade: Any = Column(String(128), default="")
 
-    comments = Column(Integer, default=0)
-    author_mods = Column(Integer, default=0)
+    comments: Any = Column(Integer, default=0)
+    author_mods: Any = Column(Integer, default=0)
 
-    registration_date = Column(DateTime)
+    registration_date: Any = Column(DateTime)
 
-    password_hash = Column(String(512))
-    last_password_reset = Column(DateTime)
+    password_hash: Any = Column(String(512))
+    last_password_reset: Any = Column(DateTime)
 
-    reputation = Column(Integer, default=0)
+    reputation: Any = Column(Integer, default=0)
 
     # Права пользователей
-    admin = Column(
+    admin: Any = Column(
         Boolean, default=False
     )  # только админ может менять грейды у всех юзеров, а так же назначать новых админов и назначать права юзерам, дает доступ ко всем правам
 
-    write_comments = Column(Boolean, default=True)  # писать и редактировать
-    set_reactions = Column(Boolean, default=True)
+    write_comments: Any = Column(Boolean, default=True)  # писать и редактировать
+    set_reactions: Any = Column(Boolean, default=True)
 
-    create_reactions = Column(Boolean, default=False)
+    create_reactions: Any = Column(Boolean, default=False)
 
-    mute_until = Column(
+    mute_until: Any = Column(
         DateTime
     )  # временное ограничение на все права социальными действиями на сервисе, активен если время тут больше текущего
-    mute_users = Column(Boolean, default=False)  # право на мут пользователей
+    mute_users: Any = Column(Boolean, default=False)  # право на мут пользователей
 
-    publish_mods = Column(Boolean, default=True)
-    change_authorship_mods = Column(Boolean, default=False)
-    change_self_mods = Column(Boolean, default=True)
-    change_mods = Column(Boolean, default=False)
-    delete_self_mods = Column(Boolean, default=True)
-    delete_mods = Column(Boolean, default=False)
+    publish_mods: Any = Column(Boolean, default=True)
+    change_authorship_mods: Any = Column(Boolean, default=False)
+    change_self_mods: Any = Column(Boolean, default=True)
+    change_mods: Any = Column(Boolean, default=False)
+    delete_self_mods: Any = Column(Boolean, default=True)
+    delete_mods: Any = Column(Boolean, default=False)
 
-    create_forums = Column(Boolean, default=True)
-    change_authorship_forums = Column(Boolean, default=False)
-    change_self_forums = Column(Boolean, default=True)
-    change_forums = Column(Boolean, default=False)
-    delete_self_forums = Column(Boolean, default=True)
-    delete_forums = Column(Boolean, default=False)
+    create_forums: Any = Column(Boolean, default=True)
+    change_authorship_forums: Any = Column(Boolean, default=False)
+    change_self_forums: Any = Column(Boolean, default=True)
+    change_forums: Any = Column(Boolean, default=False)
+    delete_self_forums: Any = Column(Boolean, default=True)
+    delete_forums: Any = Column(Boolean, default=False)
 
-    change_username = Column(Boolean, default=True)
-    last_username_reset = Column(DateTime)
-    change_about = Column(Boolean, default=True)
-    change_avatar = Column(Boolean, default=True)
+    change_username: Any = Column(Boolean, default=True)
+    change_about: Any = Column(Boolean, default=True)
+    change_avatar: Any = Column(Boolean, default=True)
 
-    vote_for_reputation = Column(Boolean, default=True)
+    vote_for_reputation: Any = Column(Boolean, default=True)
 
 
 blocked_account_creation = Table(
@@ -113,23 +113,23 @@ blocked_account_creation = Table(
 
 class Session(base):  # Теги для модов
     __tablename__ = "sessions"
-    id = Column(Integer, primary_key=True)
+    id: Any = Column(Integer, primary_key=True)
 
-    owner_id = Column(Integer)
+    owner_id: Any = Column(Integer)
 
-    access_token = Column(String(512))
-    refresh_token = Column(String(512))
+    access_token: Any = Column(String(512))
+    refresh_token: Any = Column(String(512))
 
-    broken = Column(
+    broken: Any = Column(
         String(124)
     )  # Сессия закрыта по причине - `logout`, `too many sessions`
 
-    login_method = Column(String(124))
+    login_method: Any = Column(String(124))
 
-    last_request_date = Column(DateTime)
-    start_date = Column(DateTime)
-    end_date_access = Column(DateTime)
-    end_date_refresh = Column(DateTime)
+    last_request_date: Any = Column(DateTime)
+    start_date: Any = Column(DateTime)
+    end_date_access: Any = Column(DateTime)
+    end_date_refresh: Any = Column(DateTime)
 
 
 black_list = Table(
@@ -153,36 +153,36 @@ mod_and_author = Table(
 
 class Forum(base):  # Форумы, личные сообщения и все что угодно
     __tablename__ = "forums"
-    id = Column(Integer, primary_key=True)
+    id: Any = Column(Integer, primary_key=True)
 
-    title = Column(String(124))
-    description = Column(String(4096))  # Ограничение 4096 символов
+    title: Any = Column(String(124))
+    description: Any = Column(String(4096))  # Ограничение 4096 символов
 
-    to_type = Column(String(64))  # game / mod / private_messages
-    to_id = Column(Integer)
-    author_id = Column(Integer)
+    to_type: Any = Column(String(64))  # game / mod / private_messages
+    to_id: Any = Column(Integer)
+    author_id: Any = Column(Integer)
 
-    reputation = Column(Integer)
+    reputation: Any = Column(Integer)
 
-    creation_date = Column(DateTime)
-    update_date = Column(DateTime)
-    last_comment_date = Column(DateTime)
+    creation_date: Any = Column(DateTime)
+    update_date: Any = Column(DateTime)
+    last_comment_date: Any = Column(DateTime)
 
 
 class Comment(base):  # Теги для модов
     __tablename__ = "comments"
-    id = Column(Integer, primary_key=True)
+    id: Any = Column(Integer, primary_key=True)
 
-    text = Column(String(8192))
+    text: Any = Column(String(8192))
 
-    forum_id = Column(Integer)
-    reply_id = Column(Integer)
-    author_id = Column(Integer)
+    forum_id: Any = Column(Integer)
+    reply_id: Any = Column(Integer)
+    author_id: Any = Column(Integer)
 
-    creation_date = Column(DateTime)
-    update_date = Column(DateTime)
+    creation_date: Any = Column(DateTime)
+    update_date: Any = Column(DateTime)
 
-    reputation = Column(Integer)
+    reputation: Any = Column(Integer)
 
 
 comments_reactions = Table(
@@ -197,12 +197,12 @@ comments_reactions = Table(
 
 class Reaction(base):  # Жанры для игр
     __tablename__ = "reactions"
-    id = Column(Integer, primary_key=True)
-    name = Column(String(124))
-    icon_url = Column(String(512))
+    id: Any = Column(Integer, primary_key=True)
+    name: Any = Column(String(124))
+    icon_url: Any = Column(String(512))
 
-    creation_date = Column(DateTime)
-    update_date = Column(DateTime)
+    creation_date: Any = Column(DateTime)
+    update_date: Any = Column(DateTime)
 
 
 async def gen_session(user_id: int, session: AsyncSession, login_method: str = "unknown"):
