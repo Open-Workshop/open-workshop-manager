@@ -2,11 +2,10 @@
 
 import logging
 from datetime import datetime
-from typing import Any
 
 from fastapi import APIRouter, Form, Path, Query, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import delete, func, select
 
 from open_workshop_manager import standarts, tools
 from open_workshop_manager.limits import LIMITS
@@ -163,9 +162,8 @@ async def games_list(
         if genres:
             for genre in genres:
                 logger.debug("Genre filter type=%s", type(genre))
-                condition = catalog.Game.genres.any(id=genre)
-                count_stmt = count_stmt.where(condition)
-                list_stmt = list_stmt.where(condition)
+                count_stmt = count_stmt.where(catalog.Game.genres.any(id=genre))
+                list_stmt = list_stmt.where(catalog.Game.genres.any(id=genre))
 
         if primary_sources:
             condition = catalog.Game.source.in_(primary_sources)
@@ -297,7 +295,7 @@ async def add_game(
         return access_result
 
     async with catalog.AsyncSessionLocal() as session:
-        insert_statement = insert(catalog.Game).values(
+        new_game = catalog.Game(
             name=game_name,
             type=game_type,
             short_description=game_short_desc,
@@ -307,9 +305,9 @@ async def add_game(
             creation_date=datetime.now(),
             source="local",
         )
-
-        result: Any = await session.execute(insert_statement)
-        game_id = result.lastrowid
+        session.add(new_game)
+        await session.flush()
+        game_id = int(new_game.id)
         await session.commit()
 
     return JSONResponse(status_code=202, content=game_id)

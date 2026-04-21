@@ -3,7 +3,7 @@ import datetime
 import logging
 import time
 from collections.abc import MutableMapping
-from typing import Any
+from typing import cast
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -97,10 +97,10 @@ class CookieDefaultsMiddleware:
             await self.app(scope, receive, send)
             return
 
-        async def send_wrapper(message: MutableMapping[str, Any]) -> None:
+        async def send_wrapper(message: MutableMapping[str, object]) -> None:
             if message["type"] == "http.response.start":
-                headers = message.get("headers", [])
-                new_headers = []
+                headers = cast(list[tuple[bytes, bytes]], message.get("headers", []))
+                new_headers: list[tuple[bytes, bytes]] = []
                 cookie_domain = getattr(config, "COOKIE_DOMAIN", None)
                 cookie_samesite = getattr(config, "COOKIE_SAMESITE", None)
                 cookie_secure = bool(getattr(config, "COOKIE_SECURE", False))

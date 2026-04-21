@@ -1,10 +1,8 @@
 """Genre management routes."""
 
-from typing import Any
-
 from fastapi import APIRouter, Form, Query, Request, Response
 from fastapi.responses import JSONResponse
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import delete, func, select
 
 from open_workshop_manager import standarts, tools
 from open_workshop_manager.limits import LIMITS
@@ -104,10 +102,10 @@ async def add_genre(
 
     if access_result is True:
         async with catalog.AsyncSessionLocal() as session:
-            insert_statement = insert(catalog.Genre).values(name=genre_name)
-
-            result: Any = await session.execute(insert_statement)
-            genre_id = result.lastrowid  # Получаем ID последней вставленной строки
+            new_genre = catalog.Genre(name=genre_name)
+            session.add(new_genre)
+            await session.flush()
+            genre_id = int(new_genre.id)  # Получаем ID последней вставленной строки
 
             await session.commit()
 

@@ -1,10 +1,8 @@
 """Tag management routes."""
 
-from typing import Any
-
 from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
-from sqlalchemy import delete, insert
+from sqlalchemy import delete
 
 from open_workshop_manager import standarts, tools
 from open_workshop_manager.limits import LIMITS
@@ -39,10 +37,10 @@ async def add_tag(
 
     if access_result is True:
         async with catalog.AsyncSessionLocal() as session:
-            insert_statement = insert(catalog.Tag).values(name=tag_name)
-
-            result: Any = await session.execute(insert_statement)
-            tag_id = result.lastrowid  # Получаем ID последней вставленной строки
+            new_tag = catalog.Tag(name=tag_name)
+            session.add(new_tag)
+            await session.flush()
+            tag_id = int(new_tag.id)  # Получаем ID последней вставленной строки
 
             await session.commit()
 

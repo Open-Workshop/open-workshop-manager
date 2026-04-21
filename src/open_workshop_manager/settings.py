@@ -6,7 +6,7 @@ import importlib
 import json
 import os
 from types import ModuleType
-from typing import Any, Literal, cast
+from typing import Literal, cast
 from urllib.parse import quote
 
 try:
@@ -15,7 +15,7 @@ except ModuleNotFoundError:  # pragma: no cover - legacy config is optional
     _LEGACY_CONFIG = None
 
 
-def _read(name: str, default: Any = None, legacy_name: str | None = None) -> Any:
+def _read(name: str, default: object = None, legacy_name: str | None = None) -> object:
     if name in os.environ:
         return os.environ[name]
 
@@ -38,9 +38,11 @@ def _read_str(name: str, default: str = "", legacy_name: str | None = None) -> s
 def _read_int(name: str, default: int, legacy_name: str | None = None) -> int:
     value = _read(name=name, default=default, legacy_name=legacy_name)
     try:
-        return int(value)
+        if isinstance(value, (int, float, str, bytes, bytearray)):
+            return int(value)
     except (TypeError, ValueError):
-        return default
+        pass
+    return default
 
 
 def _read_bool(name: str, default: bool, legacy_name: str | None = None) -> bool:

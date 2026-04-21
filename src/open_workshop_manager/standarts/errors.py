@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from .constants import (
     AVATAR_DELETION_FAILED_CODE,
@@ -30,7 +30,7 @@ class StandardAPIError(Exception):
         self,
         *,
         instance: str | None = None,
-        context: dict[str, Any] | None = None,
+        context: dict[str, object] | None = None,
         headers: Mapping[str, str] | None = None,
         detail: str | None = None,
     ) -> None:

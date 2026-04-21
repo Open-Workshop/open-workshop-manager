@@ -189,25 +189,27 @@ async def list_tags_for_mods(
         if only_ids:
             result_ids: dict[int, list[int]] = {}
             for mod_id in mods_ids_list:
-                query = select(catalog.Tag.id).join(catalog.mods_tags).where(
+                query_ids = select(catalog.Tag.id).join(catalog.mods_tags).where(
                     catalog.mods_tags.c.mod_id == mod_id
                 )
                 if len(tags) > 0:
-                    query = query.where(catalog.Tag.id.in_(tags))
+                    query_ids = query_ids.where(catalog.Tag.id.in_(tags))
 
-                result_ids[mod_id] = list((await session.execute(query)).scalars().all())
+                result_ids[mod_id] = list(
+                    (await session.execute(query_ids)).scalars().all()
+                )
 
             return result_ids
 
         result_rows: dict[int, list[catalog.Tag]] = {}
         for mod_id in mods_ids_list:
-            query = select(catalog.Tag).join(catalog.mods_tags).where(
+            query_rows = select(catalog.Tag).join(catalog.mods_tags).where(
                 catalog.mods_tags.c.mod_id == mod_id
             )
             if len(tags) > 0:
-                query = query.where(catalog.Tag.id.in_(tags))
+                query_rows = query_rows.where(catalog.Tag.id.in_(tags))
 
-            result_rows[mod_id] = list((await session.execute(query)).scalars().all())
+            result_rows[mod_id] = list((await session.execute(query_rows)).scalars().all())
 
         return result_rows
 
@@ -269,24 +271,28 @@ async def list_genres_for_games(
         if only_ids:
             result_ids: dict[int, list[int]] = {}
             for game_id in games_ids_list:
-                query = select(catalog.Genre.id).join(catalog.game_genres).where(
+                query_ids = select(catalog.Genre.id).join(catalog.game_genres).where(
                     catalog.game_genres.c.game_id == game_id
                 )
                 if len(genres) > 0:
-                    query = query.where(catalog.Genre.id.in_(genres))
+                    query_ids = query_ids.where(catalog.Genre.id.in_(genres))
 
-                result_ids[game_id] = list((await session.execute(query)).scalars().all())
+                result_ids[game_id] = list(
+                    (await session.execute(query_ids)).scalars().all()
+                )
 
             return result_ids
 
         result_rows: dict[int, list[catalog.Genre]] = {}
         for game_id in games_ids_list:
-            query = select(catalog.Genre).join(catalog.game_genres).where(
+            query_rows = select(catalog.Genre).join(catalog.game_genres).where(
                 catalog.game_genres.c.game_id == game_id
             )
             if len(genres) > 0:
-                query = query.where(catalog.Genre.id.in_(genres))
+                query_rows = query_rows.where(catalog.Genre.id.in_(genres))
 
-            result_rows[game_id] = list((await session.execute(query)).scalars().all())
+            result_rows[game_id] = list(
+                (await session.execute(query_rows)).scalars().all()
+            )
 
         return result_rows

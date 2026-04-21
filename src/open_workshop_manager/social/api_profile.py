@@ -1,7 +1,6 @@
 import datetime
 import logging
 import uuid
-from typing import Any
 from urllib.parse import quote
 
 import bcrypt
@@ -48,7 +47,7 @@ async def info_profile(
         description="Вернуть ли скрытую информацию *(должен быть владельцем аккаунта или админом)*.",
     ),
 ):
-    result: dict[str, dict[str, Any]] = {}
+    result: dict[str, dict[str, object]] = {}
     async with account.AsyncSessionLocal() as session:
         row = await session.get(account.Account, user_id)
         if not row:
@@ -448,8 +447,6 @@ async def edit_profile(
                         instance=str(request.url),
                     )
 
-        query_update: dict[str, Any] = {}
-
         if username:
             if len(username) < LIMITS.profile.username_min:
                 raise standarts.PreconditionRequiredError(
@@ -476,8 +473,8 @@ async def edit_profile(
                     instance=str(request.url),
                 )
 
-            query_update["username"] = username
-            query_update["last_username_reset"] = today
+            user.username = username
+            user.last_username_reset = today
 
         if about:
             if len(about) > LIMITS.profile.about_max:
@@ -485,7 +482,7 @@ async def edit_profile(
                     detail='Слишком длинное поле "обо мне"! (максимальная длина 512 символов)',
                     instance=str(request.url),
                 )
-            query_update["about"] = about
+            user.about = about
 
         if grade:
             if len(grade) < LIMITS.profile.grade_min:
@@ -498,11 +495,11 @@ async def edit_profile(
                     detail="Слишком длинный грейд! (максимальная длина 100 символов)",
                     instance=str(request.url),
                 )
-            query_update["grade"] = grade
+            user.grade = grade
 
         if off_password:
-            query_update["password_hash"] = None
-            query_update["last_password_reset"] = today
+            user.password_hash = None
+            user.last_password_reset = today
         elif new_password:
             if len(new_password) < LIMITS.profile.password_min:
                 raise standarts.PreconditionRequiredError(
@@ -515,10 +512,10 @@ async def edit_profile(
                     instance=str(request.url),
                 )
 
-            query_update["password_hash"] = (
+            user.password_hash = (
                 bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt(9))
             ).decode("utf-8")
-            query_update["last_password_reset"] = today
+            user.last_password_reset = today
 
         if mute:
             if mute < today:
@@ -526,10 +523,10 @@ async def edit_profile(
                     detail="Указанная дата окончания мута уже прошла!",
                     instance=str(request.url),
                 )
-            query_update["mute_until"] = mute
+            user.mute_until = mute
 
         if empty_avatar:
-            query_update["avatar_url"] = ""
+            user.avatar_url = ""
 
             avatar_url = str(user.avatar_url)
             if avatar_url.startswith("local"):
@@ -541,9 +538,6 @@ async def edit_profile(
                         detail="Что-то пошло не так при удалении аватара из системы.",
                         instance=str(request.url),
                     )
-
-        for key, value in query_update.items():
-            setattr(user, key, value)
         await session.commit()
 
     # Возвращаем успешный результат
@@ -652,7 +646,7 @@ async def edit_profile_rights(
                 "vote_for_reputation": vote_for_reputation,
             }
 
-            query_update: dict[str, Any] = {}
+            query_update: dict[str, bool] = {}
             for key, value in sample_query_update.items():
                 if value is not None:
                     query_update[key] = value

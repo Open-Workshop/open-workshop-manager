@@ -143,22 +143,25 @@ async def resources_serialize(
     Returns:
         list[dict] | list[str]: A list of dictionaries containing the serialized resource information, or a list of strings if `only_urls` is `True`.
     """
-    real_resources = []
+    if only_urls:
+        real_urls: list[str] = []
+        for resource in resources:
+            real_urls.append(resource.real_url)
+        return real_urls
+
+    real_resources: list[dict[str, object]] = []
     for resource in resources:
-        if only_urls:
-            real_resources.append(resource.real_url)
-        else:
-            real_resources.append(
-                {
-                    "id": resource.id,
-                    "type": resource.type,
-                    "url": resource.real_url,
-                    "size": resource.size,
-                    "owner_id": resource.owner_id,
-                    "owner_type": resource.owner_type,
-                    "date_event": resource.date_event,
-                }
-            )
+        real_resources.append(
+            {
+                "id": resource.id,
+                "type": resource.type,
+                "url": resource.real_url,
+                "size": resource.size,
+                "owner_id": resource.owner_id,
+                "owner_type": resource.owner_type,
+                "date_event": resource.date_event,
+            }
+        )
     return real_resources
 
 

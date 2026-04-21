@@ -7,7 +7,7 @@ import string
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path as FilePath
-from typing import Any, TypedDict, cast
+from typing import TypedDict, cast
 from urllib import parse
 
 import aiohttp
@@ -19,7 +19,7 @@ from fastapi.responses import (
     RedirectResponse,
 )
 from google_auth_oauthlib.flow import Flow
-from sqlalchemy import insert, select, update
+from sqlalchemy import select, update
 from yandexid import AsyncYandexID, AsyncYandexOAuth
 
 from open_workshop_manager import settings as config
@@ -326,7 +326,7 @@ async def google_complite(
 
     async with account.AsyncSessionLocal() as session:
         # Выполнение запроса
-        rows = (
+        existing_account_id = (
             await session.execute(
                 select(account.Account.id).where(
                     account.Account.google_id == user_data["id"]
@@ -334,7 +334,7 @@ async def google_complite(
             )
         ).scalar_one_or_none()
 
-        if not rows:
+        if existing_account_id is None:
             blocked_exists = await session.execute(
                 select(account.blocked_account_creation.c.google_id).where(
                     account.blocked_account_creation.c.google_id == user_data["id"]
@@ -378,7 +378,7 @@ async def google_complite(
                     return prefix + suffix
 
                 logger.debug("Google registration time=%s", dtime)
-                insert_statement = insert(account.Account).values(
+                new_account = account.Account(
                     google_id=user_data["id"],
                     username=await generate_unique_username(),
                     comments=0,
@@ -386,9 +386,9 @@ async def google_complite(
                     registration_date=dtime,
                     reputation=0,
                 )
-                # Выполнение операции INSERT
-                result: Any = await session.execute(insert_statement)
-                id = result.lastrowid
+                session.add(new_account)
+                await session.flush()
+                id = int(new_account.id)
 
                 if len(user_data.get("picture", "")) > 0:
                     await session.commit()
@@ -426,7 +426,7 @@ async def google_complite(
                                     resp.status,
                                 )
         else:
-            id = rows.id
+            id = int(existing_account_id)
 
         sessions_data = await account.gen_session(
             user_id=id, session=session, login_method="google"
@@ -467,7 +467,7 @@ async def google_complite(
     )
     response.set_cookie(
         key="userID",
-        value=id,
+        value=str(id),
         secure=config.COOKIE_SECURE,
         samesite=config.COOKIE_SAMESITE,
         max_age=5184000,
@@ -505,7 +505,7 @@ async def yandex_complite(
 
     async with account.AsyncSessionLocal() as session:
         # Выполнение запроса
-        rows = (
+        existing_account_id = (
             await session.execute(
                 select(account.Account.id).where(
                     account.Account.yandex_id == user_data.id
@@ -513,7 +513,7 @@ async def yandex_complite(
             )
         ).scalar_one_or_none()
 
-        if not rows:
+        if existing_account_id is None:
             blocked_exists = await session.execute(
                 select(account.blocked_account_creation.c.yandex_id).where(
                     account.blocked_account_creation.c.yandex_id == user_data.id
@@ -549,7 +549,7 @@ async def yandex_complite(
             else:
                 dtime = datetime.datetime.now()
                 print(dtime, type(dtime))
-                insert_statement = insert(account.Account).values(
+                new_account = account.Account(
                     yandex_id=user_data.id,
                     username=user_data.login,
                     comments=0,
@@ -557,9 +557,9 @@ async def yandex_complite(
                     registration_date=dtime,
                     reputation=0,
                 )
-                # Выполнение операции INSERT
-                result: Any = await session.execute(insert_statement)
-                rid = result.lastrowid
+                session.add(new_account)
+                await session.flush()
+                rid = int(new_account.id)
 
                 if not user_data.is_avatar_empty:
                     await session.commit()
@@ -597,7 +597,7 @@ async def yandex_complite(
                                     resp.status,
                                 )
         else:
-            rid = rows.id
+            rid = int(existing_account_id)
 
         sessions_data = await account.gen_session(
             user_id=rid, session=session, login_method="yandex"
@@ -610,7 +610,7 @@ async def yandex_complite(
 
     response.set_cookie(key='loginJS', value=sessions_data["refresh"]["end"].strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
     response.set_cookie(key='accessJS', value=sessions_data["access"]["end"].strftime(STANDART_STR_TIME), secure=True, max_age=5184000)
-    response.set_cookie(key='userID', value=rid, secure=True, max_age=5184000)
+    response.set_cookie(key='userID', value=str(rid), secure=True, max_age=5184000)
 
     return "Если это окно не закрылось автоматически, можете закрыть его сами :)"
 

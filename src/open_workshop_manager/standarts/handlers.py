@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, Literal, overload
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -22,6 +22,61 @@ from .errors import StandardAPIError
 from .schemas import ProblemDetails, ValidationIssue
 from .utils import status_code_name, status_title
 
+ResponseSpec = dict[str, Any]
+
+
+class ResponseRegistry:
+    def __init__(self) -> None:
+        self._responses: dict[
+            int | str, ResponseSpec | dict[int, ResponseSpec]
+        ] = {
+            401: response_spec(
+                build_problem(
+                    401,
+                    title=status_title(401),
+                    detail=DEFAULT_UNAUTHORIZED_DETAIL,
+                    code="session_invalid",
+                ),
+                "Недействительный ключ сессии (не авторизован).",
+            ),
+            "admin": {
+                403: response_spec(
+                    build_problem(
+                        403,
+                        title=status_title(403),
+                        detail=DEFAULT_ADMIN_FORBIDDEN_DETAIL,
+                        code="admin_required",
+                    ),
+                    "Требуются права администратора.",
+                ),
+            },
+            "non-admin": {
+                403: response_spec(
+                    build_problem(
+                        403,
+                        title=status_title(403),
+                        detail=DEFAULT_FORBIDDEN_DETAIL,
+                        code="access_denied",
+                    ),
+                    "Нехватка прав.",
+                ),
+            },
+        }
+
+    @overload
+    def __getitem__(self, key: Literal[401]) -> ResponseSpec: ...
+
+    @overload
+    def __getitem__(self, key: Literal["admin"]) -> dict[int, ResponseSpec]: ...
+
+    @overload
+    def __getitem__(self, key: Literal["non-admin"]) -> dict[int, ResponseSpec]: ...
+
+    def __getitem__(
+        self, key: int | str
+    ) -> ResponseSpec | dict[int, ResponseSpec]:
+        return self._responses[key]
+
 
 def build_problem(
     status_code: int,
@@ -31,7 +86,7 @@ def build_problem(
     code: str | None = None,
     instance: str | None = None,
     errors: list[ValidationIssue] | None = None,
-    context: dict[str, Any] | None = None,
+    context: dict[str, object] | None = None,
     problem_type: str = STANDARD_PROBLEM_TYPE,
 ) -> ProblemDetails:
     return ProblemDetails(
@@ -63,7 +118,7 @@ def response_spec(
     description: str,
     *,
     media_type: str = STANDARD_PROBLEM_MEDIA_TYPE,
-) -> dict[str, Any]:
+) -> ResponseSpec:
     return {
         "description": description,
         "model": ProblemDetails,
@@ -76,39 +131,7 @@ def response_spec(
     }
 
 
-responses: dict[str | int, Any] = {
-    401: response_spec(
-        build_problem(
-            401,
-            title=status_title(401),
-            detail=DEFAULT_UNAUTHORIZED_DETAIL,
-            code="session_invalid",
-        ),
-        "Недействительный ключ сессии (не авторизован).",
-    ),
-    "admin": {
-        403: response_spec(
-            build_problem(
-                403,
-                title=status_title(403),
-                detail=DEFAULT_ADMIN_FORBIDDEN_DETAIL,
-                code="admin_required",
-            ),
-            "Требуются права администратора.",
-        ),
-    },
-    "non-admin": {
-        403: response_spec(
-            build_problem(
-                403,
-                title=status_title(403),
-                detail=DEFAULT_FORBIDDEN_DETAIL,
-                code="access_denied",
-            ),
-            "Нехватка прав.",
-        ),
-    },
-}
+responses = ResponseRegistry()
 
 
 def _validation_problem(
@@ -137,7 +160,7 @@ def _validation_problem(
 
 
 def _http_problem(request: Request, exc: StarletteHTTPException) -> ProblemDetails:
-    detail_obj = cast(Any, exc.detail)
+    detail_obj: object = exc.detail
 
     if isinstance(detail_obj, ProblemDetails):
         problem = detail_obj.model_copy(deep=True)

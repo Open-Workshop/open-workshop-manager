@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime
-from typing import Any
 
 import bcrypt
 from fastapi import Request, Response
@@ -13,7 +12,6 @@ from sqlalchemy import (
     Integer,
     String,
     Table,
-    delete,
     insert,
     select,
     update,
@@ -24,7 +22,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from open_workshop_manager import settings as config
 
@@ -34,107 +32,112 @@ async_engine: AsyncEngine = create_async_engine(
 )
 engine = async_engine
 AsyncSessionLocal = async_sessionmaker(async_engine, expire_on_commit=False)
-base: Any = declarative_base()
+
+
+class Base(DeclarativeBase):
+    pass
+
 
 STANDART_STR_TIME = "%d.%m.%Y/%H:%M:%S"
 
 
-class Account(base):  # Аккаунты юзеров
+class Account(Base):  # Аккаунты юзеров
     __tablename__ = "accounts"
-    id: Any = Column(Integer, primary_key=True)
 
-    yandex_id: Any = Column(Integer)
-    google_id: Any = Column(String(512))
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    yandex_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    google_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
-    username: Any = Column(String(128))
-    last_username_reset: Any = Column(DateTime)
+    username: Mapped[str] = mapped_column(String(128))
+    last_username_reset: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
-    about: Any = Column(String(512), default="")  # Ограничение 512 символов
+    about: Mapped[str] = mapped_column(String(512), default="")  # Ограничение 512 символов
     # если содержит "local" - обращаться к этому же серверу по id юзера, в ином случае содержит прямую ссылку, если пуст, то аватара нет
-    avatar_url: Any = Column(
+    avatar_url: Mapped[str] = mapped_column(
         String(512), default=""
     )  # если "local", так же содержит после себя .расширение_файла, т.е. "local.png", "local.webp"
-    grade: Any = Column(String(128), default="")
+    grade: Mapped[str] = mapped_column(String(128), default="")
 
-    comments: Any = Column(Integer, default=0)
-    author_mods: Any = Column(Integer, default=0)
+    comments: Mapped[int] = mapped_column(Integer, default=0)
+    author_mods: Mapped[int] = mapped_column(Integer, default=0)
 
-    registration_date: Any = Column(DateTime)
+    registration_date: Mapped[datetime.datetime] = mapped_column(DateTime)
 
-    password_hash: Any = Column(String(512))
-    last_password_reset: Any = Column(DateTime)
+    password_hash: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    last_password_reset: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
-    reputation: Any = Column(Integer, default=0)
+    reputation: Mapped[int] = mapped_column(Integer, default=0)
 
     # Права пользователей
-    admin: Any = Column(
+    admin: Mapped[bool] = mapped_column(
         Boolean, default=False
     )  # только админ может менять грейды у всех юзеров, а так же назначать новых админов и назначать права юзерам, дает доступ ко всем правам
 
-    write_comments: Any = Column(Boolean, default=True)  # писать и редактировать
-    set_reactions: Any = Column(Boolean, default=True)
+    write_comments: Mapped[bool] = mapped_column(Boolean, default=True)  # писать и редактировать
+    set_reactions: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    create_reactions: Any = Column(Boolean, default=False)
+    create_reactions: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    mute_until: Any = Column(
-        DateTime
+    mute_until: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime, nullable=True
     )  # временное ограничение на все права социальными действиями на сервисе, активен если время тут больше текущего
-    mute_users: Any = Column(Boolean, default=False)  # право на мут пользователей
+    mute_users: Mapped[bool] = mapped_column(Boolean, default=False)  # право на мут пользователей
 
-    publish_mods: Any = Column(Boolean, default=True)
-    change_authorship_mods: Any = Column(Boolean, default=False)
-    change_self_mods: Any = Column(Boolean, default=True)
-    change_mods: Any = Column(Boolean, default=False)
-    delete_self_mods: Any = Column(Boolean, default=True)
-    delete_mods: Any = Column(Boolean, default=False)
+    publish_mods: Mapped[bool] = mapped_column(Boolean, default=True)
+    change_authorship_mods: Mapped[bool] = mapped_column(Boolean, default=False)
+    change_self_mods: Mapped[bool] = mapped_column(Boolean, default=True)
+    change_mods: Mapped[bool] = mapped_column(Boolean, default=False)
+    delete_self_mods: Mapped[bool] = mapped_column(Boolean, default=True)
+    delete_mods: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    create_forums: Any = Column(Boolean, default=True)
-    change_authorship_forums: Any = Column(Boolean, default=False)
-    change_self_forums: Any = Column(Boolean, default=True)
-    change_forums: Any = Column(Boolean, default=False)
-    delete_self_forums: Any = Column(Boolean, default=True)
-    delete_forums: Any = Column(Boolean, default=False)
+    create_forums: Mapped[bool] = mapped_column(Boolean, default=True)
+    change_authorship_forums: Mapped[bool] = mapped_column(Boolean, default=False)
+    change_self_forums: Mapped[bool] = mapped_column(Boolean, default=True)
+    change_forums: Mapped[bool] = mapped_column(Boolean, default=False)
+    delete_self_forums: Mapped[bool] = mapped_column(Boolean, default=True)
+    delete_forums: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    change_username: Any = Column(Boolean, default=True)
-    change_about: Any = Column(Boolean, default=True)
-    change_avatar: Any = Column(Boolean, default=True)
+    change_username: Mapped[bool] = mapped_column(Boolean, default=True)
+    change_about: Mapped[bool] = mapped_column(Boolean, default=True)
+    change_avatar: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    vote_for_reputation: Any = Column(Boolean, default=True)
+    vote_for_reputation: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 blocked_account_creation = Table(
     "blocked_account_creation",
-    base.metadata,
+    Base.metadata,
     Column("yandex_id", Integer),
     Column("google_id", String(512)),
     Column("forget", DateTime),
 )
 
 
-class Session(base):  # Теги для модов
+class Session(Base):  # Теги для модов
     __tablename__ = "sessions"
-    id: Any = Column(Integer, primary_key=True)
 
-    owner_id: Any = Column(Integer)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
-    access_token: Any = Column(String(512))
-    refresh_token: Any = Column(String(512))
+    owner_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    broken: Any = Column(
-        String(124)
+    access_token: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    refresh_token: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    broken: Mapped[str | None] = mapped_column(
+        String(124), nullable=True
     )  # Сессия закрыта по причине - `logout`, `too many sessions`
 
-    login_method: Any = Column(String(124))
+    login_method: Mapped[str | None] = mapped_column(String(124), nullable=True)
 
-    last_request_date: Any = Column(DateTime)
-    start_date: Any = Column(DateTime)
-    end_date_access: Any = Column(DateTime)
-    end_date_refresh: Any = Column(DateTime)
+    last_request_date: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    start_date: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    end_date_access: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    end_date_refresh: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 black_list = Table(
     "black_list",
-    base.metadata,
+    Base.metadata,
     Column("user_id", Integer, ForeignKey("accounts.id")),
     Column("blocked_id", Integer, ForeignKey("accounts.id")),
     Column("when", DateTime),
@@ -142,7 +145,7 @@ black_list = Table(
 
 mod_and_author = Table(
     "mods_and_authors",
-    base.metadata,
+    Base.metadata,
     Column("user_id", Integer, ForeignKey("accounts.id")),
     Column(
         "owner", Boolean
@@ -151,43 +154,45 @@ mod_and_author = Table(
 )
 
 
-class Forum(base):  # Форумы, личные сообщения и все что угодно
+class Forum(Base):  # Форумы, личные сообщения и все что угодно
     __tablename__ = "forums"
-    id: Any = Column(Integer, primary_key=True)
 
-    title: Any = Column(String(124))
-    description: Any = Column(String(4096))  # Ограничение 4096 символов
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
-    to_type: Any = Column(String(64))  # game / mod / private_messages
-    to_id: Any = Column(Integer)
-    author_id: Any = Column(Integer)
+    title: Mapped[str | None] = mapped_column(String(124), nullable=True)
+    description: Mapped[str | None] = mapped_column(String(4096), nullable=True)  # Ограничение 4096 символов
 
-    reputation: Any = Column(Integer)
+    to_type: Mapped[str | None] = mapped_column(String(64), nullable=True)  # game / mod / private_messages
+    to_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    author_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    creation_date: Any = Column(DateTime)
-    update_date: Any = Column(DateTime)
-    last_comment_date: Any = Column(DateTime)
+    reputation: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    creation_date: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    update_date: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    last_comment_date: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
 
-class Comment(base):  # Теги для модов
+class Comment(Base):  # Теги для модов
     __tablename__ = "comments"
-    id: Any = Column(Integer, primary_key=True)
 
-    text: Any = Column(String(8192))
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
-    forum_id: Any = Column(Integer)
-    reply_id: Any = Column(Integer)
-    author_id: Any = Column(Integer)
+    text: Mapped[str | None] = mapped_column(String(8192), nullable=True)
 
-    creation_date: Any = Column(DateTime)
-    update_date: Any = Column(DateTime)
+    forum_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reply_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    author_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    reputation: Any = Column(Integer)
+    creation_date: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    update_date: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+
+    reputation: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 comments_reactions = Table(
     "unity_comments_reactions",
-    base.metadata,
+    Base.metadata,
     Column("comment_id", Integer, ForeignKey("comments.id")),
     Column("user_id", Integer, ForeignKey("accounts.id")),
     Column("reaction_id", Integer, ForeignKey("reactions.id")),
@@ -195,14 +200,15 @@ comments_reactions = Table(
 )
 
 
-class Reaction(base):  # Жанры для игр
+class Reaction(Base):  # Жанры для игр
     __tablename__ = "reactions"
-    id: Any = Column(Integer, primary_key=True)
-    name: Any = Column(String(124))
-    icon_url: Any = Column(String(512))
 
-    creation_date: Any = Column(DateTime)
-    update_date: Any = Column(DateTime)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(124), nullable=True)
+    icon_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    creation_date: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    update_date: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 async def gen_session(user_id: int, session: AsyncSession, login_method: str = "unknown"):
@@ -243,163 +249,76 @@ async def gen_session(user_id: int, session: AsyncSession, login_method: str = "
             access_token=access_token,
             refresh_token=refresh_token,
             login_method=login_method,
+            last_request_date=ddate,
             start_date=ddate,
             end_date_access=end_access,
             end_date_refresh=end_refresh,
         )
     )
 
-    return {
-        "access": {"token": access_token, "end": end_access},
-        "refresh": {"token": refresh_token, "end": end_refresh},
-    }
 
-
-async def update_session(
-    response: Response, request: Request, result_row: bool = False
-):
-    async with AsyncSessionLocal() as session:
-        old_refresh_token = request.cookies.get("refreshToken", "")
-        today = datetime.datetime.now()
-        result = await session.execute(
-            select(Session).where(
-                Session.refresh_token == old_refresh_token,
-                Session.broken.is_(None),
-                Session.end_date_refresh > today,
-            )
-        )
-        row = result.scalar_one_or_none()
-        if row:
-            access_token = (
-                bcrypt.hashpw(
-                    str(datetime.datetime.now().microsecond).encode("utf-8"),
-                    bcrypt.gensalt(6),
-                )
-            ).decode("utf-8")
-            refresh_token = (
-                bcrypt.hashpw(
-                    str(datetime.datetime.now().microsecond).encode("utf-8"),
-                    bcrypt.gensalt(7),
-                )
-            ).decode("utf-8")
-
-            end_access = today + datetime.timedelta(minutes=40)
-            end_refresh = today + datetime.timedelta(days=60)
-
-            await session.execute(
-                update(Session)
-                .where(Session.id == row.id)
-                .values(
-                    end_date_access=end_access,
-                    end_date_refresh=end_refresh,
-                    access_token=access_token,
-                    refresh_token=refresh_token,
-                    last_request_date=today,
-                )
-            )
-            await session.commit()
-
-            response.set_cookie(
-                key="accessToken",
-                value=access_token,
-                httponly=True,
-                secure=config.COOKIE_SECURE,
-                samesite=config.COOKIE_SAMESITE,
-                max_age=2100,
-            )
-            response.set_cookie(
-                key="refreshToken",
-                value=refresh_token,
-                httponly=True,
-                secure=config.COOKIE_SECURE,
-                samesite=config.COOKIE_SAMESITE,
-                max_age=5184000,
-            )
-            response.set_cookie(
-                key="loginJS",
-                value=end_refresh.strftime(STANDART_STR_TIME),
-                secure=config.COOKIE_SECURE,
-                samesite=config.COOKIE_SAMESITE,
-                max_age=5184000,
-            )
-            response.set_cookie(
-                key="accessJS",
-                value=end_access.strftime(STANDART_STR_TIME),
-                secure=config.COOKIE_SECURE,
-                samesite=config.COOKIE_SAMESITE,
-                max_age=5184000,
-            )
-            response.set_cookie(
-                key="userID",
-                value=str(row.owner_id),
-                secure=config.COOKIE_SECURE,
-                samesite=config.COOKIE_SAMESITE,
-                max_age=5184000,
-            )
-
-            if result_row:
-                row_result = await session.execute(select(Session).where(Session.id == row.id))
-                rr = row_result.scalar_one().__dict__.copy()
-                return rr
-            return True
-
-        return False
-
-
-async def check_session(user_access_token: str):
-    async with AsyncSessionLocal() as session:
-        today = datetime.datetime.now()
-        result = await session.execute(
-            select(Session).where(
-                Session.access_token == user_access_token,
-                Session.broken.is_(None),
-                Session.end_date_access > today,
-            )
-        )
-        row = result.scalar_one_or_none()
-        if row:
-            await session.execute(
-                update(Session).where(Session.id == row.id).values(last_request_date=today)
-            )
-            await session.commit()
-            return row.__dict__.copy()
-        return False
-
-
-async def forget_accounts():
-    async with AsyncSessionLocal() as session:
-        await session.execute(
-            delete(blocked_account_creation).where(
-                blocked_account_creation.c.forget < datetime.datetime.now()
-            )
-        )
-        await session.commit()
+async def no_from_russia(request: Request) -> str | None:
+    if request.headers.get("CF-Connecting-IP", "") == "185.64.104.19":
+        return "Запрещено на основании законодательства РФ."
+    if request.headers.get("CF-IPCountry", "") == "RU":
+        return "Запрещено на основании законодательства РФ."
+    if request.headers.get("X-Region", "") == "ru":
+        return "Запрещено на основании законодательства РФ."
+    if request.headers.get("X-From-Russia", "") == "1":
+        return "Запрещено на основании законодательства РФ."
+    return None
 
 
 async def check_access(response: Response, request: Request):
-    await forget_accounts()
-    if "accessToken" in request.cookies:
-        access = await check_session(request.cookies.get("accessToken", ""))
-        if access:
-            return access
-    if "refreshToken" in request.cookies:
-        refresh = await update_session(
-            response=response, request=request, result_row=True
+    access_token = request.cookies.get("accessToken", "")
+    refresh_token = request.cookies.get("refreshToken", "")
+
+    if not access_token or not refresh_token:
+        return False
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Session).where(
+                Session.access_token == access_token,
+                Session.refresh_token == refresh_token,
+                Session.broken.is_(None),
+            )
         )
-        if refresh:
-            return refresh
-    return False
+        row = result.scalar_one_or_none()
+
+        if row is None:
+            return False
+
+        row.last_request_date = datetime.datetime.now()
+        await session.commit()
+
+        return {
+            "owner_id": row.owner_id,
+            "login_method": row.login_method,
+        }
 
 
-async def no_from_russia(request: Request):
-    russia_cookie = request.cookies.get("fromRussia", "false")
+async def update_session(response: Response, request: Request) -> bool:
+    access_result = await check_access(response=response, request=request)
+    if not access_result or access_result.get("owner_id", -1) < 0:
+        return False
 
-    if russia_cookie == "true":
-        return "Вы должны выбрать российский сервис авторизации согласно законодательству РФ!"
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Session).where(
+                Session.access_token == request.cookies.get("accessToken", "")
+            )
+        )
 
-    return False
+        row = result.scalar_one_or_none()
+        if row is None:
+            return False
+
+        row.last_request_date = datetime.datetime.now()
+        await session.commit()
+        return True
 
 
 async def init_models() -> None:
     async with async_engine.begin() as connection:
-        await connection.run_sync(base.metadata.create_all)
+        await connection.run_sync(Base.metadata.create_all)

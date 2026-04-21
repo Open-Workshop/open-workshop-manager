@@ -4,7 +4,7 @@ import logging
 import re
 import uuid
 from datetime import datetime
-from typing import Any, Optional, cast
+from typing import Optional, cast
 from urllib.parse import quote, urlparse
 
 from fastapi import (
@@ -171,24 +171,7 @@ async def add_mod_from_file(
                 mod_public = 0
 
             async with catalog.AsyncSessionLocal() as session:
-                insert_statement = insert(catalog.Mod).values(
-                    name=mod_name,
-                    short_description=mod_short_description,
-                    description=mod_description,
-                    size=0,
-                    condition=1,
-                    public=mod_public,
-                    date_creation=datetime.now(),
-                    date_update_file=datetime.now(),
-                    date_edit=datetime.now(),
-                    source=mod_source,
-                    downloads=0,
-                    game=mod_game,
-                )
-
                 if mod_source_id > 0 and mod_source != "local":
-                    insert_statement = insert_statement.values(source_id=mod_source_id)
-
                     async with catalog.AsyncSessionLocal() as tsession:
                         source_conflicts = (
                             await tsession.execute(
@@ -218,8 +201,26 @@ async def add_mod_from_file(
                             instance=str(request.url),
                         )
 
-                result: Any = await session.execute(insert_statement)
-                rid = result.lastrowid
+                new_mod = catalog.Mod(
+                    name=mod_name,
+                    short_description=mod_short_description,
+                    description=mod_description,
+                    size=0,
+                    condition=1,
+                    public=mod_public,
+                    date_creation=datetime.now(),
+                    date_update_file=datetime.now(),
+                    date_edit=datetime.now(),
+                    source=mod_source,
+                    downloads=0,
+                    game=mod_game,
+                )
+                if mod_source_id > 0 and mod_source != "local":
+                    new_mod.source_id = mod_source_id
+
+                session.add(new_mod)
+                await session.flush()
+                rid = new_mod.id
                 await session.commit()
 
             if not without_author:
@@ -504,24 +505,7 @@ async def add_mod_from_url(
                 mod_public = 0
 
             async with catalog.AsyncSessionLocal() as session:
-                insert_statement = insert(catalog.Mod).values(
-                    name=mod_name,
-                    short_description=mod_short_description,
-                    description=mod_description,
-                    size=0,
-                    condition=1,
-                    public=mod_public,
-                    date_creation=datetime.now(),
-                    date_update_file=datetime.now(),
-                    date_edit=datetime.now(),
-                    source=mod_source,
-                    downloads=0,
-                    game=mod_game,
-                )
-
                 if mod_source_id > 0 and mod_source != "local":
-                    insert_statement = insert_statement.values(source_id=mod_source_id)
-
                     async with catalog.AsyncSessionLocal() as tsession:
                         source_conflict = await tsession.scalar(
                             select(catalog.Mod).where(
@@ -535,8 +519,26 @@ async def add_mod_from_url(
                             instance=str(request.url),
                         )
 
-                insert_result: Any = await session.execute(insert_statement)
-                rid = insert_result.lastrowid
+                new_mod = catalog.Mod(
+                    name=mod_name,
+                    short_description=mod_short_description,
+                    description=mod_description,
+                    size=0,
+                    condition=1,
+                    public=mod_public,
+                    date_creation=datetime.now(),
+                    date_update_file=datetime.now(),
+                    date_edit=datetime.now(),
+                    source=mod_source,
+                    downloads=0,
+                    game=mod_game,
+                )
+                if mod_source_id > 0 and mod_source != "local":
+                    new_mod.source_id = mod_source_id
+
+                session.add(new_mod)
+                await session.flush()
+                rid = new_mod.id
                 await session.commit()
 
             if not without_author:
@@ -1568,18 +1570,17 @@ async def info_mod(
     game: bool = Query(False, description="Передать ли информацию о игре мода."),
     authors: bool = Query(False, description="Передать ли список авторов мода."),
 ):
-    output: dict[str, Any] = {}
+    response_payload: dict[str, object] = {}
 
     async with catalog.AsyncSessionLocal() as session:
-        output["pre_result"] = await session.get(catalog.Mod, mod_id)
-
-        if not output["pre_result"]:
+        pre_result = await session.get(catalog.Mod, mod_id)
+        if pre_result is None:
             raise standarts.NotFoundError(
                 detail="Mod not found.",
                 instance=str(request.url),
             )
 
-        if output["pre_result"].public >= 2:
+        if pre_result.public >= 2:
             result_access = await tools.access_mods(
                 response=response, request=request, mods_ids=mod_id, edit=False
             )
@@ -1597,62 +1598,69 @@ async def info_mod(
                 .where(catalog.mods_dependencies.c.mod_id == mod_id)
                 .limit(100)
             )
-            output["dependencies"] = result.scalars().all()
-            output["dependencies_count"] = int(count or 0)
+            response_payload["dependencies"] = result.scalars().all()
+            response_payload["dependencies_count"] = int(count or 0)
 
+        game_payload: dict[str, object] | None = None
         if game:
             game_name = await session.scalar(
-                select(catalog.Game.name).where(catalog.Game.id == output["pre_result"].game)
+                select(catalog.Game.name).where(catalog.Game.id == pre_result.game)
             )
-            output["game"] = {"id": output["pre_result"].game, "name": game_name}
+            game_payload = {"id": pre_result.game, "name": game_name}
 
-    output["result"] = {"condition": output["pre_result"].condition}
-    if description:
-        output["result"]["description"] = output["pre_result"].description
-    if short_description:
-        output["result"]["short_description"] = output["pre_result"].short_description
-    if dates:
-        strformattime = "%Y-%m-%dT%H:%M:%S"
+        result_payload: dict[str, object] = {"condition": pre_result.condition}
+        response_payload["result"] = result_payload
 
-        output["result"]["date_update_file"] = output[
-            "pre_result"
-        ].date_update_file.strftime(strformattime)
-        output["result"]["date_edit"] = output["pre_result"].date_edit.strftime(
-            strformattime
-        )
-        output["result"]["date_creation"] = output["pre_result"].date_creation.strftime(
-            strformattime
-        )
-    if general:
-        output["result"]["name"] = output["pre_result"].name
-        output["result"]["size"] = output["pre_result"].size
-        output["result"]["size_unpacked"] = output["pre_result"].size_unpacked
-        output["result"]["source"] = output["pre_result"].source
-        output["result"]["source_id"] = output["pre_result"].source_id
-        output["result"]["downloads"] = output["pre_result"].downloads
-        output["result"]["public"] = output["pre_result"].public
-    if game:
-        output["result"]["game"] = output["game"]
-        del output["game"]
-    del output["pre_result"]
+        if description:
+            result_payload["description"] = pre_result.description
+        if short_description:
+            result_payload["short_description"] = pre_result.short_description
+        if dates:
+            strformattime = "%Y-%m-%dT%H:%M:%S"
 
-    if authors:
-        async with account.AsyncSessionLocal() as session_account:
-            row_results = (
-                await session_account.execute(
-                    select(
-                        account.mod_and_author.c.user_id,
-                        account.mod_and_author.c.owner,
-                    ).where(account.mod_and_author.c.mod_id == mod_id).limit(100)
+            if pre_result.date_update_file is not None:
+                result_payload["date_update_file"] = pre_result.date_update_file.strftime(
+                    strformattime
                 )
-            ).all()
+            if pre_result.date_edit is not None:
+                result_payload["date_edit"] = pre_result.date_edit.strftime(strformattime)
+            if pre_result.date_creation is not None:
+                result_payload["date_creation"] = pre_result.date_creation.strftime(
+                    strformattime
+                )
+        if general:
+            result_payload["name"] = pre_result.name
+            result_payload["size"] = pre_result.size
+            result_payload["size_unpacked"] = pre_result.size_unpacked
+            result_payload["source"] = pre_result.source
+            result_payload["source_id"] = pre_result.source_id
+            result_payload["downloads"] = pre_result.downloads
+            result_payload["public"] = pre_result.public
+        if game and game_payload is not None:
+            result_payload["game"] = game_payload
 
-            output["authors"] = {}
-            for i in row_results:
-                output["authors"][i.user_id] = {"owner": i.owner}
+        if authors:
+            async with account.AsyncSessionLocal() as session_account:
+                row_results = (
+                    await session_account.execute(
+                        select(
+                            account.mod_and_author.c.user_id,
+                            account.mod_and_author.c.owner,
+                        ).where(account.mod_and_author.c.mod_id == mod_id).limit(100)
+                    )
+                ).all()
+
+                authors_payload: dict[int, dict[str, bool]] = {}
+                for user_id, owner in row_results:
+                    authors_payload[int(user_id)] = {"owner": bool(owner)}
+                response_payload["authors"] = authors_payload
+
+    if dependencies:
+        response_payload.setdefault("dependencies", [])
+        response_payload.setdefault("dependencies_count", 0)
 
     await statistics.update("mod", mod_id, "page_view")
-    return JSONResponse(status_code=200, content=output)
+    return JSONResponse(status_code=200, content=response_payload)
 
 
 @router.get(

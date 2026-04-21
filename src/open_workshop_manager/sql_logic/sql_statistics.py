@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from datetime import date, datetime
-from typing import Any, AsyncIterator
+from typing import AsyncIterator
 
-from sqlalchemy import Column, Date, DateTime, Integer, String, insert
+from sqlalchemy import Date, DateTime, Integer, String, insert, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from open_workshop_manager import settings as config
 
@@ -22,51 +22,54 @@ async_engine: AsyncEngine = create_async_engine(
 )
 engine = async_engine
 AsyncSessionLocal = async_sessionmaker(async_engine, expire_on_commit=False)
-Base: Any = declarative_base()
+
+
+class Base(DeclarativeBase):
+    pass
 
 
 class StatisticsHour(Base):
     __tablename__ = "statistics_hour"
-    id: Any = Column(Integer, primary_key=True)
-    date_time: Any = Column(DateTime)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    date_time: Mapped[datetime] = mapped_column(DateTime)
 
     # user, mod, etc...
-    type: Any = Column(String(32))
-    type_id: Any = Column(Integer, default=None)
+    type: Mapped[str] = mapped_column(String(32))
+    type_id: Mapped[int | None] = mapped_column(Integer, default=None)
 
     # views, downloads, etc
-    name: Any = Column(String(64))
+    name: Mapped[str] = mapped_column(String(64))
 
-    count: Any = Column(Integer, default=0)
+    count: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class StatisticsDay(Base):
     __tablename__ = "statistics_day"
-    id: Any = Column(Integer, primary_key=True)
-    date: Any = Column(Date)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    date: Mapped[date] = mapped_column(Date)
 
     # user, mod, etc...
-    type: Any = Column(String(32))
-    type_id: Any = Column(Integer, default=None)
+    type: Mapped[str] = mapped_column(String(32))
+    type_id: Mapped[int | None] = mapped_column(Integer, default=None)
 
     # views, downloads, etc
-    name: Any = Column(String(64))
+    name: Mapped[str] = mapped_column(String(64))
 
-    count: Any = Column(Integer, default=0)
+    count: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class ProcessingTime(Base):
     __tablename__ = "processing_time"
-    time: Any = Column(DateTime, primary_key=True)
+    time: Mapped[datetime] = mapped_column(DateTime, primary_key=True)
 
     # user, mod, etc...
-    type: Any = Column(String(32))
-    type_id: Any = Column(Integer, default=None)
+    type: Mapped[str] = mapped_column(String(32))
+    type_id: Mapped[int | None] = mapped_column(Integer, default=None)
 
     # views, downloads, etc
-    name: Any = Column(String(64))
+    name: Mapped[str] = mapped_column(String(64))
 
-    delay: Any = Column(Integer)
+    delay: Mapped[int] = mapped_column(Integer)
 
 
 @asynccontextmanager
@@ -91,18 +94,16 @@ async def _increment_stat(
     entity_id: int | None,
     name: str,
 ) -> None:
-    result: Any = await session.execute(
-        sa_update(model)
-        .where(
+    row = await session.scalar(
+        select(model).where(
             time_field == time_value,
             model.type == str(entity_type),
             model.type_id == entity_id,
             model.name == name,
         )
-        .values(count=model.count + 1)
     )
 
-    if result.rowcount == 0:
+    if row is None:
         await session.execute(
             insert(model).values(
                 **{
@@ -113,6 +114,17 @@ async def _increment_stat(
                     "count": 1,
                 }
             )
+        )
+    else:
+        await session.execute(
+            sa_update(model)
+            .where(
+                time_field == time_value,
+                model.type == str(entity_type),
+                model.type_id == entity_id,
+                model.name == name,
+            )
+            .values(count=model.count + 1)
         )
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import atexit
 import logging
-from typing import Any, Literal, cast
+from typing import Any, Literal, Protocol, cast
 from urllib.parse import parse_qs, urlparse
 
 from fastapi import FastAPI
@@ -59,6 +59,28 @@ def _dsn_to_otlp_grpc_endpoint(dsn: str) -> str:
 FastAPIExcludeSpan = Literal["receive", "send"]
 
 
+class _SpanLike(Protocol):
+    def is_recording(self) -> bool: ...
+
+    def set_attribute(self, key: str, value: object) -> None: ...
+
+    def update_name(self, name: str) -> None: ...
+
+
+class _AiohttpURLLike(Protocol):
+    path: str
+    query_string: str
+
+
+class _AiohttpParamsLike(Protocol):
+    method: str
+    url: _AiohttpURLLike
+
+
+class _SupportsShutdown(Protocol):
+    def shutdown(self) -> None: ...
+
+
 def _fastapi_server_request_hook(span: Any, scope: dict[str, Any]) -> None:
     """Add useful attributes to FastAPI server spans."""
     try:
@@ -66,7 +88,7 @@ def _fastapi_server_request_hook(span: Any, scope: dict[str, Any]) -> None:
             return
 
         path = str(scope.get("path", "/"))
-        query_bytes = scope.get("query_string", b"")
+        query_bytes = cast(bytes | bytearray, scope.get("query_string", b""))
         target = path
         if isinstance(query_bytes, (bytes, bytearray)) and query_bytes:
             target = f"{path}?{query_bytes.decode('latin-1')}"
@@ -160,7 +182,7 @@ def setup_uptrace_telemetry(app: FastAPI) -> bool:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
 
         if not protocol:
             parsed = _parse_dsn(dsn)
@@ -172,7 +194,7 @@ def setup_uptrace_telemetry(app: FastAPI) -> bool:
                 OTLPSpanExporter as OTLPGrpcSpanExporter,
             )
 
-            exporter: Any = OTLPGrpcSpanExporter(
+            exporter: SpanExporter = OTLPGrpcSpanExporter(
                 endpoint=grpc_endpoint or _dsn_to_otlp_grpc_endpoint(dsn),
                 headers=(("uptrace-dsn", dsn),),
             )
@@ -188,7 +210,7 @@ def setup_uptrace_telemetry(app: FastAPI) -> bool:
         else:
             raise ValueError("UPTRACE_OTLP_PROTOCOL must be 'http' or 'grpc'.")
 
-        provider: Any = TracerProvider(
+        provider = TracerProvider(
             resource=Resource.create(
                 {
                     "service.name": service_name,
@@ -239,7 +261,7 @@ def setup_uptrace_telemetry(app: FastAPI) -> bool:
         return False
 
 
-def _shutdown_provider(provider: Any) -> None:
+def _shutdown_provider(provider: _SupportsShutdown) -> None:
     try:
         provider.shutdown()
     except Exception:

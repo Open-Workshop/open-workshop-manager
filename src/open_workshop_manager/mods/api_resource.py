@@ -2,12 +2,11 @@
 
 import uuid
 from datetime import datetime
-from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, Path, Query, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
-from sqlalchemy import func, insert, select
+from sqlalchemy import delete, func, select
 
 from open_workshop_manager import settings as config
 from open_workshop_manager import standarts, tools
@@ -262,7 +261,7 @@ async def add_resource_upload_init(
         )
 
     async with catalog.AsyncSessionLocal() as session:
-        insert_statement = insert(catalog.Resource).values(
+        new_resource = catalog.Resource(
             type=resource_type,
             url="",
             size=None,
@@ -270,8 +269,9 @@ async def add_resource_upload_init(
             owner_type=owner_type,
             owner_id=resource_owner_id,
         )
-        result: Any = await session.execute(insert_statement)
-        resource_id = int(result.lastrowid)
+        session.add(new_resource)
+        await session.flush()
+        resource_id = int(new_resource.id)
         await session.commit()
 
     job_id = uuid.uuid4().hex
@@ -295,7 +295,7 @@ async def add_resource_upload_init(
     if not token:
         async with catalog.AsyncSessionLocal() as session:
             await session.execute(
-                catalog.Resource.__table__.delete().where(
+                delete(catalog.Resource).where(
                     catalog.Resource.id == resource_id
                 )
             )
@@ -611,7 +611,7 @@ async def add_resource(
             )
 
         async with catalog.AsyncSessionLocal() as session:
-            insert_statement = insert(catalog.Resource).values(
+            new_resource = catalog.Resource(
                 type=resource_type,
                 url=resource_url,
                 size=None,
@@ -619,9 +619,9 @@ async def add_resource(
                 owner_type=owner_type,
                 owner_id=resource_owner_id,
             )
-
-            result: Any = await session.execute(insert_statement)
-            id = result.lastrowid  # Получаем ID последней вставленной строки
+            session.add(new_resource)
+            await session.flush()
+            id = int(new_resource.id)  # Получаем ID последней вставленной строки
 
             await session.commit()
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -18,11 +18,11 @@ class ValidationIssue(BaseModel):
     )
     msg: str = Field(description="Human-readable validation message.")
     type: str = Field(description="Pydantic validation error type.")
-    input: Any | None = Field(
+    input: object | None = Field(
         default=None,
         description="Rejected input value, if Pydantic provided one.",
     )
-    ctx: dict[str, Any] | None = Field(
+    ctx: dict[str, object] | None = Field(
         default=None,
         description="Additional validation context returned by Pydantic.",
     )
@@ -57,7 +57,7 @@ class ProblemDetails(BaseModel):
         default=None,
         description="Structured validation errors, if any.",
     )
-    context: dict[str, Any] | None = Field(
+    context: dict[str, object] | None = Field(
         default=None,
         description="Extra structured context for troubleshooting.",
     )
@@ -71,7 +71,7 @@ class SuccessResponse(BaseModel, Generic[T]):
         default=None,
         description="Optional human-readable success message.",
     )
-    meta: dict[str, Any] | None = Field(
+    meta: dict[str, object] | None = Field(
         default=None,
         description="Optional extra response metadata.",
     )
