@@ -1,17 +1,19 @@
-from open_workshop_manager.sql_logic import sql_account as account
-from open_workshop_manager.sql_logic import sql_catalog as catalog
-from open_workshop_manager import settings as config
+import datetime
+import bcrypt
+import json
 import logging
 from io import BytesIO
-from fastapi import Request, Response
-from fastapi.responses import JSONResponse, PlainTextResponse
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import desc
+
 import aiohttp
-import datetime
-import json
-import bcrypt
 import jwt
+from fastapi import Request, Response
+from sqlalchemy import desc
+from sqlalchemy.orm import sessionmaker
+
+from open_workshop_manager import settings as config
+from open_workshop_manager import standarts
+from open_workshop_manager.sql_logic import sql_account as account
+from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +77,7 @@ def decode_transfer_jwt(token: str, audience: str) -> dict | None:
         return None
 
 
-async def access_admin(response: Response, request: Request) -> JSONResponse | bool:
+async def access_admin(response: Response, request: Request) -> bool:
     """
     Asynchronously checks if the user has admin access.
 
@@ -84,26 +86,30 @@ async def access_admin(response: Response, request: Request) -> JSONResponse | b
         request (Request): The request object.
 
     Returns:
-        JSONResponse: If the user has admin access, returns True.
-                      If the user does not have admin access, returns a JSONResponse object with status code 403 and content "Вы не админ!".
-                      If the session key is invalid, returns a JSONResponse object with status code 401 and content "Недействительный ключ сессии!".
+        bool: True when the current session belongs to an admin user.
+
+    Raises:
+        standarts.UnauthorizedError: If the session is invalid.
+        standarts.AdminRequiredError: If the session is valid but the user is not an admin.
     """
     access_result = await account.check_access(request=request, response=response)
+    if not access_result or access_result.get("owner_id", -1) < 0:
+        raise standarts.UnauthorizedError(instance=str(request.url))
 
-    if access_result and access_result.get("owner_id", -1) >= 0:
-        # Выполнение запроса
-        session = sessionmaker(bind=account.engine)()
-        row = session.query(account.Account.admin).filter_by(
-            id=access_result.get("owner_id", -1)
+    session = sessionmaker(bind=account.engine)()
+    try:
+        row_result = (
+            session.query(account.Account.admin)
+            .filter_by(id=access_result.get("owner_id", -1))
+            .first()
         )
-        row_result = row.first()
-
-        if row_result.admin:
+        if row_result and row_result.admin:
             return True
-        else:
-            return JSONResponse(status_code=403, content="Вы не админ!")
-    else:
-        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+        if row_result is None:
+            raise standarts.UnauthorizedError(instance=str(request.url))
+        raise standarts.AdminRequiredError(instance=str(request.url))
+    finally:
+        session.close()
 
 
 def str_to_list(string: str | list) -> list:
@@ -271,7 +277,7 @@ async def access_mods(
     mods_ids: list[int] | int,
     edit: bool = False,
     check_mode: bool = False,
-) -> PlainTextResponse | list[int]:
+) -> bool | list[int]:
     """
     Asynchronously checks the access permissions for a set of mods.
 
@@ -284,19 +290,17 @@ async def access_mods(
 
     Returns:
         If check_mode is True:
-            - If access is granted: Returns a list of mod IDs that the user has access to.
-            - If access is denied: Returns a JSONResponse object with status code 403 and content "Заблокировано!".
-            - If the session key is invalid: Returns a JSONResponse object with status code 401 and content "Недействительный ключ сессии!".
+            - Returns a list of mod IDs that the user has access to.
+            - Denied or unauthenticated access is represented by an empty list.
         If check_mode is False:
             - If access is granted: Returns True.
-            - If access is denied: Returns a JSONResponse object with status code 403 and content "Заблокировано!".
-            - If the session key is invalid: Returns a JSONResponse object with status code 401 and content "Недействительный ключ сессии!".
+            - If access is denied: Raises `standarts.ForbiddenError`.
+            - If the session key is invalid: Raises `standarts.UnauthorizedError`.
     """
     if isinstance(mods_ids, int):
         mods_ids = [mods_ids]
 
     access_result = await account.check_access(request=request, response=response)
-
     uid = access_result.get("owner_id", -1) if access_result else -1
 
     if not edit or (access_result and uid >= 0):
@@ -306,15 +310,16 @@ async def access_mods(
 
         if mini_result is not False:
             return mini_result
-        else:
-            return PlainTextResponse(status_code=403, content="Заблокировано!")
-    else:
+
         if check_mode:
             return []
-        else:
-            return PlainTextResponse(
-                status_code=401, content="Недействительный ключ сессии!"
-            )
+
+        raise standarts.ForbiddenError(instance=str(request.url))
+
+    if check_mode:
+        return []
+
+    raise standarts.UnauthorizedError(instance=str(request.url))
 
 
 async def check_game_exists(game_id: int) -> bool:

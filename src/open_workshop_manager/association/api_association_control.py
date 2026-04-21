@@ -65,8 +65,9 @@ async def association_game_with_genre(
                 return JSONResponse(status_code=202, content="Complite")
             else:
                 session.close()
-                return JSONResponse(
-                    status_code=409, content="The association is already present"
+                raise standarts.ConflictError(
+                    detail="The association is already present",
+                    instance=str(request.url),
                 )
         else:
             delete_genre_association = catalog.game_genres.delete().where(
@@ -177,8 +178,9 @@ async def association_game_with_tag(
                 return JSONResponse(status_code=202, content="Complite")
             else:
                 session.close()
-                return JSONResponse(
-                    status_code=409, content="The association is already present"
+                raise standarts.ConflictError(
+                    detail="The association is already present",
+                    instance=str(request.url),
                 )
         else:
             delete_tags_association = catalog.allowed_mods_tags.delete().where(
@@ -239,8 +241,9 @@ async def association_mod_with_tag(
                 return JSONResponse(status_code=202, content="Complite")
             else:
                 session.close()
-                return JSONResponse(
-                    status_code=409, content="The association is already present"
+                raise standarts.ConflictError(
+                    detail="The association is already present",
+                    instance=str(request.url),
                 )
         else:
             delete_tags_association = catalog.mods_tags.delete().where(
@@ -356,8 +359,9 @@ async def association_mod_with_dependencie(
                 return JSONResponse(status_code=202, content="Complite")
             else:
                 session.close()
-                return JSONResponse(
-                    status_code=409, content="The association is already present"
+                raise standarts.ConflictError(
+                    detail="The association is already present",
+                    instance=str(request.url),
                 )
         else:
             delete_dependence_association = catalog.mods_dependencies.delete().where(

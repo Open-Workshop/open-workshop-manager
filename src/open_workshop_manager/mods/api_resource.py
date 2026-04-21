@@ -101,7 +101,10 @@ async def list_resources_rest(
         owner_ids_value = f"[{owner_id}]"
 
     if owner_ids_value is None:
-        return PlainTextResponse(status_code=400, content="owner_ids is required")
+        raise standarts.BadRequestError(
+            detail="owner_ids is required",
+            instance=str(request.url),
+        )
 
     return await list_resources(
         response=response,
@@ -239,7 +242,7 @@ async def add_resource_upload_init(
     resource_owner_id: int = Form(..., description="ID ресурса-владельца."),
 ):
     if owner_type not in ["mods", "games"]:
-        return PlainTextResponse(status_code=405, content="unknown owner_type")
+        raise standarts.UnsupportedOwnerTypeError(instance=str(request.url))
     elif owner_type == "mods":
         access_result = await tools.access_mods(
             response=response, request=request, mods_ids=[resource_owner_id], edit=True
@@ -250,7 +253,10 @@ async def add_resource_upload_init(
         return access_result
 
     if not getattr(config, "TRANSFER_JWT_SECRET", None):
-        return PlainTextResponse(status_code=500, content="JWT secret missing")
+        raise standarts.InternalServerError(
+            detail="JWT secret missing",
+            instance=str(request.url),
+        )
 
     session = sessionmaker(bind=catalog.engine)()
     insert_statement = insert(catalog.Resource).values(
@@ -289,7 +295,10 @@ async def add_resource_upload_init(
         session.query(catalog.Resource).filter_by(id=resource_id).delete()
         session.commit()
         session.close()
-        return PlainTextResponse(status_code=500, content="JWT secret missing")
+        raise standarts.InternalServerError(
+            detail="JWT secret missing",
+            instance=str(request.url),
+        )
 
     return _transfer_init_response(
         request=request,
@@ -333,7 +342,10 @@ async def edit_resource_upload_init(
     resource = resource_query.first()
     if not resource:
         session.close()
-        return PlainTextResponse(status_code=404, content="not found")
+        raise standarts.NotFoundError(
+            detail="not found",
+            instance=str(request.url),
+        )
 
     if resource.owner_type == "mods":
         access_result = await tools.access_mods(
@@ -357,7 +369,10 @@ async def edit_resource_upload_init(
     session.close()
 
     if not getattr(config, "TRANSFER_JWT_SECRET", None):
-        return PlainTextResponse(status_code=500, content="JWT secret missing")
+        raise standarts.InternalServerError(
+            detail="JWT secret missing",
+            instance=str(request.url),
+        )
 
     job_id = uuid.uuid4().hex
     ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
@@ -378,7 +393,10 @@ async def edit_resource_upload_init(
     }
     token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
     if not token:
-        return PlainTextResponse(status_code=500, content="JWT secret missing")
+        raise standarts.InternalServerError(
+            detail="JWT secret missing",
+            instance=str(request.url),
+        )
 
     return _transfer_init_response(
         request=request,
@@ -414,10 +432,13 @@ async def delete_resource_rest(
     session.close()
 
     if not resource:
-        return PlainTextResponse(status_code=404, content="not found")
+        raise standarts.NotFoundError(
+            detail="not found",
+            instance=str(request.url),
+        )
 
     if resource.owner_type not in ["mods", "games"]:
-        return PlainTextResponse(status_code=405, content="unknown owner_type")
+        raise standarts.UnsupportedOwnerTypeError(instance=str(request.url))
 
     if resource.owner_type == "mods":
         access_result = await tools.access_mods(
@@ -436,7 +457,10 @@ async def delete_resource_rest(
         owner_type=resource.owner_type, resources_ids=[resource_id]
     ):
         return PlainTextResponse(status_code=200, content="Complite!")
-    return PlainTextResponse(status_code=500, content="Unknown error")
+    raise standarts.InternalServerError(
+        detail="Unknown error",
+        instance=str(request.url),
+    )
 
 
 async def list_resources(
@@ -473,26 +497,28 @@ async def list_resources(
     owner_ids = tools.str_to_list(owner_ids)
 
     if owner_type not in ["mods", "games"]:
-        return PlainTextResponse(status_code=405, content="unknown owner_type")
+        raise standarts.UnsupportedOwnerTypeError(instance=str(request.url))
 
     if (
         len(types_resources) + len(resources_list_id) + len(owner_ids)
         > LIMITS.resource.filters_max
     ):
-        return JSONResponse(
-            status_code=413,
-            content={
-                "message": "the maximum complexity of filters is 120 elements in sum",
-                "error_id": 1,
-            },
+        raise standarts.PayloadTooLargeError(
+            detail="the maximum complexity of filters is 120 elements in sum",
+            instance=str(request.url),
+            context={"error_id": 1},
         )
     elif page_size > LIMITS.page.max or page_size < LIMITS.page.min:
-        return JSONResponse(
-            status_code=413, content={"message": "incorrect page size", "error_id": 2}
+        raise standarts.PayloadTooLargeError(
+            detail="incorrect page size",
+            instance=str(request.url),
+            context={"error_id": 2},
         )
     elif page < 0:
-        return JSONResponse(
-            status_code=413, content={"message": "incorrect page", "error_id": 3}
+        raise standarts.PayloadTooLargeError(
+            detail="incorrect page",
+            instance=str(request.url),
+            context={"error_id": 3},
         )
 
     # Создание сессии
@@ -524,7 +550,10 @@ async def list_resources(
                 response=response, request=request, mods_ids=ids_mods, check_mode=True
             ):
                 session.close()
-                return PlainTextResponse(status_code=403, content="Access denied.")
+                raise standarts.ForbiddenError(
+                    detail="Access denied.",
+                    instance=str(request.url),
+                )
 
     real_resources = await tools.resources_serialize(
         resources=resources, only_urls=only_urls
@@ -562,7 +591,7 @@ async def add_resource(
     resource_owner_id: int = Form(..., description="ID ресурса-владельца."),
 ):
     if owner_type not in ["mods", "games"]:
-        return PlainTextResponse(status_code=405, content="unknown owner_type")
+        raise standarts.UnsupportedOwnerTypeError(instance=str(request.url))
     elif owner_type == "mods":
         access_result = await tools.access_mods(
             response=response, request=request, mods_ids=[resource_owner_id], edit=True
@@ -572,7 +601,10 @@ async def add_resource(
 
     if access_result is True:
         if len(resource_url) > LIMITS.resource.url_max or not resource_url.startswith("http"):
-            return PlainTextResponse(status_code=400, content="Incorrect URL")
+            raise standarts.BadRequestError(
+                detail="Incorrect URL",
+                instance=str(request.url),
+            )
 
         session = sessionmaker(bind=catalog.engine)()
 
@@ -618,7 +650,10 @@ async def edit_resource(
     resource = session.query(catalog.Resource).filter_by(id=resource_id)
     got_resource = resource.first()
     if not got_resource:
-        return JSONResponse(status_code=404, content="The element does not exist.")
+        raise standarts.NotFoundError(
+            detail="The element does not exist.",
+            instance=str(request.url),
+        )
 
     if got_resource.owner_type == "mods":
         access_result = await tools.access_mods(
@@ -642,18 +677,27 @@ async def edit_resource(
                 or len(resource_url) > LIMITS.resource.url_max
                 or not resource_url.startswith("http")
             ):
-                return PlainTextResponse(status_code=400, content="Incorrect URL")
+                raise standarts.BadRequestError(
+                    detail="Incorrect URL",
+                    instance=str(request.url),
+                )
             if got_resource.url.startswith(
                 "local/"
             ) and not await tools.storage_file_delete(
                 type="resource", path=got_resource.url.replace("local/", "")
             ):
-                return JSONResponse(status_code=500, content="delete old file error")
+                raise standarts.InternalServerError(
+                    detail="delete old file error",
+                    instance=str(request.url),
+                )
             data_edit["url"] = resource_url
             data_edit["size"] = None
 
         if len(data_edit) <= 0:
-            return JSONResponse(status_code=418, content="The request is empty")
+            raise standarts.RequestRejectedError(
+                detail="The request is empty",
+                instance=str(request.url),
+            )
 
         data_edit["date_event"] = datetime.now()
 

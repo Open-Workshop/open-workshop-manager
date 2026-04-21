@@ -101,7 +101,10 @@ async def add_mod_from_file(
 ):
     access_result = await account.check_access(request=request, response=response)
     if isinstance(access_result, bool):
-        return JSONResponse(status_code=403, content="Нет кук доступа!")
+        raise standarts.ForbiddenError(
+            detail="Нет кук доступа!",
+            instance=str(request.url),
+        )
     user_id = access_result.get("owner_id", -1)
 
     if access_result and user_id >= 0:
@@ -109,31 +112,42 @@ async def add_mod_from_file(
             "Mod short description length=%s", len(mod_short_description or "")
         )
         if len(re.sub(r"\s+", " ", mod_short_description)) > LIMITS.mod.short_desc_max:
-            return PlainTextResponse(
-                status_code=413, content="Короткое описание слишком длинное!"
+            raise standarts.PayloadTooLargeError(
+                detail="Короткое описание слишком длинное!",
+                instance=str(request.url),
             )
         elif len(re.sub(r"\s+", " ", mod_description)) > LIMITS.mod.desc_max:
-            return PlainTextResponse(
-                status_code=413, content="Описание слишком длинное!"
+            raise standarts.PayloadTooLargeError(
+                detail="Описание слишком длинное!",
+                instance=str(request.url),
             )
         elif len(mod_name) > LIMITS.mod.name_max:
-            return PlainTextResponse(
-                status_code=413, content="Название слишком длинное!"
+            raise standarts.PayloadTooLargeError(
+                detail="Название слишком длинное!",
+                instance=str(request.url),
             )
         elif len(mod_name) < LIMITS.mod.name_min:
-            return PlainTextResponse(
-                status_code=411, content="Название слишком короткое!"
+            raise standarts.PreconditionRequiredError(
+                detail="Название слишком короткое!",
+                instance=str(request.url),
             )
         elif not await tools.check_game_exists(mod_game):
-            return PlainTextResponse(
-                status_code=412, content="Такой игры не существует!"
+            raise standarts.PreconditionFailedError(
+                detail="Такой игры не существует!",
+                instance=str(request.url),
             )
 
         if pack_format != "zip":
-            return PlainTextResponse(status_code=400, content="Unsupported format")
+            raise standarts.BadRequestError(
+                detail="Unsupported format",
+                instance=str(request.url),
+            )
 
         if not getattr(config, "TRANSFER_JWT_SECRET", None):
-            return PlainTextResponse(status_code=500, content="JWT secret missing")
+            raise standarts.InternalServerError(
+                detail="JWT secret missing",
+                instance=str(request.url),
+            )
 
         session = sessionmaker(bind=account.engine)()
         user_req = session.query(account.Account).filter_by(id=user_id).first()
@@ -199,8 +213,9 @@ async def add_mod_from_file(
                             continue
 
                     session.close()
-                    return PlainTextResponse(
-                        status_code=412, content="Такая source-связка уже существует!"
+                    raise standarts.PreconditionFailedError(
+                        detail="Такая source-связка уже существует!",
+                        instance=str(request.url),
                     )
 
             result = session.execute(insert_statement)
@@ -238,7 +253,10 @@ async def add_mod_from_file(
             }
             token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
             if not token:
-                return PlainTextResponse(status_code=500, content="JWT secret missing")
+                raise standarts.InternalServerError(
+                    detail="JWT secret missing",
+                    instance=str(request.url),
+                )
 
             transfer_url = (
                 f"{config.STORAGE_URL}/transfer/upload?token={quote(token)}&job_id={job_id}"
@@ -266,9 +284,9 @@ async def add_mod_from_file(
             return response
         else:
             session.close()
-            return PlainTextResponse(status_code=403, content="Заблокировано!")
+            raise standarts.ForbiddenError(instance=str(request.url))
     else:
-        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+        raise standarts.UnauthorizedError(instance=str(request.url))
 
 
 @router.post(
@@ -303,13 +321,22 @@ async def update_mod_file(
     mod_exists = session.query(catalog.Mod.id).filter_by(id=mod_id).first()
     session.close()
     if not mod_exists:
-        return PlainTextResponse(status_code=404, content="Mod not found")
+        raise standarts.NotFoundError(
+            detail="Mod not found",
+            instance=str(request.url),
+        )
 
     if pack_format != "zip":
-        return PlainTextResponse(status_code=400, content="Unsupported format")
+        raise standarts.BadRequestError(
+            detail="Unsupported format",
+            instance=str(request.url),
+        )
 
     if not getattr(config, "TRANSFER_JWT_SECRET", None):
-        return PlainTextResponse(status_code=500, content="JWT secret missing")
+        raise standarts.InternalServerError(
+            detail="JWT secret missing",
+            instance=str(request.url),
+        )
 
     try:
         pack_level = int(pack_level)
@@ -332,7 +359,10 @@ async def update_mod_file(
     }
     token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
     if not token:
-        return PlainTextResponse(status_code=500, content="JWT secret missing")
+        raise standarts.InternalServerError(
+            detail="JWT secret missing",
+            instance=str(request.url),
+        )
 
     transfer_url = f"{config.STORAGE_URL}/transfer/upload?token={quote(token)}&job_id={job_id}"
     wants_json = (
@@ -404,7 +434,10 @@ async def add_mod_from_url(
 ):
     access_result = await account.check_access(request=request, response=response)
     if isinstance(access_result, bool):
-        return JSONResponse(status_code=403, content="Нет кук доступа!")
+        raise standarts.ForbiddenError(
+            detail="Нет кук доступа!",
+            instance=str(request.url),
+        )
     user_id = access_result.get("owner_id", -1)
 
     if access_result and user_id >= 0:
@@ -412,35 +445,49 @@ async def add_mod_from_url(
             "Mod short description length=%s", len(mod_short_description or "")
         )
         if len(re.sub(r"\s+", " ", mod_short_description)) > LIMITS.mod.short_desc_max:
-            return PlainTextResponse(
-                status_code=413, content="Короткое описание слишком длинное!"
+            raise standarts.PayloadTooLargeError(
+                detail="Короткое описание слишком длинное!",
+                instance=str(request.url),
             )
         elif len(re.sub(r"\s+", " ", mod_description)) > LIMITS.mod.desc_max:
-            return PlainTextResponse(
-                status_code=413, content="Описание слишком длинное!"
+            raise standarts.PayloadTooLargeError(
+                detail="Описание слишком длинное!",
+                instance=str(request.url),
             )
         elif len(mod_name) > LIMITS.mod.name_max:
-            return PlainTextResponse(
-                status_code=413, content="Название слишком длинное!"
+            raise standarts.PayloadTooLargeError(
+                detail="Название слишком длинное!",
+                instance=str(request.url),
             )
         elif len(mod_name) < LIMITS.mod.name_min:
-            return PlainTextResponse(
-                status_code=411, content="Название слишком короткое!"
+            raise standarts.PreconditionRequiredError(
+                detail="Название слишком короткое!",
+                instance=str(request.url),
             )
         elif not await tools.check_game_exists(mod_game):
-            return PlainTextResponse(
-                status_code=412, content="Такой игры не существует!"
+            raise standarts.PreconditionFailedError(
+                detail="Такой игры не существует!",
+                instance=str(request.url),
             )
 
         parsed = urlparse(mod_url)
         if parsed.scheme not in {"http", "https"}:
-            return PlainTextResponse(status_code=411, content="Некорректная ссылка!")
+            raise standarts.PreconditionRequiredError(
+                detail="Некорректная ссылка!",
+                instance=str(request.url),
+            )
 
         if pack_format != "zip":
-            return PlainTextResponse(status_code=400, content="Unsupported format")
+            raise standarts.BadRequestError(
+                detail="Unsupported format",
+                instance=str(request.url),
+            )
 
         if not getattr(config, "TRANSFER_JWT_SECRET", None):
-            return PlainTextResponse(status_code=500, content="JWT secret missing")
+            raise standarts.InternalServerError(
+                detail="JWT secret missing",
+                instance=str(request.url),
+            )
 
         # Проверка прав
         session = sessionmaker(bind=account.engine)()
@@ -493,8 +540,9 @@ async def add_mod_from_url(
                 )
                 tsession.close()
                 if result:
-                    return PlainTextResponse(
-                        status_code=412, content="Такая source-связка уже существует!"
+                    raise standarts.PreconditionFailedError(
+                        detail="Такая source-связка уже существует!",
+                        instance=str(request.url),
                     )
 
             result = session.execute(insert_statement)
@@ -533,7 +581,10 @@ async def add_mod_from_url(
             }
             token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
             if not token:
-                return PlainTextResponse(status_code=500, content="JWT secret missing")
+                raise standarts.InternalServerError(
+                    detail="JWT secret missing",
+                    instance=str(request.url),
+                )
 
             redirect_url = (
                 f"{config.STORAGE_URL}/transfer/start?token={quote(token)}&job_id={job_id}"
@@ -561,9 +612,9 @@ async def add_mod_from_url(
             return response
         else:
             session.close()
-            return PlainTextResponse(status_code=403, content="Заблокировано!")
+            raise standarts.ForbiddenError(instance=str(request.url))
     else:
-        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+        raise standarts.UnauthorizedError(instance=str(request.url))
 
 
 async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
@@ -583,16 +634,31 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
             resource_id_cleanup = 0
 
     if not job_id or not callback_action or not target_path:
-        return PlainTextResponse(status_code=400, content="Invalid payload")
+        raise standarts.BadRequestError(
+            detail="Invalid payload",
+            instance=str(request.url),
+        )
     if storage_type not in {"avatar", "resource"}:
-        return PlainTextResponse(status_code=400, content="Invalid payload")
+        raise standarts.BadRequestError(
+            detail="Invalid payload",
+            instance=str(request.url),
+        )
     if callback_action not in {"avatar_set", "resource_add", "resource_edit"}:
-        return PlainTextResponse(status_code=400, content="Invalid payload")
+        raise standarts.BadRequestError(
+            detail="Invalid payload",
+            instance=str(request.url),
+        )
 
     if callback_action == "avatar_set" and storage_type != "avatar":
-        return PlainTextResponse(status_code=400, content="Invalid payload")
+        raise standarts.BadRequestError(
+            detail="Invalid payload",
+            instance=str(request.url),
+        )
     if callback_action in {"resource_add", "resource_edit"} and storage_type != "resource":
-        return PlainTextResponse(status_code=400, content="Invalid payload")
+        raise standarts.BadRequestError(
+            detail="Invalid payload",
+            instance=str(request.url),
+        )
 
     if status != "success":
         logger.warning(
@@ -625,7 +691,10 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
             session.query(catalog.Resource).filter_by(id=resource_id_cleanup).delete()
             session.commit()
             session.close()
-        return PlainTextResponse(status_code=504, content="Move timeout")
+        raise standarts.GatewayTimeoutError(
+            detail="Move timeout",
+            instance=str(request.url),
+        )
     if not move_ok:
         logger.warning(
             "transfer img move failed job_id=%s action=%s status=%s body=%s",
@@ -639,7 +708,10 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
             session.query(catalog.Resource).filter_by(id=resource_id_cleanup).delete()
             session.commit()
             session.close()
-        return PlainTextResponse(status_code=500, content="Move failed")
+        raise standarts.InternalServerError(
+            detail="Move failed",
+            instance=str(request.url),
+        )
     move_duration = (datetime.now() - move_start).total_seconds()
     logger.info(
         "transfer img move done job_id=%s action=%s type=%s duration=%.2fs",
@@ -663,7 +735,10 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
         try:
             user_id = int(user_id)
         except (TypeError, ValueError):
-            return PlainTextResponse(status_code=400, content="Invalid payload")
+            raise standarts.BadRequestError(
+                detail="Invalid payload",
+                instance=str(request.url),
+            )
 
         session = sessionmaker(bind=account.engine)()
         user_query = session.query(account.Account).filter_by(id=user_id)
@@ -671,7 +746,10 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
         if not user:
             session.close()
             await tools.storage_file_delete(type="avatar", path=target_path)
-            return PlainTextResponse(status_code=404, content="User not found")
+            raise standarts.NotFoundError(
+                detail="User not found",
+                instance=str(request.url),
+            )
         old_avatar_url = str(user.avatar_url or "")
         user_query.update({"avatar_url": "local.webp"})
         session.commit()
@@ -692,7 +770,10 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
         try:
             resource_id = int(resource_id)
         except (TypeError, ValueError):
-            return PlainTextResponse(status_code=400, content="Invalid payload")
+            raise standarts.BadRequestError(
+                detail="Invalid payload",
+                instance=str(request.url),
+            )
         if resource_size is None:
             logger.warning(
                 "resource transfer rejected (invalid final_bytes) job_id=%s action=%s resource_id=%s target=%s move_payload=%s",
@@ -716,7 +797,10 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
         if not resource:
             session.close()
             await tools.storage_file_delete(type="resource", path=target_path)
-            return PlainTextResponse(status_code=404, content="Resource not found")
+            raise standarts.NotFoundError(
+                detail="Resource not found",
+                instance=str(request.url),
+            )
 
         old_url = str(resource.url or "")
         update_values = {
@@ -735,7 +819,7 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
                 await tools.storage_file_delete(type="resource", path=old_path)
         return PlainTextResponse(status_code=200, content="OK")
 
-    return PlainTextResponse(status_code=400, content="Invalid payload")
+    raise standarts.BadRequestError(detail="Invalid payload", instance=str(request.url))
 
 
 @router.post(
@@ -747,11 +831,17 @@ async def storage_transfer_complete(
     authorization: Optional[str] = Header(None),
 ):
     if not authorization or not authorization.startswith("Bearer "):
-        return PlainTextResponse(status_code=401, content="Token not found")
+        raise standarts.UnauthorizedError(
+            detail="Token not found",
+            instance=str(request.url),
+        )
     token = authorization.split(" ", 1)[1]
     payload = tools.decode_transfer_jwt(token, audience="manager")
     if not payload:
-        return PlainTextResponse(status_code=403, content="Access denied")
+        raise standarts.ForbiddenError(
+            detail="Access denied",
+            instance=str(request.url),
+        )
 
     transfer_kind = str(payload.get("transfer_kind") or "archive").strip().lower()
     if transfer_kind == "img":
@@ -764,11 +854,17 @@ async def storage_transfer_complete(
     update_only = bool(payload.get("update_only") or payload.get("keep_condition"))
 
     if not job_id or not mod_id:
-        return PlainTextResponse(status_code=400, content="Invalid payload")
+        raise standarts.BadRequestError(
+            detail="Invalid payload",
+            instance=str(request.url),
+        )
     try:
         mod_id = int(mod_id)
     except (TypeError, ValueError):
-        return PlainTextResponse(status_code=400, content="Invalid payload")
+        raise standarts.BadRequestError(
+            detail="Invalid payload",
+            instance=str(request.url),
+        )
 
     if status != "success":
         logger.warning("transfer failed job_id=%s status=%s", job_id, status)
@@ -799,7 +895,10 @@ async def storage_transfer_complete(
         )
     except Exception:
         logger.exception("transfer move exception job_id=%s mod_id=%s", job_id, mod_id)
-        return PlainTextResponse(status_code=504, content="Move timeout")
+        raise standarts.GatewayTimeoutError(
+            detail="Move timeout",
+            instance=str(request.url),
+        )
     if not move_ok:
         logger.warning(
             "transfer move failed job_id=%s status=%s body=%s",
@@ -807,7 +906,10 @@ async def storage_transfer_complete(
             move_code,
             move_payload,
         )
-        return PlainTextResponse(status_code=500, content="Move failed")
+        raise standarts.InternalServerError(
+            detail="Move failed",
+            instance=str(request.url),
+        )
     move_duration = (datetime.now() - move_start).total_seconds()
     logger.info(
         "transfer move done job_id=%s mod_id=%s duration=%.2fs",
@@ -841,7 +943,10 @@ async def storage_transfer_complete(
     mod = session.query(catalog.Mod).filter_by(id=mod_id).first()
     if not mod:
         session.close()
-        return PlainTextResponse(status_code=404, content="Mod not found")
+        raise standarts.NotFoundError(
+            detail="Mod not found",
+            instance=str(request.url),
+        )
     if update_only:
         update_values = {
             "size": final_size,
@@ -899,8 +1004,9 @@ async def storage_transfer_complete(
             asession.commit()
             asession.close()
 
-            return PlainTextResponse(
-                status_code=412, content="Такая source-связка уже существует!"
+            raise standarts.PreconditionFailedError(
+                detail="Такая source-связка уже существует!",
+                instance=str(request.url),
             )
 
     update_values = {
@@ -947,7 +1053,10 @@ async def download_mod(
     mod = mod_query.first()
     if mod is None:
         session.close()
-        return PlainTextResponse(status_code=404, content="Not found")
+        raise standarts.NotFoundError(
+            detail="Not found",
+            instance=str(request.url),
+        )
     else:
         raw_name = mod.name or ""
         mod_query.update({catalog.Mod.downloads: catalog.Mod.downloads + 1})
@@ -1036,7 +1145,10 @@ async def access_to_mods(
                 user_id=user, mods_ids=ids_array, edit=edit, check_mode=True
             )
         else:
-            return PlainTextResponse(status_code=403, content="Access denied")
+            raise standarts.ForbiddenError(
+                detail="Access denied",
+                instance=str(request.url),
+            )
     else:
         return await tools.access_mods(
             response=response,
@@ -1077,8 +1189,9 @@ async def public_mods(
         len(ids_array) < LIMITS.mod.public_ids_min
         or len(ids_array) > LIMITS.mod.public_ids_max
     ):
-        return PlainTextResponse(
-            status_code=413, content="the size of the array is not correct"
+        raise standarts.PayloadTooLargeError(
+            detail="the size of the array is not correct",
+            instance=str(request.url),
         )
 
     output = []
@@ -1240,18 +1353,18 @@ async def mod_list(
         try:
             dependencies = [int(dependence_id) for dependence_id in dependencies]
         except (TypeError, ValueError):
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "message": "dependencies filter should contain integer IDs",
-                    "error_id": 3,
-                },
+            raise standarts.BadRequestError(
+                detail="dependencies filter should contain integer IDs",
+                instance=str(request.url),
+                context={"error_id": 3},
             )
         dependencies = list(dict.fromkeys(dependencies))
 
     if page_size > LIMITS.page.max or page_size < LIMITS.page.min:
-        return JSONResponse(
-            status_code=413, content={"message": "incorrect page size", "error_id": 1}
+        raise standarts.PayloadTooLargeError(
+            detail="incorrect page size",
+            instance=str(request.url),
+            context={"error_id": 1},
         )
     elif (
         len(tags)
@@ -1260,33 +1373,27 @@ async def mod_list(
         + len(allowed_ids)
         + len(allowed_sources_ids)
     ) > LIMITS.mod.filters_max:
-        return JSONResponse(
-            status_code=413,
-            content={
-                "message": "the maximum complexity of filters is 90 elements in sum",
-                "error_id": 2,
-            },
+        raise standarts.PayloadTooLargeError(
+            detail="the maximum complexity of filters is 90 elements in sum",
+            instance=str(request.url),
+            context={"error_id": 2},
         )
     elif independents and len(dependencies) > 0:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "message": "independents filter conflicts with dependencies filter",
-                "error_id": 4,
-            },
+        raise standarts.BadRequestError(
+            detail="independents filter conflicts with dependencies filter",
+            instance=str(request.url),
+            context={"error_id": 4},
         )
 
     want_not_public = show_not_public and user > 0
     if want_not_public:
         if user <= 0:
-            return PlainTextResponse(status_code=403, content="Заблокировано!")
+            raise standarts.ForbiddenError(instance=str(request.url))
 
         access_result = await account.check_access(request=request, response=response)
         req_user_id = access_result.get("owner_id", -1) if access_result else -1
         if req_user_id < 0:
-            return PlainTextResponse(
-                status_code=401, content="Недействительный ключ сессии!"
-            )
+            raise standarts.UnauthorizedError(instance=str(request.url))
 
         if req_user_id != user:
             session_account = sessionmaker(bind=account.engine)()
@@ -1298,7 +1405,7 @@ async def mod_list(
             session_account.close()
 
             if not user_req or not user_req.admin:
-                return PlainTextResponse(status_code=403, content="Заблокировано!")
+                raise standarts.ForbiddenError(instance=str(request.url))
 
     # Создание сессии
     session = sessionmaker(bind=catalog.engine)()
@@ -1529,7 +1636,10 @@ async def info_mod(
     output["pre_result"] = query.first()
 
     if not output["pre_result"]:
-        return PlainTextResponse(status_code=404, content="Mod not found.")
+        raise standarts.NotFoundError(
+            detail="Mod not found.",
+            instance=str(request.url),
+        )
 
     if output["pre_result"].public >= 2:
         result_access = await tools.access_mods(
@@ -1649,27 +1759,32 @@ async def mod_resources(
     types_resources = tools.str_to_list(types_resources)
 
     if len(types_resources) + len(resources_list_id) > LIMITS.resource.filters_max:
-        return JSONResponse(
-            status_code=413,
-            content={
-                "message": "the maximum complexity of filters is 120 elements in sum",
-                "error_id": 1,
-            },
+        raise standarts.PayloadTooLargeError(
+            detail="the maximum complexity of filters is 120 elements in sum",
+            instance=str(request.url),
+            context={"error_id": 1},
         )
     elif page_size > LIMITS.page.max or page_size < LIMITS.page.min:
-        return JSONResponse(
-            status_code=413, content={"message": "incorrect page size", "error_id": 2}
+        raise standarts.PayloadTooLargeError(
+            detail="incorrect page size",
+            instance=str(request.url),
+            context={"error_id": 2},
         )
     elif page < 0:
-        return JSONResponse(
-            status_code=413, content={"message": "incorrect page", "error_id": 3}
+        raise standarts.PayloadTooLargeError(
+            detail="incorrect page",
+            instance=str(request.url),
+            context={"error_id": 3},
         )
 
     session = sessionmaker(bind=catalog.engine)()
     mod_exists = session.query(catalog.Mod.id).filter_by(id=mod_id).first()
     session.close()
     if not mod_exists:
-        return PlainTextResponse(status_code=404, content="Mod not found.")
+        raise standarts.NotFoundError(
+            detail="Mod not found.",
+            instance=str(request.url),
+        )
 
     access_result = await tools.access_mods(
         response=response, request=request, mods_ids=[mod_id]
@@ -1722,7 +1837,10 @@ async def mod_tags(
     mod_exists = session.query(catalog.Mod.id).filter_by(id=mod_id).first()
     session.close()
     if not mod_exists:
-        return PlainTextResponse(status_code=404, content="Mod not found.")
+        raise standarts.NotFoundError(
+            detail="Mod not found.",
+            instance=str(request.url),
+        )
 
     access_result = await tools.access_mods(
         response=response, request=request, mods_ids=[mod_id]
@@ -1762,7 +1880,10 @@ async def mod_dependencies(
     mod_exists = session.query(catalog.Mod.id).filter_by(id=mod_id).first()
     session.close()
     if not mod_exists:
-        return PlainTextResponse(status_code=404, content="Mod not found.")
+        raise standarts.NotFoundError(
+            detail="Mod not found.",
+            instance=str(request.url),
+        )
 
     access_result = await tools.access_mods(
         response=response, request=request, mods_ids=[mod_id]
@@ -1811,12 +1932,14 @@ async def edit_mod(
         body: dict[str, object] = {}
         if mod_name is not None:
             if len(mod_name) > LIMITS.mod.name_edit_max:
-                return PlainTextResponse(
-                    status_code=413, content="Название слишком длинное!"
+                raise standarts.PayloadTooLargeError(
+                    detail="Название слишком длинное!",
+                    instance=str(request.url),
                 )
             elif len(mod_name) < LIMITS.mod.name_min:
-                return PlainTextResponse(
-                    status_code=411, content="Название слишком короткое!"
+                raise standarts.PreconditionRequiredError(
+                    detail="Название слишком короткое!",
+                    instance=str(request.url),
                 )
             body["name"] = mod_name
         if mod_short_description is not None:
@@ -1824,14 +1947,16 @@ async def edit_mod(
                 len(re.sub(r"\s+", " ", mod_short_description))
                 > LIMITS.mod.short_desc_max
             ):
-                return PlainTextResponse(
-                    status_code=413, content="Короткое описание слишком длинное!"
+                raise standarts.PayloadTooLargeError(
+                    detail="Короткое описание слишком длинное!",
+                    instance=str(request.url),
                 )
             body["short_description"] = mod_short_description
         if mod_description is not None:
             if len(re.sub(r"\s+", " ", mod_description)) > LIMITS.mod.desc_max:
-                return PlainTextResponse(
-                    status_code=413, content="Описание слишком длинное!"
+                raise standarts.PayloadTooLargeError(
+                    detail="Описание слишком длинное!",
+                    instance=str(request.url),
                 )
             body["description"] = mod_description
         if mod_source is not None:
@@ -1853,13 +1978,15 @@ async def edit_mod(
             )
             session.close()
             if result:
-                return PlainTextResponse(
-                    status_code=412, content="Такая source-связка уже существует!"
+                raise standarts.PreconditionFailedError(
+                    detail="Такая source-связка уже существует!",
+                    instance=str(request.url),
                 )
         if mod_game is not None:
             if not await tools.check_game_exists(mod_game):
-                return PlainTextResponse(
-                    status_code=412, content="Такой игры не существует!"
+                raise standarts.PreconditionFailedError(
+                    detail="Такой игры не существует!",
+                    instance=str(request.url),
                 )
             body["game"] = mod_game
         if mod_public is not None:
@@ -1867,8 +1994,9 @@ async def edit_mod(
                 body["public"] = mod_public
 
         if len(body) <= 0:
-            return PlainTextResponse(
-                status_code=411, content="Ничего не было изменено!"
+            raise standarts.PreconditionRequiredError(
+                detail="Ничего не было изменено!",
+                instance=str(request.url),
             )
 
         if len(body) > 0:
@@ -2039,9 +2167,9 @@ async def edit_authors_mod(
             return JSONResponse(status_code=200, content="Выполнено")
         else:
             session.close()
-            return JSONResponse(status_code=403, content="Заблокировано!")
+            raise standarts.ForbiddenError(instance=str(request.url))
     else:
-        return JSONResponse(status_code=401, content="Недействительный ключ сессии!")
+        raise standarts.UnauthorizedError(instance=str(request.url))
 
 
 @router.delete(
@@ -2069,9 +2197,7 @@ async def delete_mod(
 
     if not access_result or access_result.get("owner_id", -1) < 0:
         logger.info("Delete mod denied: invalid session mod_id=%s", mod_id)
-        return PlainTextResponse(
-            status_code=401, content="Недействительный ключ сессии!"
-        )
+        raise standarts.UnauthorizedError(instance=str(request.url))
     user_id = access_result.get("owner_id", -1)
     logger.info("Delete mod auth ok mod_id=%s user_id=%s", mod_id, user_id)
 
@@ -2086,7 +2212,10 @@ async def delete_mod(
             .first()
         )
         if not user_req:
-            return PlainTextResponse(status_code=403, content="Пользователь не найден!")
+            raise standarts.NotFoundError(
+                detail="Пользователь не найден!",
+                instance=str(request.url),
+            )
 
         async def mini():
             if user_req.admin:
@@ -2113,7 +2242,7 @@ async def delete_mod(
                 mod_id,
                 user_id,
             )
-            return PlainTextResponse(status_code=403, content="Заблокировано!")
+            raise standarts.ForbiddenError(instance=str(request.url))
     finally:
         session.close()
 
@@ -2144,14 +2273,20 @@ async def delete_mod(
             resource_delete_result,
             storage_delete_result,
         )
-        return PlainTextResponse(status_code=500, content="Не удалось удалить мод!")
+        raise standarts.InternalServerError(
+            detail="Не удалось удалить мод!",
+            instance=str(request.url),
+        )
 
     # Создание сессии для базы модов
     session = sessionmaker(bind=catalog.engine)()
     try:
         mod_obj = session.query(catalog.Mod).filter_by(id=mod_id).first()
         if not mod_obj:
-            return PlainTextResponse(status_code=404, content="Мод не найден")
+            raise standarts.NotFoundError(
+                detail="Мод не найден",
+                instance=str(request.url),
+            )
 
         game_id = mod_obj.game
 

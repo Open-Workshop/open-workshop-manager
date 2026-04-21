@@ -53,8 +53,10 @@ async def list_genres(
     ),
 ):
     if page_size > LIMITS.page.max or page_size < LIMITS.page.min:
-        return JSONResponse(
-            status_code=413, content={"message": "incorrect page size", "error_id": 1}
+        raise standarts.PayloadTooLargeError(
+            detail="incorrect page size",
+            instance=str(request.url),
+            context={"error_id": 1},
         )
 
     # Создание сессии
@@ -140,8 +142,12 @@ async def edit_genre(
         session = sessionmaker(bind=catalog.engine)()
 
         genre = session.query(catalog.Genre).filter_by(id=genre_id)
-        if genre.first():
-            return JSONResponse(status_code=404, content="The element does not exist.")
+        if not genre.first():
+            session.close()
+            raise standarts.NotFoundError(
+                detail="The element does not exist.",
+                instance=str(request.url),
+            )
 
         # Подготавливаем данные
         data_edit = {}
@@ -149,7 +155,11 @@ async def edit_genre(
             data_edit["name"] = genre_name
 
         if len(data_edit) <= 0:
-            return JSONResponse(status_code=418, content="The request is empty")
+            session.close()
+            raise standarts.RequestRejectedError(
+                detail="The request is empty",
+                instance=str(request.url),
+            )
 
         # Меняем данные в БД
         genre = session.query(catalog.Genre).filter_by(id=genre_id)

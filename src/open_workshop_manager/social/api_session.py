@@ -101,13 +101,17 @@ async def google_send_link(request: Request):
     """
     ru = await account.no_from_russia(request=request)
     if ru:
-        return ru
+        raise standarts.ForbiddenError(
+            detail=ru,
+            instance=str(request.url),
+        )
 
     try:
         flow = _google_flow()
     except FileNotFoundError:
-        return PlainTextResponse(
-            status_code=500, content="Google OAuth credentials are not configured"
+        raise standarts.InternalServerError(
+            detail="Google OAuth credentials are not configured",
+            instance=str(request.url),
         )
 
     authorization_url, _state = flow.authorization_url()
@@ -147,7 +151,10 @@ async def oauth_link(
         return await google_send_link(request=request)
     if service == "yandex":
         return await yandex_send_link()
-    return PlainTextResponse(status_code=400, content="Unsupported service")
+    raise standarts.BadRequestError(
+        detail="Unsupported service",
+        instance=str(request.url),
+    )
 
 
 @router.post(
@@ -244,7 +251,10 @@ async def password_authorization(
         return True
 
     session.close()
-    return JSONResponse(status_code=412, content=False)
+    raise standarts.UnauthorizedError(
+        detail="Неправильный пароль или логин.",
+        instance=str(request.url),
+    )
 
 
 @router.get(
@@ -277,13 +287,17 @@ async def google_complite(
     """
     ru = await account.no_from_russia(request=request)
     if ru:
-        return ru
+        raise standarts.ForbiddenError(
+            detail=ru,
+            instance=str(request.url),
+        )
 
     try:
         data = _google_token_data()
     except FileNotFoundError:
-        return PlainTextResponse(
-            status_code=500, content="Google OAuth credentials are not configured"
+        raise standarts.InternalServerError(
+            detail="Google OAuth credentials are not configured",
+            instance=str(request.url),
         )
 
     async with aiohttp.ClientSession() as NETsession:
@@ -318,9 +332,9 @@ async def google_complite(
             .filter_by(google_id=user_data["id"])
             .first()
         ):
-            return PlainTextResponse(
-                status_code=410,
-                content="Этот аккаунт Google использовался в недавно удаленном аккаунте Open Workshop!",
+            raise standarts.GoneError(
+                detail="Этот аккаунт Google использовался в недавно удаленном аккаунте Open Workshop!",
+                instance=str(request.url),
             )
 
         access_result = await account.check_access(request=request, response=response)
@@ -337,9 +351,9 @@ async def google_complite(
                 id = row_connect_result.id
             else:
                 session.close()
-                return PlainTextResponse(
-                    status_code=409,
-                    content="К аккаунту пользователя уже подключен Google ID",
+                raise standarts.ConflictError(
+                    detail="К аккаунту пользователя уже подключен Google ID",
+                    instance=str(request.url),
                 )
         else:
             dtime = datetime.datetime.now()
@@ -485,7 +499,10 @@ async def yandex_complite(
 
     if not rows:
         if session.query(account.blocked_account_creation).filter_by(yandex_id=user_data.id).first():
-            return PlainTextResponse(status_code=410, content="Этот аккаунт Yandex использовался в недавно удаленном аккаунте Open Workshop!")
+            raise standarts.GoneError(
+                detail="Этот аккаунт Yandex использовался в недавно удаленном аккаунте Open Workshop!",
+                instance=str(request.url),
+            )
 
         access_result = await account.check_access(request=request, response=response)
 
@@ -499,7 +516,10 @@ async def yandex_complite(
                 rid = row_connect_result.id
             else:
                 session.close()
-                return PlainTextResponse(status_code=409, content="К аккаунту пользователя уже подключен Yandex ID")
+                raise standarts.ConflictError(
+                    detail="К аккаунту пользователя уже подключен Yandex ID",
+                    instance=str(request.url),
+                )
         else:
             dtime = datetime.datetime.now()
             print(dtime, type(dtime))
@@ -607,8 +627,9 @@ async def disconnect_service(
     services = ["google", "yandex"]
 
     if service_name not in services:
-        return PlainTextResponse(
-            status_code=400, content="Недопустимое значение service_name!"
+        raise standarts.BadRequestError(
+            detail="Недопустимое значение service_name!",
+            instance=str(request.url),
         )
 
     access_result = await account.check_access(request=request, response=response)
@@ -633,17 +654,18 @@ async def disconnect_service(
                 return PlainTextResponse(status_code=200, content="Успешно!")
             else:
                 session.close()
-                return PlainTextResponse(
-                    status_code=406,
-                    content="Нельзя отсоединить все сервисы от аккаунта!",
+                raise standarts.ConflictError(
+                    detail="Нельзя отсоединить все сервисы от аккаунта!",
+                    instance=str(request.url),
                 )
         else:
             session.close()
-            return PlainTextResponse(status_code=404, content="Пользователь не найден!")
+            raise standarts.NotFoundError(
+                detail="Пользователь не найден!",
+                instance=str(request.url),
+            )
     else:
-        return PlainTextResponse(
-            status_code=403, content="Недействительный ключ сессии!"
-        )
+        raise standarts.UnauthorizedError(instance=str(request.url))
 
 
 @router.post(
@@ -660,14 +682,10 @@ async def refresh(response: Response, request: Request):
     """
     Получение новой пары access+refresh токенов на основе еще живого refresh токена
     """
-    return PlainTextResponse(
-        status_code=(
-            200
-            if bool(await account.update_session(response=response, request=request))
-            else 401
-        ),
-        content="Запрос обработан",
-    )
+    if not await account.update_session(response=response, request=request):
+        raise standarts.UnauthorizedError(instance=str(request.url))
+
+    return PlainTextResponse(status_code=200, content="Запрос обработан")
 
 
 @router.delete(
@@ -716,6 +734,4 @@ async def logout(response: Response, request: Request):
 
         return PlainTextResponse(status_code=200, content="Успешно!")
     else:
-        return PlainTextResponse(
-            status_code=401, content="Недействительный ключ сессии!"
-        )
+        raise standarts.UnauthorizedError(instance=str(request.url))

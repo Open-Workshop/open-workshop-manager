@@ -87,8 +87,10 @@ async def edit_tag(
 
         tag = session.query(catalog.Tag).filter_by(id=tag_id)
         if not tag.first():
-            return PlainTextResponse(
-                status_code=404, content="The element does not exist."
+            session.close()
+            raise standarts.NotFoundError(
+                detail="The element does not exist.",
+                instance=str(request.url),
             )
 
         # Подготавливаем данные
@@ -97,7 +99,11 @@ async def edit_tag(
             data_edit["name"] = tag_name
 
         if len(data_edit) <= 0:
-            return PlainTextResponse(status_code=418, content="The request is empty")
+            session.close()
+            raise standarts.RequestRejectedError(
+                detail="The request is empty",
+                instance=str(request.url),
+            )
 
         # Меняем данные в БД
         tag.update(data_edit)

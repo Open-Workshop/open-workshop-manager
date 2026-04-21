@@ -24,6 +24,7 @@ from open_workshop_manager.social.api_session import router as session_router
 from open_workshop_manager.app.api_catalog_statistics import (
     router as catalog_statistics_router,
 )
+from open_workshop_manager import standarts
 from starlette.types import ASGIApp, Receive, Scope, Send
 from open_workshop_manager.logging_setup import setup_logging
 from open_workshop_manager.telemetry import setup_uptrace_telemetry
@@ -148,6 +149,7 @@ app = FastAPI(
     docs_url=MAIN_URL + "/docs",
 )
 #setup_uptrace_telemetry(app)
+standarts.install_exception_handlers(app)
 
 
 @app.middleware("http")

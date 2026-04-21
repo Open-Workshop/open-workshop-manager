@@ -5,6 +5,7 @@ from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.limits import LIMITS
 from sqlalchemy.orm import sessionmaker
 from open_workshop_manager.sql_logic import sql_catalog as catalog
+from open_workshop_manager import standarts
 
 router = APIRouter()
 
@@ -72,6 +73,7 @@ router = APIRouter()
     },
 )
 async def list_tags(
+    request: Request,
     game_id: int = Query(
         -1, description="ID игры *(для активации фильтра значение `>0`)*."
     ),
@@ -91,8 +93,10 @@ async def list_tags(
     Возвращает список тегов. Они могут быть отфильтрованны по закрепленности за конкретной игрой.
     """
     if page_size > LIMITS.page.max or page_size < LIMITS.page.min:
-        return JSONResponse(
-            status_code=413, content={"message": "incorrect page size", "error_id": 1}
+        raise standarts.PayloadTooLargeError(
+            detail="incorrect page size",
+            instance=str(request.url),
+            context={"error_id": 1},
         )
 
     tags_ids = tools.str_to_list(tags_ids)
@@ -161,12 +165,10 @@ async def list_tags_for_mods(
     tags = tools.str_to_list(tags)
 
     if (len(mods_ids_list) + len(tags)) > LIMITS.association.filters_max:
-        return JSONResponse(
-            status_code=413,
-            content={
-                "message": "the maximum complexity of filters is 80 elements in sum",
-                "error_id": 1,
-            },
+        raise standarts.PayloadTooLargeError(
+            detail="the maximum complexity of filters is 80 elements in sum",
+            instance=str(request.url),
+            context={"error_id": 1},
         )
 
     # Создание сессии
@@ -232,6 +234,7 @@ async def list_tags_for_mods(
     },
 )
 async def list_genres_for_games(
+    request: Request,
     games_ids_list=Path(
         ..., description="Список ID запрошенных игр.", example="[1, 2, 3]"
     ),
@@ -252,12 +255,10 @@ async def list_genres_for_games(
     genres = tools.str_to_list(genres)
 
     if (len(games_ids_list) + len(genres)) > LIMITS.association.filters_max:
-        return JSONResponse(
-            status_code=413,
-            content={
-                "message": "the maximum complexity of filters is 80 elements in sum",
-                "error_id": 2,
-            },
+        raise standarts.PayloadTooLargeError(
+            detail="the maximum complexity of filters is 80 elements in sum",
+            instance=str(request.url),
+            context={"error_id": 2},
         )
 
     # Создание сессии

@@ -55,7 +55,10 @@ async def info_profile(
     row = query.first()
     if not row:
         session.close()
-        return PlainTextResponse(status_code=404, content="Пользователь не найден(")
+        raise standarts.NotFoundError(
+            detail="Пользователь не найден(",
+            instance=str(request.url),
+        )
 
     if rights or private:
         # Чекаем сессию юзера
@@ -79,9 +82,9 @@ async def info_profile(
 
                 if not owner_row.admin:
                     session.close()
-                    return PlainTextResponse(
-                        status_code=403,
-                        content="Вы не имеете доступа к этой информации!",
+                    raise standarts.ForbiddenError(
+                        detail="Вы не имеете доступа к этой информации!",
+                        instance=str(request.url),
                     )
 
             if private:
@@ -118,9 +121,7 @@ async def info_profile(
                 result["rights"]["vote_for_reputation"] = row.vote_for_reputation
         else:
             session.close()
-            return PlainTextResponse(
-                status_code=403, content="Недействительный ключ сессии!"
-            )
+            raise standarts.UnauthorizedError(instance=str(request.url))
 
     if general:
         result["general"] = {}
@@ -176,7 +177,10 @@ async def avatar_profile(
         else:
             return PlainTextResponse(status_code=204, content="Avatar not set.")
     else:
-        return PlainTextResponse(status_code=404, content="User not found!")
+        raise standarts.NotFoundError(
+            detail="User not found!",
+            instance=str(request.url),
+        )
 
 
 @router.post(
@@ -200,42 +204,54 @@ async def init_avatar_upload(
 ):
     access_result = await account.check_access(request=request, response=response)
     if not access_result or access_result.get("owner_id", -1) < 0:
-        return PlainTextResponse(status_code=403, content="Недействительный ключ сессии!")
+        raise standarts.UnauthorizedError(instance=str(request.url))
     owner_id = access_result.get("owner_id", -1)
 
     session = sessionmaker(bind=account.engine)()
     user = session.query(account.Account).filter_by(id=user_id).first()
     if not user:
         session.close()
-        return PlainTextResponse(status_code=404, content="Пользователь не найден!")
+        raise standarts.NotFoundError(
+            detail="Пользователь не найден!",
+            instance=str(request.url),
+        )
 
     owner = session.query(account.Account).filter_by(id=owner_id).first()
     if not owner:
         session.close()
-        return PlainTextResponse(status_code=403, content="Доступ запрещен!")
+        raise standarts.ForbiddenError(
+            detail="Доступ запрещен!",
+            instance=str(request.url),
+        )
 
     now = datetime.datetime.now()
     if owner_id != user_id:
         if not owner.admin:
             session.close()
-            return PlainTextResponse(status_code=403, content="Доступ запрещен!")
+            raise standarts.ForbiddenError(
+                detail="Доступ запрещен!",
+                instance=str(request.url),
+            )
     elif not owner.admin:
         if owner.mute_until and owner.mute_until > now:
             session.close()
-            return PlainTextResponse(
-                status_code=425,
-                content="Вам выдано временное ограничение на социальную активность :(",
+            raise standarts.TooEarlyError(
+                detail="Вам выдано временное ограничение на социальную активность :(",
+                instance=str(request.url),
             )
         if not owner.change_avatar:
             session.close()
-            return PlainTextResponse(
-                status_code=403,
-                content="Вам по какой-то причине запрещено менять аватар!",
+            raise standarts.ForbiddenError(
+                detail="Вам по какой-то причине запрещено менять аватар!",
+                instance=str(request.url),
             )
     session.close()
 
     if not getattr(config, "TRANSFER_JWT_SECRET", None):
-        return PlainTextResponse(status_code=500, content="JWT secret missing")
+        raise standarts.InternalServerError(
+            detail="JWT secret missing",
+            instance=str(request.url),
+        )
 
     job_id = uuid.uuid4().hex
     ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
@@ -256,7 +272,10 @@ async def init_avatar_upload(
     }
     token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
     if not token:
-        return PlainTextResponse(status_code=500, content="JWT secret missing")
+        raise standarts.InternalServerError(
+            detail="JWT secret missing",
+            instance=str(request.url),
+        )
 
     transfer_url = f"{config.STORAGE_URL}/transfer/upload?token={quote(token)}&job_id={job_id}"
     wants_json = (
@@ -346,9 +365,7 @@ async def edit_profile(
 
     # Смотрим действительна ли она (сессия)
     if not access_result or access_result.get("owner_id", -1) < 0:
-        return PlainTextResponse(
-            status_code=403, content="Недействительный ключ сессии!"
-        )
+        raise standarts.UnauthorizedError(instance=str(request.url))
 
     owner_id = access_result.get("owner_id", -1)  # id юзера запрашивающего данные
 
@@ -362,7 +379,10 @@ async def edit_profile(
     # Проверка, существует ли пользователь
     if not user:
         session.close()
-        return PlainTextResponse(status_code=404, content="Пользователь не найден!")
+        raise standarts.NotFoundError(
+            detail="Пользователь не найден!",
+            instance=str(request.url),
+        )
 
     today = datetime.datetime.now()
     # Проверка, может ли просящий выполнить такую операцию
@@ -382,8 +402,9 @@ async def edit_profile(
             ]:
                 if i is not None:
                     session.close()
-                    return PlainTextResponse(
-                        status_code=403, content="Доступ запрещен!"
+                    raise standarts.ForbiddenError(
+                        detail="Доступ запрещен!",
+                        instance=str(request.url),
                     )
             else:
                 # Проверяем, есть ли у запрашивающего право мутить других пользователей и пытается ли он замутить
@@ -391,19 +412,22 @@ async def edit_profile(
                     not row.mute_users or mute is None
                 ):  # разрешено ли мутить, пытается ли замутить
                     session.close()
-                    return PlainTextResponse(
-                        status_code=403, content="Доступ запрещен!"
+                    raise standarts.ForbiddenError(
+                        detail="Доступ запрещен!",
+                        instance=str(request.url),
                     )
         elif new_password is not None or off_password is not None:
             session.close()
-            return PlainTextResponse(
-                status_code=403, content="Даже администраторы не могут менять пароли!"
+            raise standarts.ForbiddenError(
+                detail="Даже администраторы не могут менять пароли!",
+                instance=str(request.url),
             )
     else:
         if mute is not None:
             session.close()
-            return PlainTextResponse(
-                status_code=400, content="Нельзя замутить самого себя!"
+            raise standarts.BadRequestError(
+                detail="Нельзя замутить самого себя!",
+                instance=str(request.url),
             )
         elif (
             not row.admin
@@ -412,15 +436,16 @@ async def edit_profile(
                 row.mute_until and row.mute_until > today
             ):  # Даже если админ замутен, то на него ограничение не распространяется
                 session.close()
-                return PlainTextResponse(
-                    status_code=425,
-                    content="Вам выдано временное ограничение на социальную активность :(",
+                raise standarts.TooEarlyError(
+                    detail="Вам выдано временное ограничение на социальную активность :(",
+                    instance=str(request.url),
                 )
 
             if grade is not None:
                 session.close()
-                return PlainTextResponse(
-                    status_code=403, content="Не админ не может менять грейды!"
+                raise standarts.ForbiddenError(
+                    detail="Не админ не может менять грейды!",
+                    instance=str(request.url),
                 )
 
             if (
@@ -429,43 +454,43 @@ async def edit_profile(
                 and row.last_password_reset + datetime.timedelta(minutes=5) > today
             ):
                 session.close()
-                return PlainTextResponse(
-                    status_code=425,
-                    content=(
+                raise standarts.TooEarlyError(
+                    detail=(
                         row.last_password_reset + datetime.timedelta(minutes=5)
                     ).strftime(account.STANDART_STR_TIME),
+                    instance=str(request.url),
                 )
             if username is not None:
                 if not row.change_username:
                     session.close()
-                    return PlainTextResponse(
-                        status_code=403,
-                        content="Вам по какой-то причине запрещено менять никнейм!",
+                    raise standarts.ForbiddenError(
+                        detail="Вам по какой-то причине запрещено менять никнейм!",
+                        instance=str(request.url),
                     )
                 elif (
                     row.last_username_reset
                     and (row.last_username_reset + datetime.timedelta(days=30)) > today
                 ):
                     session.close()
-                    return PlainTextResponse(
-                        status_code=425,
-                        content=(
+                    raise standarts.TooEarlyError(
+                        detail=(
                             row.last_username_reset + datetime.timedelta(days=30)
                         ).strftime(account.STANDART_STR_TIME),
+                        instance=str(request.url),
                     )
             if empty_avatar is not None:
                 if not row.change_avatar:
                     session.close()
-                    return PlainTextResponse(
-                        status_code=403,
-                        content="Вам по какой-то причине запрещено менять аватар!",
+                    raise standarts.ForbiddenError(
+                        detail="Вам по какой-то причине запрещено менять аватар!",
+                        instance=str(request.url),
                     )
             if about is not None:
                 if not row.change_about:
                     session.close()
-                    return PlainTextResponse(
-                        status_code=403,
-                        content='Вам по какой-то причине запрещено менять "обо мне"!',
+                    raise standarts.ForbiddenError(
+                        detail='Вам по какой-то причине запрещено менять "обо мне"!',
+                        instance=str(request.url),
                     )
 
     # Подготавливаемся к выполнению операции и смотрим чтобы переданные данные были корректны
@@ -474,15 +499,15 @@ async def edit_profile(
     if username:
         if len(username) < LIMITS.profile.username_min:
             session.close()
-            return PlainTextResponse(
-                status_code=411,
-                content="Слишком короткий никнейм! (минимальная длина 2 символа)",
+            raise standarts.PreconditionRequiredError(
+                detail="Слишком короткий никнейм! (минимальная длина 2 символа)",
+                instance=str(request.url),
             )
         elif len(username) > LIMITS.profile.username_max:
             session.close()
-            return PlainTextResponse(
-                status_code=413,
-                content="Слишком длинный никнейм! (максимальная длина 50 символов)",
+            raise standarts.PayloadTooLargeError(
+                detail="Слишком длинный никнейм! (максимальная длина 50 символов)",
+                instance=str(request.url),
             )
         else:
             # Ensure username uniqueness
@@ -496,8 +521,9 @@ async def edit_profile(
             )
             if existing_username:
                 session.close()
-                return PlainTextResponse(
-                    status_code=409, content="Этот никнейм уже занят!"
+                raise standarts.ConflictError(
+                    detail="Этот никнейм уже занят!",
+                    instance=str(request.url),
                 )
 
         query_update["username"] = username
@@ -506,9 +532,9 @@ async def edit_profile(
     if about:
         if len(about) > LIMITS.profile.about_max:
             session.close()
-            return PlainTextResponse(
-                status_code=413,
-                content='Слишком длинное поле "обо мне"! (максимальная длина 512 символов)',
+            raise standarts.PayloadTooLargeError(
+                detail='Слишком длинное поле "обо мне"! (максимальная длина 512 символов)',
+                instance=str(request.url),
             )
 
         query_update["about"] = about
@@ -516,15 +542,15 @@ async def edit_profile(
     if grade:
         if len(grade) < LIMITS.profile.grade_min:
             session.close()
-            return PlainTextResponse(
-                status_code=411,
-                content="Слишком короткий грейд! (минимальная длина 2 символа)",
+            raise standarts.PreconditionRequiredError(
+                detail="Слишком короткий грейд! (минимальная длина 2 символа)",
+                instance=str(request.url),
             )
         elif len(grade) > LIMITS.profile.grade_max:
             session.close()
-            return PlainTextResponse(
-                status_code=413,
-                content="Слишком длинный грейд! (максимальная длина 100 символов)",
+            raise standarts.PayloadTooLargeError(
+                detail="Слишком длинный грейд! (максимальная длина 100 символов)",
+                instance=str(request.url),
             )
 
         query_update["grade"] = grade
@@ -535,15 +561,15 @@ async def edit_profile(
     elif new_password:
         if len(new_password) < LIMITS.profile.password_min:
             session.close()
-            return PlainTextResponse(
-                status_code=411,
-                content="Слишком короткий пароль! (минимальная длина 6 символа)",
+            raise standarts.PreconditionRequiredError(
+                detail="Слишком короткий пароль! (минимальная длина 6 символа)",
+                instance=str(request.url),
             )
         elif len(new_password) > LIMITS.profile.password_max:
             session.close()
-            return PlainTextResponse(
-                status_code=413,
-                content="Слишком длинный пароль! (максимальная длина 100 символов)",
+            raise standarts.PayloadTooLargeError(
+                detail="Слишком длинный пароль! (максимальная длина 100 символов)",
+                instance=str(request.url),
             )
 
         query_update["password_hash"] = (
@@ -554,8 +580,9 @@ async def edit_profile(
     if mute:
         if mute < today:
             session.close()
-            return PlainTextResponse(
-                status_code=411, content="Указанная дата окончания мута уже прошла!"
+            raise standarts.PreconditionRequiredError(
+                detail="Указанная дата окончания мута уже прошла!",
+                instance=str(request.url),
             )
 
         query_update["mute_until"] = mute
@@ -571,9 +598,9 @@ async def edit_profile(
                 type="avatar", path=f"{user.id}.{format_name}"
             ):
                 session.close()
-                return PlainTextResponse(
-                    status_code=523,
-                    content="Что-то пошло не так при удалении аватара из системы.",
+                raise standarts.AvatarDeletionFailedError(
+                    detail="Что-то пошло не так при удалении аватара из системы.",
+                    instance=str(request.url),
                 )
 
     # Выполняем запрошенную операцию
@@ -655,15 +682,19 @@ async def edit_profile_rights(
         # Проверка, существует ли пользователь
         if not user:
             session.close()
-            return PlainTextResponse(status_code=404, content="Пользователь не найден!")
+            raise standarts.NotFoundError(
+                detail="Пользователь не найден!",
+                instance=str(request.url),
+            )
 
         # Проверка, может ли просящий выполнить такую операцию
         query = session.query(account.Account).filter_by(id=owner_id)
         row = query.first()
         if not row.admin:
             session.close()
-            return PlainTextResponse(
-                status_code=403, content="Только админ может менять права!"
+            raise standarts.ForbiddenError(
+                detail="Только админ может менять права!",
+                instance=str(request.url),
             )
 
         # Подготавливаемся к выполнению операции и смотрим чтобы переданные данные были корректны
@@ -703,9 +734,7 @@ async def edit_profile_rights(
         # Возвращаем успешный результат
         return PlainTextResponse(status_code=202, content="Изменения приняты :)")
     else:
-        return PlainTextResponse(
-            status_code=401, content="Недействительный ключ сессии!"
-        )
+        raise standarts.UnauthorizedError(instance=str(request.url))
 
 
 @router.delete(
@@ -736,8 +765,9 @@ async def delete_account(
 
     if access_result and access_result.get("owner_id", -1) >= 0:
         if user_id is not None and user_id != access_result.get("owner_id", -1):
-            return PlainTextResponse(
-                status_code=403, content="Вы не можете удалить этот аккаунт!"
+            raise standarts.ForbiddenError(
+                detail="Вы не можете удалить этот аккаунт!",
+                instance=str(request.url),
             )
         # Создание сессии
         session = sessionmaker(bind=account.engine)()
@@ -761,9 +791,9 @@ async def delete_account(
                 type="avatar", path=f"{row.id}.{format_name}"
             ):
                 session.close()
-                return PlainTextResponse(
-                    status_code=523,
-                    content="Что-то пошло не так при удалении аватара из системы.",
+                raise standarts.AvatarDeletionFailedError(
+                    detail="Что-то пошло не так при удалении аватара из системы.",
+                    instance=str(request.url),
                 )
 
         # Выполнение операции INSERT
@@ -792,6 +822,4 @@ async def delete_account(
         session.close()
         return PlainTextResponse(status_code=200, content="Успешно!")
     else:
-        return PlainTextResponse(
-            status_code=401, content="Недействительный ключ сессии!"
-        )
+        raise standarts.UnauthorizedError(instance=str(request.url))

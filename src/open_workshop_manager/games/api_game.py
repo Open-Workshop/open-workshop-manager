@@ -138,8 +138,10 @@ async def games_list(
     allowed_sources_ids = tools.str_to_list(allowed_sources_ids)
 
     if page_size > LIMITS.page.max or page_size < LIMITS.page.min:
-        return JSONResponse(
-            status_code=413, content={"message": "incorrect page size", "error_id": 1}
+        raise standarts.PayloadTooLargeError(
+            detail="incorrect page size",
+            instance=str(request.url),
+            context={"error_id": 1},
         )
     elif (
         len(type_app)
@@ -148,12 +150,10 @@ async def games_list(
         + len(allowed_ids)
         + len(allowed_sources_ids)
     ) > LIMITS.game.filters_max:
-        return JSONResponse(
-            status_code=413,
-            content={
-                "message": "the maximum complexity of filters is 80 elements in sum",
-                "error_id": 2,
-            },
+        raise standarts.PayloadTooLargeError(
+            detail="the maximum complexity of filters is 80 elements in sum",
+            instance=str(request.url),
+            context={"error_id": 2},
         )
 
     # Создание сессии
@@ -276,7 +276,10 @@ async def game_info(
     session.close()
 
     if not row:
-        return PlainTextResponse(status_code=404, content="Game not found.")
+        raise standarts.NotFoundError(
+            detail="Game not found.",
+            instance=str(request.url),
+        )
 
     out = {
         "id": row.id,
@@ -408,7 +411,11 @@ async def edit_game(
 
         game = session.query(catalog.Game).filter_by(id=game_id)
         if not game.first():
-            return JSONResponse(status_code=404, content="The element does not exist.")
+            session.close()
+            raise standarts.NotFoundError(
+                detail="The element does not exist.",
+                instance=str(request.url),
+            )
 
         # Подготавливаем данные
         data_edit: dict[str, object] = {}
@@ -429,12 +436,18 @@ async def edit_game(
                 .filter_by(source=game_source, source_id=game_source_id)
                 .first()
             ):
-                return PlainTextResponse(
-                    status_code=412, content="The element already exists"
+                session.close()
+                raise standarts.PreconditionFailedError(
+                    detail="The element already exists",
+                    instance=str(request.url),
                 )
 
         if len(data_edit) <= 0:
-            return PlainTextResponse(status_code=418, content="The request is empty")
+            session.close()
+            raise standarts.RequestRejectedError(
+                detail="The request is empty",
+                instance=str(request.url),
+            )
 
         # Меняем данные в БД
         game.update(data_edit)
