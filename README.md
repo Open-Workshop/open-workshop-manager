@@ -4,6 +4,8 @@
 
 Application code now lives under `src/open_workshop_manager`, which makes the package installable in editable mode and keeps imports explicit.
 
+The app now runs on Granian instead of Gunicorn/Uvicorn, so the startup path is a single ASGI server stack.
+
 `ow_config.py` is still supported as a legacy local config file, but environment variables are the preferred way to configure a fresh setup.
 
 Google OAuth credentials are loaded lazily from `credentials.json` in the repo root by default. Set `GOOGLE_OAUTH_CREDENTIALS_PATH` if you keep that file elsewhere.
@@ -17,7 +19,7 @@ python -m pip install -e .
 ## Run
 
 ```bash
-uvicorn open_workshop_manager.main:app --app-dir src --host 127.0.0.1 --port 7776
+granian --interface asgi --host 127.0.0.1 --port 7776 --workers 2 open_workshop_manager.main:app
 # or
 open-workshop-manager
 # or
@@ -58,7 +60,7 @@ export OTEL_DEPLOYMENT_ENVIRONMENT="production"
 # export UPTRACE_OTLP_PROTOCOL="grpc"   # or "http"
 # export UPTRACE_FASTAPI_EXCLUDED_URLS="^.*/docs$,^.*/openapi\\.json$,^/favicon\\.ico$,^/robots\\.txt$"
 # export UPTRACE_FASTAPI_EXCLUDE_SPANS="receive,send"
-uvicorn open_workshop_manager.main:app --app-dir src
+python -m open_workshop_manager
 ```
 
 Опционально можно переопределить OTLP endpoint:

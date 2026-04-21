@@ -1,10 +1,11 @@
-fastapi[standard]
+fastapi
+python-multipart
 SQLAlchemy
 google-auth-oauthlib
 yandexid-new
 bcrypt
 aiohttp
-gunicorn[standard]
+granian
 pymysql
 PyJWT
 opentelemetry-sdk

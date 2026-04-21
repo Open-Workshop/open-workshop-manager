@@ -1,4 +1,14 @@
 @echo off
+setlocal
 set "SCRIPT_DIR=%~dp0"
-set "PYTHONPATH=%SCRIPT_DIR%src;%SCRIPT_DIR%"
-uvicorn open_workshop_manager.main:app --host 127.0.0.1 --port 7776
+if defined PYTHONPATH (
+    set "PYTHONPATH=%SCRIPT_DIR%src;%SCRIPT_DIR%;%PYTHONPATH%"
+) else (
+    set "PYTHONPATH=%SCRIPT_DIR%src;%SCRIPT_DIR%"
+)
+if not defined OPEN_WORKSHOP_MANAGER_HOST set "OPEN_WORKSHOP_MANAGER_HOST=127.0.0.1"
+if not defined OPEN_WORKSHOP_MANAGER_PORT set "OPEN_WORKSHOP_MANAGER_PORT=7776"
+if not defined OPEN_WORKSHOP_MANAGER_WORKERS set "OPEN_WORKSHOP_MANAGER_WORKERS=2"
+python -m open_workshop_manager
+set "EXIT_CODE=%ERRORLEVEL%"
+endlocal & exit /b %EXIT_CODE%

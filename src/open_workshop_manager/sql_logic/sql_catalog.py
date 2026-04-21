@@ -11,12 +11,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship, declarative_base
 from open_workshop_manager import settings as config
-from .envs import DB_HOST, DB_PASSWORD, DB_PORT, DB_USER
 
-engine = create_engine(
-    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}" f"@{DB_HOST}:{DB_PORT}/catalog",
-    pool_pre_ping=True,
-)
+engine = create_engine(config.mysql_url("catalog"), pool_pre_ping=True)
 base = declarative_base()
 
 

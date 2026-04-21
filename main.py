@@ -14,3 +14,9 @@ if str(SRC_DIR) not in sys.path:
 from open_workshop_manager.main import app  # noqa: E402
 
 __all__ = ["app"]
+
+
+if __name__ == "__main__":
+    from open_workshop_manager.__main__ import main as _run_server
+
+    _run_server()

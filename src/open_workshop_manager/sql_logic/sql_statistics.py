@@ -7,12 +7,9 @@ from typing import Iterator
 from sqlalchemy import Column, Date, DateTime, Integer, String, create_engine, insert
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
-from .envs import DB_HOST, DB_PASSWORD, DB_PORT, DB_USER
+from open_workshop_manager import settings as config
 
-engine = create_engine(
-    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}" f"@{DB_HOST}:{DB_PORT}/access",
-    pool_pre_ping=True,
-)
+engine = create_engine(config.mysql_url("access"), pool_pre_ping=True)
 Base = declarative_base()
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 

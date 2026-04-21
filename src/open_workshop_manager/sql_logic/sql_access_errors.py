@@ -1,11 +1,8 @@
 from sqlalchemy import create_engine, Column, Integer, String, DateTime
 from sqlalchemy.ext.declarative import declarative_base
-from .envs import DB_HOST, DB_PASSWORD, DB_PORT, DB_USER
+from open_workshop_manager import settings as config
 
-engine = create_engine(
-    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}" f"@{DB_HOST}:{DB_PORT}/access",
-    pool_pre_ping=True,
-)
+engine = create_engine(config.mysql_url("access"), pool_pre_ping=True)
 base = declarative_base()
 
 

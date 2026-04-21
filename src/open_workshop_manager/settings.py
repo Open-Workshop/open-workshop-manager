@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+from urllib.parse import quote
 from typing import Any
 
 try:
@@ -90,6 +91,25 @@ password_sql = _read_str("PASSWORD_SQL", "password", "password_sql")
 user_sql = _read_str("USER_SQL", "user", "user_sql")
 url_sql = _read_str("URL_SQL", "localhost", "url_sql")
 port_sql = _read_int("PORT_SQL", 3306, "port_sql")
+
+MYSQL_PASSWORD = password_sql
+MYSQL_USER = user_sql
+MYSQL_HOST = url_sql
+MYSQL_PORT = port_sql
+
+
+def mysql_url(database: str) -> str:
+    safe_database = quote(database, safe="")
+    if MYSQL_USER and MYSQL_PASSWORD:
+        safe_user = quote(MYSQL_USER, safe="")
+        safe_password = quote(MYSQL_PASSWORD, safe="")
+        auth = f"{safe_user}:{safe_password}@"
+    elif MYSQL_USER:
+        safe_user = quote(MYSQL_USER, safe="")
+        auth = f"{safe_user}@"
+    else:
+        auth = ""
+    return f"mysql+pymysql://{auth}{MYSQL_HOST}:{MYSQL_PORT}/{safe_database}"
 
 access_mods_check_anonymous = _read_str(
     "ACCESS_MODS_CHECK_ANONYMOUS", "", "access_mods_check_anonymous"

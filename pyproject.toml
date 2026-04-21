@@ -9,13 +9,14 @@ description = "OpenWorkshop.Manager"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi[standard]",
+    "fastapi",
+    "python-multipart",
     "SQLAlchemy",
     "google-auth-oauthlib",
     "yandexid-new",
     "bcrypt",
     "aiohttp",
-    "gunicorn[standard]",
+    "granian",
     "pymysql",
     "PyJWT",
     "opentelemetry-sdk",
