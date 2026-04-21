@@ -2,17 +2,17 @@ from fastapi import APIRouter, Request, Response, Form, Query, Path
 from fastapi.responses import RedirectResponse, PlainTextResponse, JSONResponse
 import logging
 import bcrypt
-import tools
-from ow_config import MAIN_URL
+from open_workshop_manager import tools
+from open_workshop_manager.settings import MAIN_URL
 import datetime
-import ow_config as config
+from open_workshop_manager import settings as config
 import uuid
 from urllib.parse import quote
-from limits import LIMITS
+from open_workshop_manager.limits import LIMITS
 from sqlalchemy import insert
 from sqlalchemy.orm import sessionmaker
-from sql_logic import sql_account as account
-import standarts
+from open_workshop_manager.sql_logic import sql_account as account
+from open_workshop_manager import standarts
 
 logger = logging.getLogger(__name__)
 

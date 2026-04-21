@@ -8,8 +8,8 @@ from fastapi import (
     Header,
 )
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
-from sql_logic import sql_account as account
-import tools
+from open_workshop_manager.sql_logic import sql_account as account
+from open_workshop_manager import tools
 import logging
 import re
 import uuid
@@ -18,12 +18,12 @@ from datetime import datetime
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import insert, func
 from typing import Optional
-from sql_logic import sql_catalog as catalog
-from sql_logic import sql_statistics as statistics
-from ow_config import MAIN_URL
-import ow_config as config
-from limits import LIMITS
-import standarts
+from open_workshop_manager.sql_logic import sql_catalog as catalog
+from open_workshop_manager.sql_logic import sql_statistics as statistics
+from open_workshop_manager.settings import MAIN_URL
+from open_workshop_manager import settings as config
+from open_workshop_manager.limits import LIMITS
+from open_workshop_manager import standarts
 
 logger = logging.getLogger(__name__)
 

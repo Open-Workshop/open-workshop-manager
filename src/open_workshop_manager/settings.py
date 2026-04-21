@@ -1,0 +1,139 @@
+"""Runtime settings with environment and legacy config support."""
+
+from __future__ import annotations
+
+import importlib
+import json
+import os
+from typing import Any
+
+try:
+    _LEGACY_CONFIG = importlib.import_module("ow_config")
+except ModuleNotFoundError:  # pragma: no cover - legacy config is optional
+    _LEGACY_CONFIG = None
+
+
+def _read(name: str, default: Any = None, legacy_name: str | None = None) -> Any:
+    if name in os.environ:
+        return os.environ[name]
+
+    if legacy_name and _LEGACY_CONFIG is not None and hasattr(_LEGACY_CONFIG, legacy_name):
+        return getattr(_LEGACY_CONFIG, legacy_name)
+
+    if _LEGACY_CONFIG is not None and hasattr(_LEGACY_CONFIG, name):
+        return getattr(_LEGACY_CONFIG, name)
+
+    return default
+
+
+def _read_str(name: str, default: str = "", legacy_name: str | None = None) -> str:
+    value = _read(name=name, default=default, legacy_name=legacy_name)
+    if value is None:
+        return default
+    return str(value)
+
+
+def _read_int(name: str, default: int, legacy_name: str | None = None) -> int:
+    value = _read(name=name, default=default, legacy_name=legacy_name)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _read_bool(name: str, default: bool, legacy_name: str | None = None) -> bool:
+    value = _read(name=name, default=default, legacy_name=legacy_name)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
+def _read_list(name: str, default: list[str], legacy_name: str | None = None) -> list[str]:
+    value = _read(name=name, default=default, legacy_name=legacy_name)
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return [item.strip() for item in raw.split(",") if item.strip()]
+        if isinstance(parsed, list):
+            return parsed
+        return [str(parsed)]
+    return list(default)
+
+
+yandex_client_id = _read_str("YANDEX_CLIENT_ID", "", "yandex_client_id")
+yandex_client_secret = _read_str("YANDEX_CLIENT_SECRET", "", "yandex_client_secret")
+
+STORAGE_URL = _read_str("STORAGE_URL", "http://127.0.0.1:7070")
+MAIN_URL = _read_str("MAIN_URL", "/api/accounts")
+API_BASE_URL = _read_str("API_BASE_URL", "https://api.openworkshop.miskler.ru")
+TRANSFER_JWT_SECRET = _read_str("TRANSFER_JWT_SECRET", "")
+TRANSFER_JWT_TTL_SECONDS = _read_int("TRANSFER_JWT_TTL_SECONDS", 900)
+STORAGE_TIMEOUT_SECONDS = _read_int("STORAGE_TIMEOUT_SECONDS", 1800)
+
+password_sql = _read_str("PASSWORD_SQL", "password", "password_sql")
+user_sql = _read_str("USER_SQL", "user", "user_sql")
+url_sql = _read_str("URL_SQL", "localhost", "url_sql")
+port_sql = _read_int("PORT_SQL", 3306, "port_sql")
+
+access_mods_check_anonymous = _read_str(
+    "ACCESS_MODS_CHECK_ANONYMOUS", "", "access_mods_check_anonymous"
+)
+
+storage_upload_token = _read_str("STORAGE_UPLOAD_TOKEN", "", "storage_upload_token")
+storage_delete_token = _read_str("STORAGE_DELETE_TOKEN", "", "storage_delete_token")
+storage_manage_token = _read_str("STORAGE_MANAGE_TOKEN", "", "storage_manage_token")
+
+COOKIE_DOMAIN = _read_str("COOKIE_DOMAIN", ".openworkshop.miskler.ru")
+COOKIE_SAMESITE = _read_str("COOKIE_SAMESITE", "Lax")
+COOKIE_SECURE = _read_bool("COOKIE_SECURE", True)
+
+CORS_ORIGINS = _read_list(
+    "CORS_ORIGINS",
+    [
+        "https://openworkshop.miskler.ru",
+        "https://api.openworkshop.miskler.ru",
+    ],
+)
+ALLOW_LOCALHOST_CORS = _read_bool("ALLOW_LOCALHOST_CORS", True)
+LOCALHOST_CORS_ORIGINS = _read_list(
+    "LOCALHOST_CORS_ORIGINS",
+    [
+        "http://localhost:6660",
+        "http://127.0.0.1:6660",
+    ],
+)
+
+LOG_LEVEL = _read_str("LOG_LEVEL", "DEBUG")
+
+UPTRACE_DSN = _read_str("UPTRACE_DSN", "")
+OTEL_SERVICE_NAME = _read_str("OTEL_SERVICE_NAME", "open-workshop-manager")
+OTEL_SERVICE_VERSION = _read_str("OTEL_SERVICE_VERSION", "dev")
+OTEL_DEPLOYMENT_ENVIRONMENT = _read_str(
+    "OTEL_DEPLOYMENT_ENVIRONMENT", "production"
+)
+UPTRACE_OTLP_PROTOCOL = _read_str("UPTRACE_OTLP_PROTOCOL", "")
+UPTRACE_FASTAPI_EXCLUDED_URLS = _read_str(
+    "UPTRACE_FASTAPI_EXCLUDED_URLS",
+    r"^.*/docs$,^.*/openapi\.json$,^/favicon\.ico$,^/robots\.txt$",
+)
+UPTRACE_FASTAPI_EXCLUDE_SPANS = _read_str(
+    "UPTRACE_FASTAPI_EXCLUDE_SPANS", "receive,send"
+)
+UPTRACE_OTLP_TRACES_URL = _read_str("UPTRACE_OTLP_TRACES_URL", "")
+UPTRACE_OTLP_GRPC_URL = _read_str("UPTRACE_OTLP_GRPC_URL", "")

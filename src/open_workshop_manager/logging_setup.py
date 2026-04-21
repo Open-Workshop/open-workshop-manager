@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import os
 
+from open_workshop_manager import settings
+
 DEFAULT_LOG_LEVEL = "DEBUG"
 DEFAULT_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s:%(lineno)d - %(message)s"
 DEFAULT_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -19,13 +21,7 @@ def _resolve_log_level() -> str:
     env_level = os.getenv("LOG_LEVEL")
     if env_level:
         return _normalize_level(env_level)
-
-    try:
-        import ow_config as config
-    except Exception:
-        return DEFAULT_LOG_LEVEL
-
-    return _normalize_level(getattr(config, "LOG_LEVEL", DEFAULT_LOG_LEVEL))
+    return _normalize_level(getattr(settings, "LOG_LEVEL", DEFAULT_LOG_LEVEL))
 
 
 def setup_logging() -> None:

@@ -1,6 +1,6 @@
-from sql_logic import sql_account as account
-from sql_logic import sql_catalog as catalog
-import ow_config as config
+from open_workshop_manager.sql_logic import sql_account as account
+from open_workshop_manager.sql_logic import sql_catalog as catalog
+from open_workshop_manager import settings as config
 import logging
 from io import BytesIO
 from fastapi import Request, Response

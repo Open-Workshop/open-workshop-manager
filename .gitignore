@@ -9,7 +9,6 @@ __pycache__/
 accounts/
 accounts_avatars/
 .idea/
-gunicorn_config.py
 ow_config.py
 credentials.json
 

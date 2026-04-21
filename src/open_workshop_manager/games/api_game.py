@@ -1,14 +1,14 @@
 from fastapi import APIRouter, Request, Response, Form, Query, Path
 from fastapi.responses import JSONResponse, PlainTextResponse
-import tools
+from open_workshop_manager import tools
 import logging
-from ow_config import MAIN_URL
-from limits import LIMITS
+from open_workshop_manager.settings import MAIN_URL
+from open_workshop_manager.limits import LIMITS
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import insert, delete
-from sql_logic import sql_catalog as catalog
+from open_workshop_manager.sql_logic import sql_catalog as catalog
 from datetime import datetime
-import standarts
+from open_workshop_manager import standarts
 
 logger = logging.getLogger(__name__)
 

@@ -1,4 +1,35 @@
-# open-workshop-accounts
+# open-workshop-manager
+
+## Layout
+
+Application code now lives under `src/open_workshop_manager`, which makes the package installable in editable mode and keeps imports explicit.
+
+`ow_config.py` is still supported as a legacy local config file, but environment variables are the preferred way to configure a fresh setup.
+
+Google OAuth credentials are loaded lazily from `credentials.json` in the repo root by default. Set `GOOGLE_OAUTH_CREDENTIALS_PATH` if you keep that file elsewhere.
+
+## Install
+
+```bash
+python -m pip install -e .
+```
+
+## Run
+
+```bash
+uvicorn open_workshop_manager.main:app --app-dir src --host 127.0.0.1 --port 7776
+# or
+open-workshop-manager
+# or
+python -m open_workshop_manager
+```
+
+You can also use the helper scripts:
+
+```bash
+./start.sh
+start.bat
+```
 
 ## Tools
 
@@ -11,7 +42,7 @@ python scripts/register_user.py <username> --password "secret123"
 python scripts/register_user.py <username> --admin
 ```
 
-The script uses DB settings from `ow_config.py`.
+The script reads DB settings through the package settings layer, which still understands `ow_config.py` for compatibility.
 
 ## Uptrace telemetry
 
@@ -27,7 +58,7 @@ export OTEL_DEPLOYMENT_ENVIRONMENT="production"
 # export UPTRACE_OTLP_PROTOCOL="grpc"   # or "http"
 # export UPTRACE_FASTAPI_EXCLUDED_URLS="^.*/docs$,^.*/openapi\\.json$,^/favicon\\.ico$,^/robots\\.txt$"
 # export UPTRACE_FASTAPI_EXCLUDE_SPANS="receive,send"
-uvicorn main:app --host 127.0.0.1 --port 7776
+uvicorn open_workshop_manager.main:app --app-dir src
 ```
 
 Опционально можно переопределить OTLP endpoint:

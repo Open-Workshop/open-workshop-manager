@@ -14,7 +14,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from fastapi import Request, Response
 import bcrypt
 import datetime
-import ow_config as config
+from open_workshop_manager import settings as config
 from .envs import DB_HOST, DB_PASSWORD, DB_PORT, DB_USER
 
 engine = create_engine(

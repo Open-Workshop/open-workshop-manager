@@ -10,7 +10,7 @@ from sqlalchemy import (
     ForeignKey,
 )
 from sqlalchemy.orm import relationship, declarative_base
-import ow_config as config
+from open_workshop_manager import settings as config
 from .envs import DB_HOST, DB_PASSWORD, DB_PORT, DB_USER
 
 engine = create_engine(

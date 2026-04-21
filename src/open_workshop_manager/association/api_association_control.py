@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Request, Response, Form, Path
 from fastapi.responses import JSONResponse
-import tools
-from ow_config import MAIN_URL
+from open_workshop_manager import tools
+from open_workshop_manager.settings import MAIN_URL
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import insert
-from sql_logic import sql_catalog as catalog
-import standarts
+from open_workshop_manager.sql_logic import sql_catalog as catalog
+from open_workshop_manager import standarts
 
 router = APIRouter()
 

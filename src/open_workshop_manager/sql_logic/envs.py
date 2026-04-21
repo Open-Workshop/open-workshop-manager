@@ -1,4 +1,4 @@
-import ow_config as config
+from open_workshop_manager import settings as config
 
 DB_HOST = getattr(config, "url_sql", None)
 DB_USER = getattr(config, "user_sql", None)

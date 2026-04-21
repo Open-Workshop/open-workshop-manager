@@ -5,8 +5,11 @@ from fastapi.responses import (
     JSONResponse,
     PlainTextResponse,
 )
-from sql_logic import sql_account as account
+from open_workshop_manager.sql_logic import sql_account as account
 import json
+import os
+from functools import lru_cache
+from pathlib import Path as FilePath
 
 from yandexid import AsyncYandexOAuth, AsyncYandexID
 from google_auth_oauthlib.flow import Flow
@@ -16,45 +19,69 @@ from urllib import parse
 import datetime
 import random
 import string
-import tools
+from open_workshop_manager import tools
 from io import BytesIO
-from ow_config import MAIN_URL
-from limits import LIMITS
-import ow_config as config
+from open_workshop_manager.settings import MAIN_URL
+from open_workshop_manager.limits import LIMITS
+from open_workshop_manager import settings as config
 import aiohttp
 from sqlalchemy import insert
 from sqlalchemy.orm import sessionmaker
-import standarts
+from open_workshop_manager import standarts
 
 logger = logging.getLogger(__name__)
 
 STANDART_STR_TIME = account.STANDART_STR_TIME
+GOOGLE_CREDENTIALS_PATH_ENV = "GOOGLE_OAUTH_CREDENTIALS_PATH"
+DEFAULT_GOOGLE_CREDENTIALS_PATH = (
+    FilePath(__file__).resolve().parents[3] / "credentials.json"
+)
 
 
 router = APIRouter()
 
-
-# Создаем объект Flow
-with open("credentials.json", "r") as config_file:
-    google_config = json.load(config_file)
-data = {
-    "client_id": google_config["web"]["client_id"],
-    "client_secret": google_config["web"]["client_secret"],
-    "redirect_uri": google_config["web"]["redirect_uris"][0],
-    "grant_type": "authorization_code",
-}
-flow = Flow.from_client_config(
-    google_config,
-    scopes=["openid", "profile"],
-    redirect_uri=google_config["web"]["redirect_uris"][0],
-)
-
-# Создаем объект YandexOAuth
 yandex_oauth = AsyncYandexOAuth(
     client_id=config.yandex_client_id,
     client_secret=config.yandex_client_secret,
     redirect_uri=f"{config.API_BASE_URL.rstrip('/')}{MAIN_URL}/session/yandex/complite",
 )
+
+
+def _google_credentials_path() -> FilePath:
+    configured = os.getenv(GOOGLE_CREDENTIALS_PATH_ENV)
+    if configured:
+        return FilePath(configured).expanduser()
+    return DEFAULT_GOOGLE_CREDENTIALS_PATH
+
+
+@lru_cache(maxsize=1)
+def _google_config() -> dict[str, object]:
+    credentials_path = _google_credentials_path()
+    if not credentials_path.exists():
+        raise FileNotFoundError(credentials_path)
+
+    with credentials_path.open("r", encoding="utf-8") as config_file:
+        return json.load(config_file)
+
+
+@lru_cache(maxsize=1)
+def _google_flow() -> Flow:
+    google_config = _google_config()
+    return Flow.from_client_config(
+        google_config,
+        scopes=["openid", "profile"],
+        redirect_uri=google_config["web"]["redirect_uris"][0],
+    )
+
+
+def _google_token_data() -> dict[str, str]:
+    google_config = _google_config()
+    return {
+        "client_id": google_config["web"]["client_id"],
+        "client_secret": google_config["web"]["client_secret"],
+        "redirect_uri": google_config["web"]["redirect_uris"][0],
+        "grant_type": "authorization_code",
+    }
 
 
 @router.get(
@@ -76,7 +103,14 @@ async def google_send_link(request: Request):
     if ru:
         return ru
 
-    authorization_url, state = flow.authorization_url()
+    try:
+        flow = _google_flow()
+    except FileNotFoundError:
+        return PlainTextResponse(
+            status_code=500, content="Google OAuth credentials are not configured"
+        )
+
+    authorization_url, _state = flow.authorization_url()
     return RedirectResponse(url=authorization_url)
 
 
@@ -244,6 +278,13 @@ async def google_complite(
     ru = await account.no_from_russia(request=request)
     if ru:
         return ru
+
+    try:
+        data = _google_token_data()
+    except FileNotFoundError:
+        return PlainTextResponse(
+            status_code=500, content="Google OAuth credentials are not configured"
+        )
 
     async with aiohttp.ClientSession() as NETsession:
         data_complite = data.copy()

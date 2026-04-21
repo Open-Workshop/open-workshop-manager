@@ -24,11 +24,14 @@ from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
+SRC_DIR = ROOT_DIR / "src"
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
-import ow_config as config  # noqa: E402
-from sql_logic import sql_catalog as catalog  # noqa: E402
+from open_workshop_manager import settings as config  # noqa: E402
+from open_workshop_manager.sql_logic import sql_catalog as catalog  # noqa: E402
 
 
 @dataclass(slots=True)
@@ -47,7 +50,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--storage-base",
         default=os.environ.get("OW_STORAGE_URL", getattr(config, "STORAGE_URL", "")).rstrip("/"),
-        help="Storage base URL (default: OW_STORAGE_URL or ow_config.STORAGE_URL).",
+        help="Storage base URL (default: OW_STORAGE_URL or package settings STORAGE_URL).",
     )
     parser.add_argument(
         "--concurrency",

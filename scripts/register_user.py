@@ -14,16 +14,19 @@ import getpass
 import sys
 from pathlib import Path
 
-# Ensure repo root is on sys.path when running from other working directories
+# Ensure repo root and src are on sys.path when running from other working directories
 ROOT_DIR = Path(__file__).resolve().parents[1]
+SRC_DIR = ROOT_DIR / "src"
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 import bcrypt  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 
-from sql_logic import sql_account as account  # noqa: E402
-from limits import LIMITS  # noqa: E402
+from open_workshop_manager.sql_logic import sql_account as account  # noqa: E402
+from open_workshop_manager.limits import LIMITS  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:

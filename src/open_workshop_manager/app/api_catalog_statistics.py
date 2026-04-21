@@ -2,9 +2,9 @@ from fastapi import APIRouter
 from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 
-from ow_config import MAIN_URL
-from sql_logic import sql_account as account
-from sql_logic import sql_catalog as catalog
+from open_workshop_manager.settings import MAIN_URL
+from open_workshop_manager.sql_logic import sql_account as account
+from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
 

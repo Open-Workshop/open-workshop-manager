@@ -1,16 +1,16 @@
 from fastapi import APIRouter, Request, Response, Form, Query, Path
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
-import tools
+from open_workshop_manager import tools
 import uuid
 from urllib.parse import quote
-from sql_logic import sql_catalog as catalog
+from open_workshop_manager.sql_logic import sql_catalog as catalog
 from sqlalchemy import insert
 from sqlalchemy.orm import sessionmaker
-from ow_config import MAIN_URL
-import ow_config as config
-from limits import LIMITS
+from open_workshop_manager.settings import MAIN_URL
+from open_workshop_manager import settings as config
+from open_workshop_manager.limits import LIMITS
 from datetime import datetime
-import standarts
+from open_workshop_manager import standarts
 
 router = APIRouter()
 

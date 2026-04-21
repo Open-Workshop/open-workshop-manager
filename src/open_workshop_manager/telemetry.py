@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import atexit
 import logging
-import os
 from urllib.parse import parse_qs, urlparse
 
 from fastapi import FastAPI
+from open_workshop_manager import settings
 
 
 _LOG = logging.getLogger(__name__)
@@ -24,20 +24,10 @@ def _parse_dsn(dsn: str):
 
 
 def _read_setting(key: str, default: str | None = None) -> str | None:
-    value = os.getenv(key)
-    if value is not None and str(value).strip():
-        return str(value).strip()
-
-    try:
-        import ow_config
-
-        config_value = getattr(ow_config, key, None)
-        if config_value is not None and str(config_value).strip():
-            return str(config_value).strip()
-    except Exception:
-        pass
-
-    return default
+    value = getattr(settings, key, default)
+    if value is None:
+        return default
+    return str(value)
 
 
 def _dsn_to_otlp_trace_endpoint(dsn: str) -> str:
