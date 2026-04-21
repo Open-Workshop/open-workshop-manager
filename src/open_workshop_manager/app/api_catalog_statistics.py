@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from sqlalchemy import func
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import select
 
 from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.sql_logic import sql_account as account
@@ -16,49 +16,47 @@ router = APIRouter()
     status_code=200,
 )
 async def get_catalog_statistics():
-    catalog_session = sessionmaker(bind=catalog.engine)()
-    account_session = sessionmaker(bind=account.engine)()
-    try:
+    async with catalog.AsyncSessionLocal() as catalog_session:
         mods_count = (
-            catalog_session.query(func.count(catalog.Mod.id))
-            .filter(catalog.Mod.condition == 0)
-            .scalar()
+            await catalog_session.scalar(
+                select(func.count(catalog.Mod.id)).where(catalog.Mod.condition == 0)
+            )
             or 0
         )
 
         mods_size = (
-            catalog_session.query(func.coalesce(func.sum(catalog.Mod.size), 0))
-            .filter(catalog.Mod.condition == 0)
-            .scalar()
+            await catalog_session.scalar(
+                select(func.coalesce(func.sum(catalog.Mod.size), 0)).where(
+                    catalog.Mod.condition == 0
+                )
+            )
             or 0
         )
 
         mods_size_unpacked = (
-            catalog_session.query(
-                func.coalesce(
-                    func.sum(
-                        func.coalesce(catalog.Mod.size_unpacked, catalog.Mod.size, 0)
-                    ),
-                    0,
-                )
+            await catalog_session.scalar(
+                select(
+                    func.coalesce(
+                        func.sum(
+                            func.coalesce(catalog.Mod.size_unpacked, catalog.Mod.size, 0)
+                        ),
+                        0,
+                    )
+                ).where(catalog.Mod.condition == 0)
             )
-            .filter(catalog.Mod.condition == 0)
-            .scalar()
             or 0
         )
 
         resources_size = (
-            catalog_session.query(func.coalesce(func.sum(catalog.Resource.size), 0))
-            .scalar()
+            await catalog_session.scalar(select(func.coalesce(func.sum(catalog.Resource.size), 0)))
             or 0
         )
 
-        users_count = (
-            account_session.query(func.count(account.Account.id)).scalar() or 0
+    async with account.AsyncSessionLocal() as account_session:
+        users_count = await account_session.scalar(
+            select(func.count(account.Account.id))
         )
-    finally:
-        catalog_session.close()
-        account_session.close()
+        users_count = users_count or 0
 
     return {
         "mods_count": int(mods_count),

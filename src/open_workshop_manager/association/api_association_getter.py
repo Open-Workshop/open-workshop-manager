@@ -3,9 +3,9 @@ from fastapi.responses import JSONResponse
 from open_workshop_manager import tools
 from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.limits import LIMITS
-from sqlalchemy.orm import sessionmaker
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 from open_workshop_manager import standarts
+from sqlalchemy import func, select
 
 router = APIRouter()
 
@@ -101,25 +101,28 @@ async def list_tags(
 
     tags_ids = tools.str_to_list(tags_ids)
 
-    # Создание сессии
-    session = sessionmaker(bind=catalog.engine)()
-    # Выполнение запроса
-    query = session.query(catalog.Tag)
-    if game_id > 0:
-        query = query.filter(
-            catalog.Tag.associated_games.any(catalog.Game.id == game_id)
-        )
-    if len(name) > 0:
-        query = query.filter(catalog.Tag.name.ilike(f"%{name}%"))
+    async with catalog.AsyncSessionLocal() as session:
+        count_stmt = select(func.count()).select_from(catalog.Tag)
+        list_stmt = select(catalog.Tag)
+        if game_id > 0:
+            condition = catalog.Tag.associated_games.any(catalog.Game.id == game_id)
+            count_stmt = count_stmt.where(condition)
+            list_stmt = list_stmt.where(condition)
+        if len(name) > 0:
+            condition = catalog.Tag.name.ilike(f"%{name}%")
+            count_stmt = count_stmt.where(condition)
+            list_stmt = list_stmt.where(condition)
 
-    if len(tags_ids) > 0:
-        query = query.filter(catalog.Tag.id.in_(tags_ids))
+        if len(tags_ids) > 0:
+            count_stmt = count_stmt.where(catalog.Tag.id.in_(tags_ids))
+            list_stmt = list_stmt.where(catalog.Tag.id.in_(tags_ids))
 
-    tags_count = query.count()
-    offset = page_size * page
-    tags = query.offset(offset).limit(page_size).all()
+        tags_count = int((await session.execute(count_stmt)).scalar_one())
+        offset = page_size * page
+        tags = (
+            await session.execute(list_stmt.offset(offset).limit(page_size))
+        ).scalars().all()
 
-    session.close()
     return {"database_size": tags_count, "offset": offset, "results": tags}
 
 
@@ -171,41 +174,41 @@ async def list_tags_for_mods(
             context={"error_id": 1},
         )
 
-    # Создание сессии
-    session = sessionmaker(bind=catalog.engine)()
-
-    query = session.query(catalog.Mod.id)
-    query = query.filter(catalog.Mod.id.in_(mods_ids_list))
-
-    if len(query.all()) > 0:
-        result_access = await tools.access_mods(
-            response=response, request=request, mods_ids=mods_ids_list
+    async with catalog.AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(catalog.Mod.id).where(catalog.Mod.id.in_(mods_ids_list))
         )
-        if not result_access:
-            return result_access
+        if len(result.scalars().all()) > 0:
+            result_access = await tools.access_mods(
+                response=response, request=request, mods_ids=mods_ids_list
+            )
+            if not result_access:
+                return result_access
 
-    # Выполнение запроса
-    query_global = session.query(catalog.Tag).join(catalog.mods_tags)
-    if only_ids:
-        result_ids: dict[int, list[int]] = {}
+        if only_ids:
+            result_ids: dict[int, list[int]] = {}
+            for mod_id in mods_ids_list:
+                query = select(catalog.Tag.id).join(catalog.mods_tags).where(
+                    catalog.mods_tags.c.mod_id == mod_id
+                )
+                if len(tags) > 0:
+                    query = query.where(catalog.Tag.id.in_(tags))
+
+                result_ids[mod_id] = list((await session.execute(query)).scalars().all())
+
+            return result_ids
+
+        result_rows: dict[int, list[catalog.Tag]] = {}
         for mod_id in mods_ids_list:
-            query = query_global.filter(catalog.mods_tags.c.mod_id == mod_id)
+            query = select(catalog.Tag).join(catalog.mods_tags).where(
+                catalog.mods_tags.c.mod_id == mod_id
+            )
             if len(tags) > 0:
-                query = query.filter(catalog.Tag.id.in_(tags))
+                query = query.where(catalog.Tag.id.in_(tags))
 
-            result_ids[mod_id] = [row.id for row in query.all()]
+            result_rows[mod_id] = (await session.execute(query)).scalars().all()
 
-        return result_ids
-
-    result_rows: dict[int, list[catalog.Tag]] = {}
-    for mod_id in mods_ids_list:
-        query = query_global.filter(catalog.mods_tags.c.mod_id == mod_id)
-        if len(tags) > 0:
-            query = query.filter(catalog.Tag.id.in_(tags))
-
-        result_rows[mod_id] = query.all()
-
-    return result_rows
+        return result_rows
 
 
 @router.get(
@@ -261,29 +264,28 @@ async def list_genres_for_games(
             context={"error_id": 2},
         )
 
-    # Создание сессии
-    Session = sessionmaker(bind=catalog.engine)
-    session = Session()
+    async with catalog.AsyncSessionLocal() as session:
+        if only_ids:
+            result_ids: dict[int, list[int]] = {}
+            for game_id in games_ids_list:
+                query = select(catalog.Genre.id).join(catalog.game_genres).where(
+                    catalog.game_genres.c.game_id == game_id
+                )
+                if len(genres) > 0:
+                    query = query.where(catalog.Genre.id.in_(genres))
 
-    # Выполнение запроса
-    query_global = session.query(catalog.Genre).join(catalog.game_genres)
-    if only_ids:
-        result_ids: dict[int, list[int]] = {}
+                result_ids[game_id] = list((await session.execute(query)).scalars().all())
+
+            return result_ids
+
+        result_rows: dict[int, list[catalog.Genre]] = {}
         for game_id in games_ids_list:
-            query = query_global.filter(catalog.game_genres.c.game_id == game_id)
+            query = select(catalog.Genre).join(catalog.game_genres).where(
+                catalog.game_genres.c.game_id == game_id
+            )
             if len(genres) > 0:
-                query = query.filter(catalog.Genre.id.in_(genres))
+                query = query.where(catalog.Genre.id.in_(genres))
 
-            result_ids[game_id] = [row.id for row in query.all()]
+            result_rows[game_id] = (await session.execute(query)).scalars().all()
 
-        return result_ids
-
-    result_rows: dict[int, list[catalog.Genre]] = {}
-    for game_id in games_ids_list:
-        query = query_global.filter(catalog.game_genres.c.game_id == game_id)
-        if len(genres) > 0:
-            query = query.filter(catalog.Genre.id.in_(genres))
-
-        result_rows[game_id] = query.all()
-
-    return result_rows
+        return result_rows

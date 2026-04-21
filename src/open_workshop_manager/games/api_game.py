@@ -1,16 +1,13 @@
-from fastapi import APIRouter, Request, Response, Form, Query, Path
-from fastapi.responses import JSONResponse, PlainTextResponse
-from open_workshop_manager import tools
-import logging
-from open_workshop_manager.settings import MAIN_URL
-from open_workshop_manager.limits import LIMITS
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import insert, delete
-from open_workshop_manager.sql_logic import sql_catalog as catalog
 from datetime import datetime
-from open_workshop_manager import standarts
 
-logger = logging.getLogger(__name__)
+from fastapi import APIRouter, Form, Path, Query, Request, Response
+from fastapi.responses import JSONResponse, PlainTextResponse
+from sqlalchemy import delete, func, insert, select
+
+from open_workshop_manager import standarts, tools
+from open_workshop_manager.limits import LIMITS
+from open_workshop_manager.settings import MAIN_URL
+from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
 
@@ -78,6 +75,7 @@ router = APIRouter()
     },
 )
 async def games_list(
+    request: Request,
     page_size: int = Query(
         LIMITS.page.default,
         description="Размер 1 страницы. Диапазон - 1...50 элементов.",
@@ -121,16 +119,6 @@ async def games_list(
         description="Отправлять ли статистику (количество модов и их общее количество скачиваний).",
     ),
 ):
-    """
-    О сортировке:
-    1. `NAME` - сортировка по имени.
-    2. `TYPE` - сортировка по типу *(`game` или `app`)*.
-    3. `CREATION_DATE` - сортировка по дате регистрации на сервере.
-    4. `MOD_DOWNLOADS` - сортировка по суммарному количеству скачанных модов для игры *(по умолчанию)*.
-    5. `MODS_COUNT` - сортировка по суммарному количеству модов для игры.
-    6. `SOURCE` - сортировка по источнику.
-    """
-
     genres = tools.str_to_list(genres)
     type_app = tools.str_to_list(type_app)
     primary_sources = tools.str_to_list(primary_sources)
@@ -143,7 +131,7 @@ async def games_list(
             instance=str(request.url),
             context={"error_id": 1},
         )
-    elif (
+    if (
         len(type_app)
         + len(genres)
         + len(primary_sources)
@@ -156,57 +144,45 @@ async def games_list(
             context={"error_id": 2},
         )
 
-    # Создание сессии
-    session = sessionmaker(bind=catalog.engine)()
+    async with catalog.AsyncSessionLocal() as session:
+        count_stmt = select(func.count()).select_from(catalog.Game)
+        list_stmt = select(catalog.Game)
+        list_stmt = list_stmt.order_by(tools.sort_games(sort))
 
-    # Выполнение запроса
-    query = session.query(
-        catalog.Game.id,
-        catalog.Game.name,
-        catalog.Game.type,
-        catalog.Game.source,
-        catalog.Game.source_id,
-    )
-    if description:
-        query = query.add_column(catalog.Game.description)
-    if short_description:
-        query = query.add_column(catalog.Game.short_description)
-    if dates:
-        query = query.add_column(catalog.Game.creation_date)
-    if statistics:
-        query = query.add_columns(catalog.Game.mods_count, catalog.Game.mods_downloads)
+        if allowed_ids:
+            condition = catalog.Game.id.in_(allowed_ids)
+            count_stmt = count_stmt.where(condition)
+            list_stmt = list_stmt.where(condition)
 
-    query = query.order_by(tools.sort_games(sort))
+        if genres:
+            for genre in genres:
+                logger.debug("Genre filter type=%s", type(genre))
+                condition = catalog.Game.genres.any(id=genre)
+                count_stmt = count_stmt.where(condition)
+                list_stmt = list_stmt.where(condition)
 
-    # Фильтрация по разрешенным ID
-    if len(allowed_ids) > 0:
-        query = query.filter(catalog.Game.id.in_(allowed_ids))
+        if primary_sources:
+            condition = catalog.Game.source.in_(primary_sources)
+            count_stmt = count_stmt.where(condition)
+            list_stmt = list_stmt.where(condition)
+            if allowed_sources_ids:
+                condition = catalog.Game.source_id.in_(allowed_sources_ids)
+                count_stmt = count_stmt.where(condition)
+                list_stmt = list_stmt.where(condition)
 
-    # Фильтрация по жанрам
-    if len(genres) > 0:
-        for genre in genres:
-            logger.debug("Genre filter type=%s", type(genre))
-            query = query.filter(catalog.Game.genres.any(id=genre))
+        if type_app:
+            condition = catalog.Game.type.in_(type_app)
+            count_stmt = count_stmt.where(condition)
+            list_stmt = list_stmt.where(condition)
 
-            # filtered_games = session.query(Game).filter(Game.genres.any(id=excluded_genre_id))
+        if name:
+            condition = catalog.Game.name.ilike(f"%{name}%")
+            count_stmt = count_stmt.where(condition)
+            list_stmt = list_stmt.where(condition)
 
-    # Фильтрация по первоисточникам
-    if len(primary_sources) > 0:
-        query = query.filter(catalog.Game.source.in_(primary_sources))
-        if len(allowed_sources_ids) > 0:
-            query = query.filter(catalog.Game.source_id.in_(allowed_sources_ids))
-
-    # Фильтрация по типу
-    if len(type_app) > 0:
-        query = query.filter(catalog.Game.type.in_(type_app))
-
-    # Фильтрация по имени
-    if len(name) > 0:
-        query = query.filter(catalog.Game.name.ilike(f"%{name}%"))
-
-    games_count = query.count()
-    offset = page_size * page
-    games = query.offset(offset).limit(page_size).all()
+        games_count = int((await session.execute(count_stmt)).scalar_one())
+        offset = page_size * page
+        games = (await session.execute(list_stmt.offset(offset).limit(page_size))).scalars().all()
 
     output_games = []
     for game in games:
@@ -228,7 +204,6 @@ async def games_list(
             out["mods_downloads"] = game.mods_downloads
         output_games.append(out)
 
-    session.close()
     return {"database_size": games_count, "offset": offset, "results": output_games}
 
 
@@ -243,6 +218,7 @@ async def games_list(
     },
 )
 async def game_info(
+    request: Request,
     game_id: int = Path(description="ID игры"),
     short_description: bool = Query(
         False, description="Отправлять ли короткое описание."
@@ -253,27 +229,10 @@ async def game_info(
         False,
         description="Отправлять ли статистику (количество модов и их общее количество скачиваний).",
     ),
-):
-    session = sessionmaker(bind=catalog.engine)()
-
-    query = session.query(
-        catalog.Game.id,
-        catalog.Game.name,
-        catalog.Game.type,
-        catalog.Game.source,
-        catalog.Game.source_id,
-    )
-    if description:
-        query = query.add_column(catalog.Game.description)
-    if short_description:
-        query = query.add_column(catalog.Game.short_description)
-    if dates:
-        query = query.add_column(catalog.Game.creation_date)
-    if statistics:
-        query = query.add_columns(catalog.Game.mods_count, catalog.Game.mods_downloads)
-
-    row = query.filter(catalog.Game.id == game_id).first()
-    session.close()
+    ):
+    async with catalog.AsyncSessionLocal() as session:
+        stmt = select(catalog.Game).where(catalog.Game.id == game_id)
+        row = (await session.execute(stmt)).scalar_one_or_none()
 
     if not row:
         raise standarts.NotFoundError(
@@ -316,26 +275,22 @@ async def game_info(
     },
 )
 async def add_game(
-    response: Response,  # Ответ HTTP
-    request: Request,  # Запрос HTTP
-    game_name: str = Form(
-        ..., description="Название игры", max_length=LIMITS.game.name_max
-    ),  # Название игры
+    response: Response,
+    request: Request,
+    game_name: str = Form(..., description="Название игры", max_length=LIMITS.game.name_max),
     game_short_desc: str = Form(
         ..., description="Краткое описание игры", max_length=LIMITS.game.short_desc_max
-    ),  # Краткое описание игры
+    ),
     game_desc: str = Form(
         ..., description="Полное описание игры", max_length=LIMITS.game.desc_max
-    ),  # Описание игры
-    game_type: str = Form(
-        "game", description="Тип игры", max_length=LIMITS.game.type_max
-    ),  # Тип игры (по умолчанию "game")
+    ),
+    game_type: str = Form("game", description="Тип игры", max_length=LIMITS.game.type_max),
 ):
     access_result = await tools.access_admin(response=response, request=request)
+    if access_result is not True:
+        return access_result
 
-    if access_result is True:
-        session = sessionmaker(bind=catalog.engine)()
-
+    async with catalog.AsyncSessionLocal() as session:
         insert_statement = insert(catalog.Game).values(
             name=game_name,
             type=game_type,
@@ -347,15 +302,11 @@ async def add_game(
             source="local",
         )
 
-        result = session.execute(insert_statement)
-        id = result.lastrowid
+        result = await session.execute(insert_statement)
+        game_id = result.lastrowid
+        await session.commit()
 
-        session.commit()
-        session.close()
-
-        return JSONResponse(status_code=202, content=id)
-    else:
-        return access_result
+    return JSONResponse(status_code=202, content=game_id)
 
 
 @router.post(
@@ -369,55 +320,38 @@ async def add_game(
         403: standarts.responses["admin"][403],
         404: {"description": "Игра не найдена."},
         412: {"description": "Такая source-связка уже существует."},
-        418: {
-            "description": "Пустой запрос. Возникает если не передан ни один из параметров-свойств."
-        },
+        418: {"description": "Пустой запрос. Возникает если не передан ни один из параметров-свойств."},
     },
 )
 async def edit_game(
-    response: Response,  # Ответ HTTP
-    request: Request,  # Запрос HTTP
-    game_id: int = Form(
-        ..., description="ID игры для редактирования"
-    ),  # ID игры для редактирования
-    game_name: str = Form(
-        None, description="Название игры", max_length=LIMITS.game.name_max
-    ),  # Название игры
+    response: Response,
+    request: Request,
+    game_id: int = Form(..., description="ID игры для редактирования"),
+    game_name: str = Form(None, description="Название игры", max_length=LIMITS.game.name_max),
     game_short_desc: str = Form(
         None, description="Краткое описание игры", max_length=LIMITS.game.short_desc_max
-    ),  # Краткое описание игры
-    game_desc: str = Form(
-        None, description="Полное описание игры", max_length=LIMITS.game.desc_max
-    ),  # Описание игры
-    game_type: str = Form(
-        None, description="Тип игры", max_length=LIMITS.game.type_max
-    ),  # Тип игры
+    ),
+    game_desc: str = Form(None, description="Полное описание игры", max_length=LIMITS.game.desc_max),
+    game_type: str = Form(None, description="Тип игры", max_length=LIMITS.game.type_max),
     game_source: str = Form(
         None,
         description="Источник игры. Так же обязательно передавать и `game_source_id`!",
         max_length=LIMITS.game.source_max,
-    ),  # Источник игры
-    game_source_id: int = Form(
-        None, description="ID игры в первоисточнике"
-    ),  # ID источника игры
+    ),
+    game_source_id: int = Form(None, description="ID игры в первоисточнике"),
 ) -> JSONResponse:
-    """
-    Возвращает код состояния и сообщение о результате.
-    """
     access_result = await tools.access_admin(response=response, request=request)
+    if access_result is not True:
+        return access_result
 
-    if access_result is True:
-        session = sessionmaker(bind=catalog.engine)()
-
-        game = session.query(catalog.Game).filter_by(id=game_id)
-        if not game.first():
-            session.close()
+    async with catalog.AsyncSessionLocal() as session:
+        game = await session.get(catalog.Game, game_id)
+        if not game:
             raise standarts.NotFoundError(
                 detail="The element does not exist.",
                 instance=str(request.url),
             )
 
-        # Подготавливаем данные
         data_edit: dict[str, object] = {}
         if game_name:
             data_edit["name"] = game_name
@@ -431,31 +365,31 @@ async def edit_game(
             data_edit["source"] = game_source
             data_edit["source_id"] = game_source_id
 
-            if (
-                session.query(catalog.Game)
-                .filter_by(source=game_source, source_id=game_source_id)
-                .first()
-            ):
-                session.close()
+            exists = (
+                await session.execute(
+                    select(catalog.Game).where(
+                        catalog.Game.source == game_source,
+                        catalog.Game.source_id == game_source_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if exists:
                 raise standarts.PreconditionFailedError(
                     detail="The element already exists",
                     instance=str(request.url),
                 )
 
         if len(data_edit) <= 0:
-            session.close()
             raise standarts.RequestRejectedError(
                 detail="The request is empty",
                 instance=str(request.url),
-            )
+                )
 
-        # Меняем данные в БД
-        game.update(data_edit)
-        session.commit()
-        session.close()
-        return PlainTextResponse(status_code=202, content="Complite")
-    else:
-        return access_result
+        for key, value in data_edit.items():
+            setattr(game, key, value)
+        await session.commit()
+
+    return PlainTextResponse(status_code=202, content="Complite")
 
 
 @router.delete(
@@ -474,20 +408,14 @@ async def delete_game(
     request: Request,
     game_id: int = Form(..., description="ID игры для удаления"),
 ):
-    """
-    Удаляет игру, все её ассоциации и ресурсы.
-
-    Для относительной безопасности(возможность вручную восстановить игру), удаление никак не затрагивает моды игры, в том числе у них не изменяется game_id.
-    Т.е. чтобы удалить все моды игры, нужно пройтись парсингом по каждому моду.
-    """
     access_result = await tools.access_admin(response=response, request=request)
+    if access_result is not True:
+        return access_result
 
-    if access_result is True:
-        await tools.delete_resources(owner_type="games", owner_id=game_id)
+    await tools.delete_resources(owner_type="games", owner_id=game_id)
 
-        session = sessionmaker(bind=catalog.engine)()
-
-        delete_game = delete(catalog.Game).where(catalog.Game.id == game_id)
+    async with catalog.AsyncSessionLocal() as session:
+        delete_game_stmt = delete(catalog.Game).where(catalog.Game.id == game_id)
         delete_genres_association = catalog.game_genres.delete().where(
             catalog.game_genres.c.game_id == game_id
         )
@@ -495,13 +423,9 @@ async def delete_game(
             catalog.allowed_mods_tags.c.game_id == game_id
         )
 
-        # Выполнение операции DELETE
-        session.execute(delete_game)
-        session.execute(delete_genres_association)
-        session.execute(delete_tags_association)
-        session.commit()
-        session.close()
+        await session.execute(delete_game_stmt)
+        await session.execute(delete_genres_association)
+        await session.execute(delete_tags_association)
+        await session.commit()
 
-        return JSONResponse(status_code=202, content="Complite")
-    else:
-        return access_result
+    return JSONResponse(status_code=202, content="Complite")

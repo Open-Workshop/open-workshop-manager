@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import getpass
+import asyncio
 import sys
 from pathlib import Path
 
@@ -23,7 +24,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 import bcrypt  # noqa: E402
-from sqlalchemy.orm import sessionmaker  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 
 from open_workshop_manager.sql_logic import sql_account as account  # noqa: E402
 from open_workshop_manager.limits import LIMITS  # noqa: E402
@@ -81,7 +82,7 @@ def validate_password(password: str) -> None:
         )
 
 
-def main() -> int:
+async def main() -> int:
     args = parse_args()
 
     username = args.username.strip()
@@ -98,15 +99,15 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 2
 
-    Session = sessionmaker(bind=account.engine)
-    session = Session()
+    session = account.AsyncSessionLocal()
     try:
-        existing = (
-            session.query(account.Account.id).filter_by(username=username).first()
+        result = await session.execute(
+            select(account.Account.id).where(account.Account.username == username)
         )
+        existing = result.scalar_one_or_none()
         if existing:
             print(
-                f"Username already exists (id={existing.id}). Choose another username.",
+                f"Username already exists (id={existing}). Choose another username.",
                 file=sys.stderr,
             )
             return 1
@@ -128,17 +129,17 @@ def main() -> int:
         )
 
         session.add(new_user)
-        session.commit()
+        await session.commit()
 
         print(f"Created user id={new_user.id} username={username}")
         return 0
     except Exception as exc:  # noqa: BLE001 - script tool, print error only
-        session.rollback()
+        await session.rollback()
         print(f"Error creating user: {exc}", file=sys.stderr)
         return 3
     finally:
-        session.close()
+        await session.close()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(asyncio.run(main()))

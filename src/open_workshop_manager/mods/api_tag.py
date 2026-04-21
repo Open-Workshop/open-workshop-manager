@@ -2,8 +2,7 @@ from fastapi import APIRouter, Request, Response, Form
 from fastapi.responses import JSONResponse, PlainTextResponse
 from open_workshop_manager import tools
 from open_workshop_manager.sql_logic import sql_catalog as catalog
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import insert, delete
+from sqlalchemy import delete, insert
 from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.limits import LIMITS
 from open_workshop_manager import standarts
@@ -35,17 +34,15 @@ async def add_tag(
     access_result = await tools.access_admin(response=response, request=request)
 
     if access_result is True:
-        session = sessionmaker(bind=catalog.engine)()
+        async with catalog.AsyncSessionLocal() as session:
+            insert_statement = insert(catalog.Tag).values(name=tag_name)
 
-        insert_statement = insert(catalog.Tag).values(name=tag_name)
+            result = await session.execute(insert_statement)
+            tag_id = result.lastrowid  # Получаем ID последней вставленной строки
 
-        result = session.execute(insert_statement)
-        id = result.lastrowid  # Получаем ID последней вставленной строки
+            await session.commit()
 
-        session.commit()
-        session.close()
-
-        return JSONResponse(status_code=202, content=id)  # Возвращаем значение `id`
+        return JSONResponse(status_code=202, content=tag_id)  # Возвращаем значение `id`
     else:
         return access_result
 
@@ -83,32 +80,28 @@ async def edit_tag(
     access_result = await tools.access_admin(response=response, request=request)
 
     if access_result is True:
-        session = sessionmaker(bind=catalog.engine)()
+        async with catalog.AsyncSessionLocal() as session:
+            tag = await session.get(catalog.Tag, tag_id)
+            if not tag:
+                raise standarts.NotFoundError(
+                    detail="The element does not exist.",
+                    instance=str(request.url),
+                )
 
-        tag = session.query(catalog.Tag).filter_by(id=tag_id)
-        if not tag.first():
-            session.close()
-            raise standarts.NotFoundError(
-                detail="The element does not exist.",
-                instance=str(request.url),
-            )
+            # Подготавливаем данные
+            data_edit = {}
+            if tag_name:
+                data_edit["name"] = tag_name
 
-        # Подготавливаем данные
-        data_edit = {}
-        if tag_name:
-            data_edit["name"] = tag_name
+            if len(data_edit) <= 0:
+                raise standarts.RequestRejectedError(
+                    detail="The request is empty",
+                    instance=str(request.url),
+                )
 
-        if len(data_edit) <= 0:
-            session.close()
-            raise standarts.RequestRejectedError(
-                detail="The request is empty",
-                instance=str(request.url),
-            )
-
-        # Меняем данные в БД
-        tag.update(data_edit)
-        session.commit()
-        session.close()
+            for key, value in data_edit.items():
+                setattr(tag, key, value)
+            await session.commit()
         return PlainTextResponse(status_code=202, content="Complite")
     else:
         return access_result
@@ -136,23 +129,21 @@ async def delete_tag(
     access_result = await tools.access_admin(response=response, request=request)
 
     if access_result is True:
-        session = sessionmaker(bind=catalog.engine)()
+        async with catalog.AsyncSessionLocal() as session:
+            delete_game = delete(catalog.Tag).where(catalog.Tag.id == tag_id)
 
-        delete_game = delete(catalog.Tag).where(catalog.Tag.id == tag_id)
+            delete_mods_tags_association = catalog.mods_tags.delete().where(
+                catalog.mods_tags.c.tag_id == tag_id
+            )
+            delete_game_tags_association = catalog.allowed_mods_tags.delete().where(
+                catalog.allowed_mods_tags.c.tag_id == tag_id
+            )
 
-        delete_mods_tags_association = catalog.mods_tags.delete().where(
-            catalog.mods_tags.c.tag_id == tag_id
-        )
-        delete_game_tags_association = catalog.allowed_mods_tags.delete().where(
-            catalog.allowed_mods_tags.c.tag_id == tag_id
-        )
-
-        # Выполнение операции DELETE
-        session.execute(delete_game)
-        session.execute(delete_mods_tags_association)
-        session.execute(delete_game_tags_association)
-        session.commit()
-        session.close()
+            # Выполнение операции DELETE
+            await session.execute(delete_game)
+            await session.execute(delete_mods_tags_association)
+            await session.execute(delete_game_tags_association)
+            await session.commit()
         return PlainTextResponse(status_code=202, content="Complite")
     else:
         return access_result

@@ -15,8 +15,7 @@ import re
 import uuid
 from urllib.parse import urlparse, quote
 from datetime import datetime
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import insert, func
+from sqlalchemy import delete, func, insert, select, update
 from typing import Optional
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 from open_workshop_manager.sql_logic import sql_statistics as statistics
@@ -149,90 +148,85 @@ async def add_mod_from_file(
                 instance=str(request.url),
             )
 
-        session = sessionmaker(bind=account.engine)()
-        user_req = session.query(account.Account).filter_by(id=user_id).first()
+        can_publish = False
+        async with account.AsyncSessionLocal() as session:
+            user_req = await session.scalar(
+                select(account.Account).where(account.Account.id == user_id)
+            )
 
-        async def mini():
-            if user_req.admin:
-                return True
-            else:
-                if without_author:
-                    return False
-                elif user_req.mute_until and user_req.mute_until > datetime.now():
-                    return False
-                elif user_req.publish_mods:
-                    return True
-            return False
+            if user_req and user_req.admin:
+                can_publish = True
+            elif without_author:
+                can_publish = False
+            elif user_req and user_req.mute_until and user_req.mute_until > datetime.now():
+                can_publish = False
+            elif user_req:
+                can_publish = bool(user_req.publish_mods)
 
-        if await mini():
-            session.close()
-
+        if can_publish:
             if mod_public not in [0, 1, 2]:
                 mod_public = 0
 
-            Session = sessionmaker(bind=catalog.engine)
-            session = Session()
-            insert_statement = insert(catalog.Mod)
-            insert_statement = insert_statement.values(
-                name=mod_name,
-                short_description=mod_short_description,
-                description=mod_description,
-                size=0,
-                condition=1,
-                public=mod_public,
-                date_creation=datetime.now(),
-                date_update_file=datetime.now(),
-                date_edit=datetime.now(),
-                source=mod_source,
-                downloads=0,
-                game=mod_game,
-            )
-
-            if mod_source_id > 0 and mod_source != "local":
-                insert_statement = insert_statement.values(source_id=mod_source_id)
-
-                tsession = sessionmaker(bind=catalog.engine)()
-                source_conflicts = (
-                    tsession.query(catalog.Mod)
-                    .filter_by(source=mod_source, source_id=mod_source_id)
-                    .all()
+            async with catalog.AsyncSessionLocal() as session:
+                insert_statement = insert(catalog.Mod).values(
+                    name=mod_name,
+                    short_description=mod_short_description,
+                    description=mod_description,
+                    size=0,
+                    condition=1,
+                    public=mod_public,
+                    date_creation=datetime.now(),
+                    date_update_file=datetime.now(),
+                    date_edit=datetime.now(),
+                    source=mod_source,
+                    downloads=0,
+                    game=mod_game,
                 )
-                tsession.close()
 
-                for conflict_mod in source_conflicts:
-                    # Игнорируем конфликт только для незавершенного мода того же автора.
-                    if conflict_mod.condition != 0:
-                        asession = sessionmaker(bind=account.engine)()
-                        same_author = (
-                            asession.query(account.mod_and_author)
-                            .filter_by(mod_id=conflict_mod.id, user_id=user_id)
-                            .first()
+                if mod_source_id > 0 and mod_source != "local":
+                    insert_statement = insert_statement.values(source_id=mod_source_id)
+
+                    async with catalog.AsyncSessionLocal() as tsession:
+                        source_conflicts = (
+                            await tsession.execute(
+                                select(catalog.Mod).where(
+                                    catalog.Mod.source == mod_source,
+                                    catalog.Mod.source_id == mod_source_id,
+                                )
+                            )
+                        ).scalars().all()
+
+                    for conflict_mod in source_conflicts:
+                        # Игнорируем конфликт только для незавершенного мода того же автора.
+                        if conflict_mod.condition != 0:
+                            async with account.AsyncSessionLocal() as asession:
+                                same_author = await asession.scalar(
+                                    select(account.mod_and_author.c.user_id).where(
+                                        account.mod_and_author.c.mod_id
+                                        == conflict_mod.id,
+                                        account.mod_and_author.c.user_id == user_id,
+                                    )
+                                )
+                            if same_author is not None:
+                                continue
+
+                        raise standarts.PreconditionFailedError(
+                            detail="Такая source-связка уже существует!",
+                            instance=str(request.url),
                         )
-                        asession.close()
-                        if same_author:
-                            continue
 
-                    session.close()
-                    raise standarts.PreconditionFailedError(
-                        detail="Такая source-связка уже существует!",
-                        instance=str(request.url),
-                    )
-
-            result = session.execute(insert_statement)
-            rid = result.lastrowid
-            session.commit()
+                result = await session.execute(insert_statement)
+                rid = result.lastrowid
+                await session.commit()
 
             if not without_author:
-                session = sessionmaker(bind=account.engine)()
-                session.execute(
-                    account.mod_and_author.insert().values(
-                        mod_id=rid, user_id=user_id, owner=True
+                async with account.AsyncSessionLocal() as session:
+                    await session.execute(
+                        account.mod_and_author.insert().values(
+                            mod_id=rid, user_id=user_id, owner=True
+                        )
                     )
-                )
-                session.commit()
-                session.close()
-
-            session.close()
+                    await session.commit()
 
             try:
                 pack_level = int(pack_level)
@@ -283,7 +277,6 @@ async def add_mod_from_file(
             response.headers["X-Progress-WS"] = f"{config.STORAGE_URL}/transfer/ws/{job_id}"
             return response
         else:
-            session.close()
             raise standarts.ForbiddenError(instance=str(request.url))
     else:
         raise standarts.UnauthorizedError(instance=str(request.url))
@@ -317,9 +310,8 @@ async def update_mod_file(
     if access_result is not True:
         return access_result
 
-    session = sessionmaker(bind=catalog.engine)()
-    mod_exists = session.query(catalog.Mod.id).filter_by(id=mod_id).first()
-    session.close()
+    async with catalog.AsyncSessionLocal() as session:
+        mod_exists = await session.get(catalog.Mod, mod_id)
     if not mod_exists:
         raise standarts.NotFoundError(
             detail="Mod not found",
@@ -489,77 +481,69 @@ async def add_mod_from_url(
                 instance=str(request.url),
             )
 
-        # Проверка прав
-        session = sessionmaker(bind=account.engine)()
-        user_req = session.query(account.Account).filter_by(id=user_id).first()
+        can_publish = False
+        async with account.AsyncSessionLocal() as session:
+            user_req = await session.scalar(
+                select(account.Account).where(account.Account.id == user_id)
+            )
 
-        async def mini():
-            if user_req.admin:
-                return True
-            else:
-                if without_author:
-                    return False
-                elif user_req.mute_until and user_req.mute_until > datetime.now():
-                    return False
-                elif user_req.publish_mods:
-                    return True
-            return False
+            if user_req and user_req.admin:
+                can_publish = True
+            elif without_author:
+                can_publish = False
+            elif user_req and user_req.mute_until and user_req.mute_until > datetime.now():
+                can_publish = False
+            elif user_req:
+                can_publish = bool(user_req.publish_mods)
 
-        if await mini():
-            session.close()
-
+        if can_publish:
             if mod_public not in [0, 1, 2]:
                 mod_public = 0
 
-            Session = sessionmaker(bind=catalog.engine)
-            session = Session()
-            insert_statement = insert(catalog.Mod)
-            insert_statement = insert_statement.values(
-                name=mod_name,
-                short_description=mod_short_description,
-                description=mod_description,
-                size=0,
-                condition=1,
-                public=mod_public,
-                date_creation=datetime.now(),
-                date_update_file=datetime.now(),
-                date_edit=datetime.now(),
-                source=mod_source,
-                downloads=0,
-                game=mod_game,
-            )
-
-            if mod_source_id > 0 and mod_source != "local":
-                insert_statement = insert_statement.values(source_id=mod_source_id)
-
-                tsession = sessionmaker(bind=catalog.engine)()
-                result = (
-                    tsession.query(catalog.Mod)
-                    .filter_by(source=mod_source, source_id=mod_source_id)
-                    .first()
+            async with catalog.AsyncSessionLocal() as session:
+                insert_statement = insert(catalog.Mod).values(
+                    name=mod_name,
+                    short_description=mod_short_description,
+                    description=mod_description,
+                    size=0,
+                    condition=1,
+                    public=mod_public,
+                    date_creation=datetime.now(),
+                    date_update_file=datetime.now(),
+                    date_edit=datetime.now(),
+                    source=mod_source,
+                    downloads=0,
+                    game=mod_game,
                 )
-                tsession.close()
-                if result:
-                    raise standarts.PreconditionFailedError(
-                        detail="Такая source-связка уже существует!",
-                        instance=str(request.url),
-                    )
 
-            result = session.execute(insert_statement)
-            rid = result.lastrowid
-            session.commit()
+                if mod_source_id > 0 and mod_source != "local":
+                    insert_statement = insert_statement.values(source_id=mod_source_id)
+
+                    async with catalog.AsyncSessionLocal() as tsession:
+                        result = await tsession.scalar(
+                            select(catalog.Mod).where(
+                                catalog.Mod.source == mod_source,
+                                catalog.Mod.source_id == mod_source_id,
+                            )
+                        )
+                    if result:
+                        raise standarts.PreconditionFailedError(
+                            detail="Такая source-связка уже существует!",
+                            instance=str(request.url),
+                        )
+
+                result = await session.execute(insert_statement)
+                rid = result.lastrowid
+                await session.commit()
 
             if not without_author:
-                session = sessionmaker(bind=account.engine)()
-                session.execute(
-                    account.mod_and_author.insert().values(
-                        mod_id=rid, user_id=user_id, owner=True
+                async with account.AsyncSessionLocal() as session:
+                    await session.execute(
+                        account.mod_and_author.insert().values(
+                            mod_id=rid, user_id=user_id, owner=True
+                        )
                     )
-                )
-                session.commit()
-                session.close()
-
-            session.close()
+                    await session.commit()
 
             try:
                 pack_level = int(pack_level)
@@ -611,7 +595,6 @@ async def add_mod_from_url(
             response.headers["X-Progress-WS"] = f"{config.STORAGE_URL}/transfer/ws/{job_id}"
             return response
         else:
-            session.close()
             raise standarts.ForbiddenError(instance=str(request.url))
     else:
         raise standarts.UnauthorizedError(instance=str(request.url))
@@ -668,10 +651,13 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
             status,
         )
         if resource_id_cleanup > 0:
-            session = sessionmaker(bind=catalog.engine)()
-            session.query(catalog.Resource).filter_by(id=resource_id_cleanup).delete()
-            session.commit()
-            session.close()
+            async with catalog.AsyncSessionLocal() as session:
+                await session.execute(
+                    delete(catalog.Resource).where(
+                        catalog.Resource.id == resource_id_cleanup
+                    )
+                )
+                await session.commit()
         return PlainTextResponse(status_code=202, content="Transfer failed")
 
     move_start = datetime.now()
@@ -687,10 +673,13 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
             target_path,
         )
         if resource_id_cleanup > 0:
-            session = sessionmaker(bind=catalog.engine)()
-            session.query(catalog.Resource).filter_by(id=resource_id_cleanup).delete()
-            session.commit()
-            session.close()
+            async with catalog.AsyncSessionLocal() as session:
+                await session.execute(
+                    delete(catalog.Resource).where(
+                        catalog.Resource.id == resource_id_cleanup
+                    )
+                )
+                await session.commit()
         raise standarts.GatewayTimeoutError(
             detail="Move timeout",
             instance=str(request.url),
@@ -704,10 +693,13 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
             move_payload,
         )
         if resource_id_cleanup > 0:
-            session = sessionmaker(bind=catalog.engine)()
-            session.query(catalog.Resource).filter_by(id=resource_id_cleanup).delete()
-            session.commit()
-            session.close()
+            async with catalog.AsyncSessionLocal() as session:
+                await session.execute(
+                    delete(catalog.Resource).where(
+                        catalog.Resource.id == resource_id_cleanup
+                    )
+                )
+                await session.commit()
         raise standarts.InternalServerError(
             detail="Move failed",
             instance=str(request.url),
@@ -740,20 +732,17 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
                 instance=str(request.url),
             )
 
-        session = sessionmaker(bind=account.engine)()
-        user_query = session.query(account.Account).filter_by(id=user_id)
-        user = user_query.first()
-        if not user:
-            session.close()
-            await tools.storage_file_delete(type="avatar", path=target_path)
-            raise standarts.NotFoundError(
-                detail="User not found",
-                instance=str(request.url),
-            )
-        old_avatar_url = str(user.avatar_url or "")
-        user_query.update({"avatar_url": "local.webp"})
-        session.commit()
-        session.close()
+        async with account.AsyncSessionLocal() as session:
+            user = await session.get(account.Account, user_id)
+            if not user:
+                await tools.storage_file_delete(type="avatar", path=target_path)
+                raise standarts.NotFoundError(
+                    detail="User not found",
+                    instance=str(request.url),
+                )
+            old_avatar_url = str(user.avatar_url or "")
+            user.avatar_url = "local.webp"
+            await session.commit()
 
         if old_avatar_url.startswith("local"):
             try:
@@ -785,33 +774,32 @@ async def _storage_transfer_complete_img(payload: dict) -> PlainTextResponse:
             )
             await tools.storage_file_delete(type="resource", path=target_path)
             if callback_action == "resource_add":
-                session = sessionmaker(bind=catalog.engine)()
-                session.query(catalog.Resource).filter_by(id=resource_id).delete()
-                session.commit()
-                session.close()
+                async with catalog.AsyncSessionLocal() as session:
+                    await session.execute(
+                        delete(catalog.Resource).where(catalog.Resource.id == resource_id)
+                    )
+                    await session.commit()
             return PlainTextResponse(status_code=202, content="Invalid file size")
 
-        session = sessionmaker(bind=catalog.engine)()
-        resource_query = session.query(catalog.Resource).filter_by(id=resource_id)
-        resource = resource_query.first()
-        if not resource:
-            session.close()
-            await tools.storage_file_delete(type="resource", path=target_path)
-            raise standarts.NotFoundError(
-                detail="Resource not found",
-                instance=str(request.url),
-            )
+        async with catalog.AsyncSessionLocal() as session:
+            resource = await session.get(catalog.Resource, resource_id)
+            if not resource:
+                await tools.storage_file_delete(type="resource", path=target_path)
+                raise standarts.NotFoundError(
+                    detail="Resource not found",
+                    instance=str(request.url),
+                )
 
-        old_url = str(resource.url or "")
-        update_values = {
-            "url": f"local/{target_path}",
-            "date_event": datetime.now(),
-        }
-        if resource_size is not None:
-            update_values["size"] = resource_size
-        resource_query.update(update_values)
-        session.commit()
-        session.close()
+            old_url = str(resource.url or "")
+            update_values = {
+                "url": f"local/{target_path}",
+                "date_event": datetime.now(),
+            }
+            if resource_size is not None:
+                update_values["size"] = resource_size
+            for key, value in update_values.items():
+                setattr(resource, key, value)
+            await session.commit()
 
         if callback_action == "resource_edit" and old_url.startswith("local/"):
             old_path = old_url.replace("local/", "", 1)
@@ -938,89 +926,95 @@ async def storage_transfer_complete(
     if unpacked_size is not None and unpacked_size < 0:
         unpacked_size = None
 
-    Session = sessionmaker(bind=catalog.engine)
-    session = Session()
-    mod = session.query(catalog.Mod).filter_by(id=mod_id).first()
-    if not mod:
-        session.close()
-        raise standarts.NotFoundError(
-            detail="Mod not found",
-            instance=str(request.url),
-        )
-    if update_only:
+    async with catalog.AsyncSessionLocal() as session:
+        mod = await session.get(catalog.Mod, mod_id)
+        if not mod:
+            raise standarts.NotFoundError(
+                detail="Mod not found",
+                instance=str(request.url),
+            )
+        if update_only:
+            update_values = {
+                "size": final_size,
+                "date_update_file": datetime.now(),
+            }
+            if unpacked_size is not None:
+                update_values["size_unpacked"] = unpacked_size
+            await session.execute(
+                update(catalog.Mod).where(catalog.Mod.id == mod_id).values(**update_values)
+            )
+            await session.commit()
+            return PlainTextResponse(status_code=200, content="OK")
+
+        if mod.condition == 0:
+            return PlainTextResponse(status_code=200, content="Already finalized")
+
+        if mod.source != "local" and mod.source_id is not None and mod.source_id > 0:
+            source_conflict = await session.scalar(
+                select(catalog.Mod.id).where(
+                    catalog.Mod.id != mod_id,
+                    catalog.Mod.condition == 0,
+                    catalog.Mod.source == mod.source,
+                    catalog.Mod.source_id == mod.source_id,
+                )
+            )
+            if source_conflict:
+                logger.warning(
+                    "transfer finalize conflict job_id=%s mod_id=%s source=%s source_id=%s conflict_mod_id=%s",
+                    job_id,
+                    mod_id,
+                    mod.source,
+                    mod.source_id,
+                    source_conflict,
+                )
+
+                await session.execute(
+                    delete(catalog.mods_dependencies).where(
+                        (catalog.mods_dependencies.c.mod_id == mod_id)
+                        | (catalog.mods_dependencies.c.dependence == mod_id)
+                    )
+                )
+                await session.execute(
+                    delete(catalog.mods_tags).where(catalog.mods_tags.c.mod_id == mod_id)
+                )
+                await session.execute(delete(catalog.Mod).where(catalog.Mod.id == mod_id))
+                await session.commit()
+
+                async with account.AsyncSessionLocal() as asession:
+                    await asession.execute(
+                        delete(account.mod_and_author).where(
+                            account.mod_and_author.c.mod_id == mod_id
+                        )
+                    )
+                    await asession.commit()
+
+                raise standarts.PreconditionFailedError(
+                    detail="Такая source-связка уже существует!",
+                    instance=str(request.url),
+                )
+
         update_values = {
+            "condition": 0,
             "size": final_size,
-            "date_update_file": datetime.now(),
         }
         if unpacked_size is not None:
             update_values["size_unpacked"] = unpacked_size
-        session.query(catalog.Mod).filter_by(id=mod_id).update(update_values)
-        session.commit()
-        session.close()
-        return PlainTextResponse(status_code=200, content="OK")
-
-    if mod.condition == 0:
-        session.close()
-        return PlainTextResponse(status_code=200, content="Already finalized")
-
-    if mod.source != "local" and mod.source_id is not None and mod.source_id > 0:
-        source_conflict = (
-            session.query(catalog.Mod.id)
-            .filter(catalog.Mod.id != mod_id)
-            .filter(catalog.Mod.condition == 0)
-            .filter(catalog.Mod.source == mod.source)
-            .filter(catalog.Mod.source_id == mod.source_id)
-            .first()
+        await session.execute(
+            update(catalog.Mod).where(catalog.Mod.id == mod_id).values(**update_values)
         )
-        if source_conflict:
-            logger.warning(
-                "transfer finalize conflict job_id=%s mod_id=%s source=%s source_id=%s conflict_mod_id=%s",
-                job_id,
-                mod_id,
-                mod.source,
-                mod.source_id,
-                source_conflict.id,
+        await session.execute(
+            update(catalog.Game)
+            .where(catalog.Game.id == mod.game)
+            .values(
+                {
+                    catalog.Game.mods_count: func.coalesce(
+                        catalog.Game.mods_count, 0
+                    )
+                    + 1
+                }
             )
-
-            session.execute(
-                catalog.mods_dependencies.delete().where(
-                    (catalog.mods_dependencies.c.mod_id == mod_id)
-                    | (catalog.mods_dependencies.c.dependence == mod_id)
-                )
-            )
-            session.execute(
-                catalog.mods_tags.delete().where(catalog.mods_tags.c.mod_id == mod_id)
-            )
-            session.query(catalog.Mod).filter_by(id=mod_id).delete()
-            session.commit()
-            session.close()
-
-            asession = sessionmaker(bind=account.engine)()
-            asession.execute(
-                account.mod_and_author.delete().where(
-                    account.mod_and_author.c.mod_id == mod_id
-                )
-            )
-            asession.commit()
-            asession.close()
-
-            raise standarts.PreconditionFailedError(
-                detail="Такая source-связка уже существует!",
-                instance=str(request.url),
-            )
-
-    update_values = {
-        "condition": 0,
-        "size": final_size,
-    }
-    if unpacked_size is not None:
-        update_values["size_unpacked"] = unpacked_size
-    session.query(catalog.Mod).filter_by(id=mod_id).update(update_values)
-    session.query(catalog.Game).filter_by(id=mod.game).update(
-        {catalog.Game.mods_count: func.coalesce(catalog.Game.mods_count, 0) + 1}
-    )
-    session.commit()
-    session.close()
+        )
+        await session.commit()
 
     return PlainTextResponse(status_code=200, content="OK")
 
@@ -1040,6 +1034,7 @@ async def storage_transfer_complete(
     },
 )
 async def download_mod(
+    request: Request,
     mod_id: int = Path(description="ID мода"),
 ):
     """
@@ -1047,27 +1042,28 @@ async def download_mod(
 
     Не рекомендую на уровне пользователя использовать фактический адрес, т.к. он может менятся, и данная функци доп. уровень абстракции.
     """
-    session = sessionmaker(bind=catalog.engine)()
+    async with catalog.AsyncSessionLocal() as session:
+        mod = await session.get(catalog.Mod, mod_id)
+        if mod is None:
+            raise standarts.NotFoundError(
+                detail="Not found",
+                instance=str(request.url),
+            )
 
-    mod_query = session.query(catalog.Mod).filter(catalog.Mod.id == mod_id)
-    mod = mod_query.first()
-    if mod is None:
-        session.close()
-        raise standarts.NotFoundError(
-            detail="Not found",
-            instance=str(request.url),
-        )
-    else:
         raw_name = mod.name or ""
-        mod_query.update({catalog.Mod.downloads: catalog.Mod.downloads + 1})
-        session.query(catalog.Game).filter(catalog.Game.id == mod.game).update(
-            {catalog.Game.mods_downloads: catalog.Game.mods_downloads + 1}
+        await session.execute(
+            update(catalog.Mod)
+            .where(catalog.Mod.id == mod_id)
+            .values({catalog.Mod.downloads: catalog.Mod.downloads + 1})
         )
-        session.commit()
+        await session.execute(
+            update(catalog.Game)
+            .where(catalog.Game.id == mod.game)
+            .values({catalog.Game.mods_downloads: catalog.Game.mods_downloads + 1})
+        )
+        await session.commit()
 
-        session.close()
-
-        statistics.update("mod", mod_id, "download")
+    await statistics.update("mod", mod_id, "download")
 
     safe_name_chars = []
     for ch in raw_name:
@@ -1126,17 +1122,13 @@ async def access_to_mods(
                     []
                 )  # Неавторизованные пользователи не имеют edit прав, нет нужды обращаться к базе
 
-            session = sessionmaker(bind=catalog.engine)()
-
-            # Выполнение запроса
-            mods = session.query(catalog.Mod.id, catalog.Mod.public).filter(
-                catalog.Mod.id.in_(ids_array)
-            )
-            mods = mods.filter(catalog.Mod.public <= 1).all()
-
-            mods_ids = [i.id for i in mods]
-
-            session.close()
+            async with catalog.AsyncSessionLocal() as session:
+                result = await session.execute(
+                    select(catalog.Mod.id).where(
+                        catalog.Mod.id.in_(ids_array), catalog.Mod.public <= 1
+                    )
+                )
+                mods_ids = result.scalars().all()
             return mods_ids
         elif await tools.check_token(
             token_name="access_mods_check_anonymous", token=token
@@ -1194,23 +1186,15 @@ async def public_mods(
             instance=str(request.url),
         )
 
-    output = []
+    async with catalog.AsyncSessionLocal() as session:
+        stmt = select(catalog.Mod.id).where(catalog.Mod.id.in_(ids_array))
+        if in_catalog:
+            stmt = stmt.where(catalog.Mod.public == 0)
+        else:
+            stmt = stmt.where(catalog.Mod.public <= 1)
+        result = await session.execute(stmt)
+        output = result.scalars().all()
 
-    # Создание сессии
-    session = sessionmaker(bind=catalog.engine)()
-
-    # Выполнение запроса
-    query = session.query(catalog.Mod)
-    if in_catalog:
-        query = query.filter(catalog.Mod.public == 0)
-    else:
-        query = query.filter(catalog.Mod.public <= 1)
-
-    query = query.filter(catalog.Mod.id.in_(ids_array))
-    for i in query:
-        output.append(i.id)
-
-    session.close()
     return output
 
 
@@ -1396,109 +1380,74 @@ async def mod_list(
             raise standarts.UnauthorizedError(instance=str(request.url))
 
         if req_user_id != user:
-            session_account = sessionmaker(bind=account.engine)()
-            user_req = (
-                session_account.query(account.Account.admin)
-                .filter_by(id=req_user_id)
-                .first()
-            )
-            session_account.close()
+            async with account.AsyncSessionLocal() as session_account:
+                user_req = await session_account.get(account.Account, req_user_id)
 
             if not user_req or not user_req.admin:
                 raise standarts.ForbiddenError(instance=str(request.url))
 
-    # Создание сессии
-    session = sessionmaker(bind=catalog.engine)()
+    async with catalog.AsyncSessionLocal() as session:
+        stmt = select(catalog.Mod).order_by(tools.sort_mods(sort))
+        stmt = stmt.where(catalog.Mod.condition == 0)
+        only_publics = not want_not_public
+        if only_publics:
+            stmt = stmt.where(catalog.Mod.public == 0)
 
-    # Выполнение запроса
-    query = session.query(catalog.Mod.id)
-    if description:
-        query = query.add_columns(catalog.Mod.description)
-    if short_description:
-        query = query.add_column(catalog.Mod.short_description)
-    if dates:
-        query = query.add_columns(
-            catalog.Mod.date_update_file,
-            catalog.Mod.date_creation,
-            catalog.Mod.date_edit,
-        )
-    if general:
-        query = query.add_columns(
-            catalog.Mod.name,
-            catalog.Mod.size,
-            catalog.Mod.size_unpacked,
-            catalog.Mod.source,
-            catalog.Mod.source_id,
-            catalog.Mod.downloads,
-        )
+        if len(allowed_ids) > 0:
+            stmt = stmt.where(catalog.Mod.id.in_(allowed_ids))
 
-    query = query.order_by(tools.sort_mods(sort))
-    query = query.filter(catalog.Mod.condition == 0)
-    only_publics = not want_not_public
-    if only_publics:
-        query = query.filter(catalog.Mod.public == 0)
+        if game > 0:
+            stmt = stmt.where(catalog.Mod.game == game)
 
-    # Фильтрация по конкретным ID
-    if len(allowed_ids) > 0:
-        query = query.filter(catalog.Mod.id.in_(allowed_ids))
+        if len(primary_sources) > 0:
+            stmt = stmt.where(catalog.Mod.source.in_(primary_sources))
+            if len(allowed_sources_ids) > 0:
+                stmt = stmt.where(catalog.Mod.source_id.in_(allowed_sources_ids))
 
-    # Фильтрация по играм
-    if game > 0:
-        query = query.filter(catalog.Mod.game == game)
-
-    # Фильтрация по первоисточникам
-    if len(primary_sources) > 0:
-        query = query.filter(catalog.Mod.source.in_(primary_sources))
-        if len(allowed_sources_ids) > 0:
-            query = query.filter(catalog.Mod.source_id.in_(allowed_sources_ids))
-
-    if independents:
-        query = query.outerjoin(
-            catalog.mods_dependencies,
-            catalog.Mod.id == catalog.mods_dependencies.c.mod_id,
-        ).filter(catalog.mods_dependencies.c.mod_id.is_(None))
-    elif len(dependencies) > 0:
-        mods_with_dependencies = (
-            session.query(catalog.mods_dependencies.c.mod_id)
-            .filter(catalog.mods_dependencies.c.dependence.in_(dependencies))
-            .group_by(catalog.mods_dependencies.c.mod_id)
-            .having(
-                func.count(func.distinct(catalog.mods_dependencies.c.dependence))
-                == len(dependencies)
+        if independents:
+            stmt = stmt.outerjoin(
+                catalog.mods_dependencies,
+                catalog.Mod.id == catalog.mods_dependencies.c.mod_id,
+            ).where(catalog.mods_dependencies.c.mod_id.is_(None))
+        elif len(dependencies) > 0:
+            mods_with_dependencies = (
+                select(catalog.mods_dependencies.c.mod_id)
+                .where(catalog.mods_dependencies.c.dependence.in_(dependencies))
+                .group_by(catalog.mods_dependencies.c.mod_id)
+                .having(
+                    func.count(func.distinct(catalog.mods_dependencies.c.dependence))
+                    == len(dependencies)
+                )
+                .subquery()
             )
-            .subquery()
+            stmt = stmt.join(
+                mods_with_dependencies,
+                catalog.Mod.id == mods_with_dependencies.c.mod_id,
+            )
+
+        if len(name) > 0:
+            logger.debug("Filtering mods by name length=%s", len(name))
+            stmt = stmt.where(catalog.Mod.name.ilike(f"%{name}%"))
+
+        if len(tags) > 0:
+            for tag in tags:
+                stmt = stmt.where(catalog.Mod.tags.any(catalog.Tag.id == tag))
+
+        if user > 0:
+            stmt = stmt.join(
+                account.mod_and_author, account.mod_and_author.c.mod_id == catalog.Mod.id
+            )
+            stmt = stmt.where(account.mod_and_author.c.user_id == user)
+
+            if user_owner in [0, 1]:
+                stmt = stmt.where(account.mod_and_author.c.owner == (user_owner == 0))
+
+        mods_count = await session.scalar(
+            select(func.count()).select_from(stmt.order_by(None).subquery())
         )
-        query = query.join(
-            mods_with_dependencies,
-            catalog.Mod.id == mods_with_dependencies.c.mod_id,
-        )
-
-    # Фильтрация по имени
-    if len(name) > 0:
-        logger.debug("Filtering mods by name length=%s", len(name))
-        query = query.filter(catalog.Mod.name.ilike(f"%{name}%"))
-
-    # Фильтрация по тегам
-    if len(tags) > 0:
-        for tag in tags:
-            query = query.filter(catalog.Mod.tags.any(catalog.Tag.id == tag))
-
-    # Сортировка по пользователю
-    if user > 0:
-        query = query.join(
-            account.mod_and_author, account.mod_and_author.c.mod_id == catalog.Mod.id
-        )
-        query = query.filter(account.mod_and_author.c.user_id == user)
-
-        if user_owner in [0, 1]:
-            query = query.filter(account.mod_and_author.c.owner == (user_owner == 0))
-
-    mods_count = query.count()
-
-    offset = page_size * page
-    mods = query.offset(offset).limit(page_size).all()
-
-    session.close()
+        mods_count = int(mods_count or 0)
+        offset = page_size * page
+        mods = (await session.execute(stmt.offset(offset).limit(page_size))).scalars().all()
 
     result_access_mods: list[int] = []
     if not only_publics:
@@ -1604,70 +1553,41 @@ async def info_mod(
 ):
     output = {}
 
-    # Создание сессии
-    session = sessionmaker(bind=catalog.engine)()
+    async with catalog.AsyncSessionLocal() as session:
+        output["pre_result"] = await session.get(catalog.Mod, mod_id)
 
-    # Выполнение запроса
-    query = session.query(catalog.Mod.condition)
-    if description:
-        query = query.add_columns(catalog.Mod.description)
-    if short_description:
-        query = query.add_column(catalog.Mod.short_description)
-    if dates:
-        query = query.add_columns(
-            catalog.Mod.date_update_file,
-            catalog.Mod.date_creation,
-            catalog.Mod.date_edit,
-        )
-    if general:
-        query = query.add_columns(
-            catalog.Mod.name,
-            catalog.Mod.size,
-            catalog.Mod.size_unpacked,
-            catalog.Mod.source,
-            catalog.Mod.source_id,
-            catalog.Mod.downloads,
-        )
-    if game:
-        query = query.add_columns(catalog.Mod.game)
+        if not output["pre_result"]:
+            raise standarts.NotFoundError(
+                detail="Mod not found.",
+                instance=str(request.url),
+            )
 
-    query = query.add_columns(catalog.Mod.public)
-    query = query.filter(catalog.Mod.id == mod_id)
-    output["pre_result"] = query.first()
+        if output["pre_result"].public >= 2:
+            result_access = await tools.access_mods(
+                response=response, request=request, mods_ids=mod_id, edit=False
+            )
+            if not result_access:
+                return result_access
 
-    if not output["pre_result"]:
-        raise standarts.NotFoundError(
-            detail="Mod not found.",
-            instance=str(request.url),
-        )
+        if dependencies:
+            count = await session.scalar(
+                select(func.count()).select_from(catalog.mods_dependencies).where(
+                    catalog.mods_dependencies.c.mod_id == mod_id
+                )
+            )
+            result = await session.execute(
+                select(catalog.mods_dependencies.c.dependence)
+                .where(catalog.mods_dependencies.c.mod_id == mod_id)
+                .limit(100)
+            )
+            output["dependencies"] = result.scalars().all()
+            output["dependencies_count"] = int(count or 0)
 
-    if output["pre_result"].public >= 2:
-        result_access = await tools.access_mods(
-            response=response, request=request, mods_ids=mod_id, edit=False
-        )
-        if not result_access:
-            return result_access
-
-    if dependencies:
-        query = session.query(catalog.mods_dependencies.c.dependence)
-        query = query.filter(catalog.mods_dependencies.c.mod_id == mod_id)
-
-        count = query.count()
-        result = query.limit(100).all()
-        output["dependencies"] = [row[0] for row in result]
-        output["dependencies_count"] = count
-
-    if game:
-        result = (
-            session.query(catalog.Game.name)
-            .filter_by(id=output["pre_result"].game)
-            .first()
-        )
-
-        output["game"] = {"id": output["pre_result"].game, "name": result.name}
-
-    # Закрытие сессии
-    session.close()
+        if game:
+            game_name = await session.scalar(
+                select(catalog.Game.name).where(catalog.Game.id == output["pre_result"].game)
+            )
+            output["game"] = {"id": output["pre_result"].game, "name": game_name}
 
     output["result"] = {"condition": output["pre_result"].condition}
     if description:
@@ -1700,22 +1620,21 @@ async def info_mod(
     del output["pre_result"]
 
     if authors:
-        # Создание сессии
-        session_account = sessionmaker(bind=account.engine)()
+        async with account.AsyncSessionLocal() as session_account:
+            row_results = (
+                await session_account.execute(
+                    select(
+                        account.mod_and_author.c.user_id,
+                        account.mod_and_author.c.owner,
+                    ).where(account.mod_and_author.c.mod_id == mod_id).limit(100)
+                )
+            ).all()
 
-        # Исполнение
-        row = session_account.query(account.mod_and_author).filter_by(mod_id=mod_id)
-        row = row.limit(100)
+            output["authors"] = {}
+            for i in row_results:
+                output["authors"][i.user_id] = {"owner": i.owner}
 
-        row_results = row.all()
-
-        output["authors"] = {}
-        for i in row_results:
-            output["authors"][i.user_id] = {"owner": i.owner}
-
-        session_account.close()
-
-    statistics.update("mod", mod_id, "page_view")
+    await statistics.update("mod", mod_id, "page_view")
     return JSONResponse(status_code=200, content=output)
 
 
@@ -1777,9 +1696,8 @@ async def mod_resources(
             context={"error_id": 3},
         )
 
-    session = sessionmaker(bind=catalog.engine)()
-    mod_exists = session.query(catalog.Mod.id).filter_by(id=mod_id).first()
-    session.close()
+    async with catalog.AsyncSessionLocal() as session:
+        mod_exists = await session.get(catalog.Mod, mod_id)
     if not mod_exists:
         raise standarts.NotFoundError(
             detail="Mod not found.",
@@ -1792,18 +1710,24 @@ async def mod_resources(
     if access_result is not True:
         return access_result
 
-    session = sessionmaker(bind=catalog.engine)()
-    query = session.query(catalog.Resource)
-    query = query.filter_by(owner_type="mods", owner_id=mod_id)
-    if len(resources_list_id) > 0:
-        query = query.filter(catalog.Resource.id.in_(resources_list_id))
-    if len(types_resources) > 0:
-        query = query.filter(catalog.Resource.type.in_(types_resources))
+    async with catalog.AsyncSessionLocal() as session:
+        stmt = select(catalog.Resource).where(
+            catalog.Resource.owner_type == "mods",
+            catalog.Resource.owner_id == mod_id,
+        )
+        if len(resources_list_id) > 0:
+            stmt = stmt.where(catalog.Resource.id.in_(resources_list_id))
+        if len(types_resources) > 0:
+            stmt = stmt.where(catalog.Resource.type.in_(types_resources))
 
-    resources_count = query.count()
-    offset = page_size * page
-    resources = query.offset(offset).limit(page_size).all()
-    session.close()
+        resources_count = await session.scalar(
+            select(func.count()).select_from(stmt.order_by(None).subquery())
+        )
+        resources_count = int(resources_count or 0)
+        offset = page_size * page
+        resources = (
+            await session.execute(stmt.offset(offset).limit(page_size))
+        ).scalars().all()
 
     real_resources = await tools.resources_serialize(
         resources=resources, only_urls=only_urls
@@ -1833,9 +1757,8 @@ async def mod_tags(
     mod_id: int = Path(description="ID мода"),
     only_ids: bool = Query(False, description="Если True вернет только ID тегов."),
 ):
-    session = sessionmaker(bind=catalog.engine)()
-    mod_exists = session.query(catalog.Mod.id).filter_by(id=mod_id).first()
-    session.close()
+    async with catalog.AsyncSessionLocal() as session:
+        mod_exists = await session.get(catalog.Mod, mod_id)
     if not mod_exists:
         raise standarts.NotFoundError(
             detail="Mod not found.",
@@ -1848,11 +1771,14 @@ async def mod_tags(
     if access_result is not True:
         return access_result
 
-    session = sessionmaker(bind=catalog.engine)()
-    query = session.query(catalog.Tag).join(catalog.mods_tags)
-    query = query.filter(catalog.mods_tags.c.mod_id == mod_id)
-    tags = query.all()
-    session.close()
+    async with catalog.AsyncSessionLocal() as session:
+        tags = (
+            await session.execute(
+                select(catalog.Tag)
+                .join(catalog.mods_tags)
+                .where(catalog.mods_tags.c.mod_id == mod_id)
+            )
+        ).scalars().all()
 
     if only_ids:
         return [tag.id for tag in tags]
@@ -1876,9 +1802,8 @@ async def mod_dependencies(
     request: Request,
     mod_id: int = Path(description="ID мода"),
 ):
-    session = sessionmaker(bind=catalog.engine)()
-    mod_exists = session.query(catalog.Mod.id).filter_by(id=mod_id).first()
-    session.close()
+    async with catalog.AsyncSessionLocal() as session:
+        mod_exists = await session.get(catalog.Mod, mod_id)
     if not mod_exists:
         raise standarts.NotFoundError(
             detail="Mod not found.",
@@ -1891,11 +1816,14 @@ async def mod_dependencies(
     if access_result is not True:
         return access_result
 
-    session = sessionmaker(bind=catalog.engine)()
-    query = session.query(catalog.mods_dependencies.c.dependence)
-    query = query.filter(catalog.mods_dependencies.c.mod_id == mod_id)
-    dependencies = [row[0] for row in query.all()]
-    session.close()
+    async with catalog.AsyncSessionLocal() as session:
+        dependencies = (
+            await session.execute(
+                select(catalog.mods_dependencies.c.dependence).where(
+                    catalog.mods_dependencies.c.mod_id == mod_id
+                )
+            )
+        ).scalars().all()
 
     return {"count": len(dependencies), "results": dependencies}
 
@@ -1970,13 +1898,13 @@ async def edit_mod(
             else:
                 body["source_id"] = None
 
-            session = sessionmaker(bind=catalog.engine)()
-            result = (
-                session.query(catalog.Mod)
-                .filter_by(source=mod_source, source_id=body["source_id"])
-                .first()
-            )
-            session.close()
+            async with catalog.AsyncSessionLocal() as session:
+                result = await session.scalar(
+                    select(catalog.Mod).where(
+                        catalog.Mod.source == mod_source,
+                        catalog.Mod.source_id == body["source_id"],
+                    )
+                )
             if result:
                 raise standarts.PreconditionFailedError(
                     detail="Такая source-связка уже существует!",
@@ -2002,10 +1930,11 @@ async def edit_mod(
         if len(body) > 0:
             body["date_edit"] = datetime.now()
 
-        session = sessionmaker(bind=catalog.engine)()
-        session.query(catalog.Mod).filter_by(id=mod_id).update(body)
-        session.commit()
-        session.close()
+        async with catalog.AsyncSessionLocal() as session:
+            await session.execute(
+                update(catalog.Mod).where(catalog.Mod.id == mod_id).values(**body)
+            )
+            await session.commit()
         return PlainTextResponse(status_code=201, content="OK")
     else:
         return access_result
@@ -2091,83 +2020,91 @@ async def edit_authors_mod(
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
-        # Создание сессии
-        Session = sessionmaker(bind=account.engine)
-        session = Session()
-
         req_user_id = access_result.get("owner_id", -1)
-        user_req = session.query(account.Account).filter_by(id=req_user_id).first()
-        user_add = session.query(account.Account).filter_by(id=author).first()
 
-        async def mini():
-            if not user_add:
-                return False
-            elif user_req.admin:
-                return True
-            else:
+        async with account.AsyncSessionLocal() as session:
+            user_req = await session.get(account.Account, req_user_id)
+            user_add = await session.get(account.Account, author)
+
+            async def mini():
+                if not user_add:
+                    return False
+                if user_req.admin:
+                    return True
                 if user_req.mute_until and user_req.mute_until > datetime.now():
                     return False
 
-                in_mod = (
-                    session.query(account.mod_and_author)
-                    .filter_by(mod_id=mod_id, user_id=req_user_id)
-                    .first()
+                in_mod = await session.scalar(
+                    select(account.mod_and_author.c.owner).where(
+                        account.mod_and_author.c.mod_id == mod_id,
+                        account.mod_and_author.c.user_id == req_user_id,
+                    )
                 )
 
-                if in_mod:
-                    if in_mod.owner:
+                if in_mod is not None:
+                    if in_mod:
                         if req_user_id == author and not mode:
                             return False
-
                         return True
-                    elif req_user_id == author and not mode:
+                    if req_user_id == author and not mode:
                         return True
                 elif user_req.change_authorship_mods:
                     return True
-            return False
+                return False
 
-        if await mini():
-            if mode:
-                has_owner = (
-                    session.query(account.mod_and_author)
-                    .filter_by(mod_id=mod_id, owner=True)
-                    .first()
-                )
-                if owner and has_owner:
-                    session.query(account.mod_and_author).filter_by(
-                        mod_id=mod_id, owner=True
-                    ).update({"owner": False})
-                    session.commit()
-
-                has_target = (
-                    session.query(account.mod_and_author)
-                    .filter_by(mod_id=mod_id, user_id=author)
-                    .first()
-                )
-                if has_target:
-                    session.query(account.mod_and_author).filter_by(
-                        mod_id=mod_id, user_id=author
-                    ).update({"owner": owner})
-                else:
-                    insert_statement = insert(account.mod_and_author).values(
-                        user_id=author, owner=owner, mod_id=mod_id
+            if await mini():
+                if mode:
+                    has_owner = await session.scalar(
+                        select(account.mod_and_author.c.owner).where(
+                            account.mod_and_author.c.mod_id == mod_id,
+                            account.mod_and_author.c.owner.is_(True),
+                        )
                     )
-                    session.execute(insert_statement)
-                session.commit()
-            else:
-                delete_member = account.mod_and_author.delete().where(
-                    account.mod_and_author.c.mod_id == mod_id,
-                    account.mod_and_author.c.user_id == author,
-                )
-                # Выполнение операции DELETE
-                session.execute(delete_member)
-                session.commit()
+                    if owner and has_owner:
+                        await session.execute(
+                            update(account.mod_and_author)
+                            .where(
+                                account.mod_and_author.c.mod_id == mod_id,
+                                account.mod_and_author.c.owner.is_(True),
+                            )
+                            .values(owner=False)
+                        )
+                        await session.commit()
 
-            session.close()
-            return JSONResponse(status_code=200, content="Выполнено")
-        else:
-            session.close()
-            raise standarts.ForbiddenError(instance=str(request.url))
+                    has_target = await session.scalar(
+                        select(account.mod_and_author.c.owner).where(
+                            account.mod_and_author.c.mod_id == mod_id,
+                            account.mod_and_author.c.user_id == author,
+                        )
+                    )
+                    if has_target is not None:
+                        await session.execute(
+                            update(account.mod_and_author)
+                            .where(
+                                account.mod_and_author.c.mod_id == mod_id,
+                                account.mod_and_author.c.user_id == author,
+                            )
+                            .values(owner=owner)
+                        )
+                    else:
+                        await session.execute(
+                            insert(account.mod_and_author).values(
+                                user_id=author, owner=owner, mod_id=mod_id
+                            )
+                        )
+                    await session.commit()
+                else:
+                    await session.execute(
+                        delete(account.mod_and_author).where(
+                            account.mod_and_author.c.mod_id == mod_id,
+                            account.mod_and_author.c.user_id == author,
+                        )
+                    )
+                    await session.commit()
+
+                return JSONResponse(status_code=200, content="Выполнено")
+
+        raise standarts.ForbiddenError(instance=str(request.url))
     else:
         raise standarts.UnauthorizedError(instance=str(request.url))
 
@@ -2201,16 +2138,8 @@ async def delete_mod(
     user_id = access_result.get("owner_id", -1)
     logger.info("Delete mod auth ok mod_id=%s user_id=%s", mod_id, user_id)
 
-    # Создание сессии для аккаунтов
-    Session = sessionmaker(bind=account.engine)
-    session = Session()
-
-    try:
-        user_req = (
-            session.query(account.Account)
-            .filter_by(id=access_result.get("owner_id"))
-            .first()
-        )
+    async with account.AsyncSessionLocal() as session:
+        user_req = await session.get(account.Account, access_result.get("owner_id"))
         if not user_req:
             raise standarts.NotFoundError(
                 detail="Пользователь не найден!",
@@ -2223,13 +2152,14 @@ async def delete_mod(
             if user_req.mute_until and user_req.mute_until > datetime.now():
                 return False
 
-            in_mod = (
-                session.query(account.mod_and_author)
-                .filter_by(mod_id=mod_id, user_id=user_id)
-                .first()
+            in_mod = await session.scalar(
+                select(account.mod_and_author.c.owner).where(
+                    account.mod_and_author.c.mod_id == mod_id,
+                    account.mod_and_author.c.user_id == user_id,
+                )
             )
 
-            if in_mod and user_req.delete_self_mods and in_mod.owner:
+            if in_mod and user_req.delete_self_mods and in_mod:
                 return True
             if user_req.delete_mods:
                 return True
@@ -2243,8 +2173,6 @@ async def delete_mod(
                 user_id,
             )
             raise standarts.ForbiddenError(instance=str(request.url))
-    finally:
-        session.close()
 
     # Удаление ресурсов
     logger.info("Delete mod removing resources mod_id=%s", mod_id)
@@ -2278,10 +2206,8 @@ async def delete_mod(
             instance=str(request.url),
         )
 
-    # Создание сессии для базы модов
-    session = sessionmaker(bind=catalog.engine)()
-    try:
-        mod_obj = session.query(catalog.Mod).filter_by(id=mod_id).first()
+    async with catalog.AsyncSessionLocal() as session:
+        mod_obj = await session.get(catalog.Mod, mod_id)
         if not mod_obj:
             raise standarts.NotFoundError(
                 detail="Мод не найден",
@@ -2290,19 +2216,20 @@ async def delete_mod(
 
         game_id = mod_obj.game
 
-        # Удаление записей
-        session.query(catalog.Mod).filter_by(id=mod_id).delete()
-        session.query(catalog.mods_dependencies).filter_by(mod_id=mod_id).delete()
-        session.query(catalog.mods_tags).filter_by(mod_id=mod_id).delete()
-        session.commit()
-
-        # Обновление количества модов в игре
-        session.query(catalog.Game).filter_by(id=game_id).update(
-            {catalog.Game.mods_count: catalog.Game.mods_count - 1}
+        await session.execute(delete(catalog.Mod).where(catalog.Mod.id == mod_id))
+        await session.execute(
+            delete(catalog.mods_dependencies).where(
+                catalog.mods_dependencies.c.mod_id == mod_id
+            )
         )
-        session.commit()
-
-    finally:
-        session.close()
+        await session.execute(
+            delete(catalog.mods_tags).where(catalog.mods_tags.c.mod_id == mod_id)
+        )
+        await session.execute(
+            update(catalog.Game)
+            .where(catalog.Game.id == game_id)
+            .values({catalog.Game.mods_count: catalog.Game.mods_count - 1})
+        )
+        await session.commit()
 
     return PlainTextResponse(status_code=200, content="Удалено")

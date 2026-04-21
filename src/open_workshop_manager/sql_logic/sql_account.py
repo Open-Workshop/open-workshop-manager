@@ -1,22 +1,37 @@
-from sqlalchemy import (
-    create_engine,
-    Column,
-    Integer,
-    String,
-    DateTime,
-    Table,
-    ForeignKey,
-    Boolean,
-    insert,
-)
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
-from fastapi import Request, Response
+from __future__ import annotations
+
 import bcrypt
 import datetime
+from fastapi import Request, Response
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Table,
+    delete,
+    insert,
+    select,
+    update,
+)
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import declarative_base
+
 from open_workshop_manager import settings as config
 
-engine = create_engine(config.mysql_url("catalog"), pool_pre_ping=True)
+async_engine: AsyncEngine = create_async_engine(
+    config.mysql_url("catalog"),
+    pool_pre_ping=True,
+)
+engine = async_engine
+AsyncSessionLocal = async_sessionmaker(async_engine, expire_on_commit=False)
 base = declarative_base()
 
 STANDART_STR_TIME = "%d.%m.%Y/%H:%M:%S"
@@ -189,17 +204,24 @@ class Reaction(base):  # Жанры для игр
     update_date = Column(DateTime)
 
 
-async def gen_session(user_id: int, session, login_method: str = "unknown"):
+async def gen_session(user_id: int, session: AsyncSession, login_method: str = "unknown"):
     ddate = datetime.datetime.now()
-    # Проверяем есть ли более 10 активных сессий
-    # Если есть - аннулируем все сессии
-    row = session.query(Session).filter_by(owner_id=user_id, broken=None)
-    row = row.filter(Session.end_date_refresh > ddate)
+    result = await session.execute(
+        select(Session).where(
+            Session.owner_id == user_id,
+            Session.broken.is_(None),
+            Session.end_date_refresh > ddate,
+        )
+    )
+    rows = result.scalars().all()
 
-    if row.count() > 9:
-        row.update({"broken": "too many sessions"})
+    if len(rows) > 9:
+        await session.execute(
+            update(Session)
+            .where(Session.id.in_([row.id for row in rows]))
+            .values(broken="too many sessions")
+        )
 
-    # Генерируем псевдо-случайные токены
     access_token = (
         bcrypt.hashpw(
             str(datetime.datetime.now().microsecond).encode("utf-8"), bcrypt.gensalt(6)
@@ -211,22 +233,20 @@ async def gen_session(user_id: int, session, login_method: str = "unknown"):
         )
     ).decode("utf-8")
 
-    # Определяем временные рамки жизни токенов
     end_access = ddate + datetime.timedelta(minutes=40)
     end_refresh = ddate + datetime.timedelta(days=60)
 
-    # Заносим в базу
-    insert_statement = insert(Session).values(
-        owner_id=user_id,
-        access_token=access_token,
-        refresh_token=refresh_token,
-        login_method=login_method,
-        start_date=ddate,
-        end_date_access=end_access,
-        end_date_refresh=end_refresh,
+    await session.execute(
+        insert(Session).values(
+            owner_id=user_id,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            login_method=login_method,
+            start_date=ddate,
+            end_date_access=end_access,
+            end_date_refresh=end_refresh,
+        )
     )
-    # Выполнение операции INSERT
-    session.execute(insert_statement)
 
     return {
         "access": {"token": access_token, "end": end_access},
@@ -237,137 +257,122 @@ async def gen_session(user_id: int, session, login_method: str = "unknown"):
 async def update_session(
     response: Response, request: Request, result_row: bool = False
 ):
-    # Создание сессии
-    USession = sessionmaker(bind=engine)
-    session = USession()
-
-    # Выполнение запроса
-    old_refresh_token = request.cookies.get("refreshToken", "")
-    row = session.query(Session).filter_by(refresh_token=old_refresh_token, broken=None)
-
-    today = datetime.datetime.now()
-    row = row.filter(Session.end_date_refresh > today)
-
-    res = row.first()
-    if res:
-        access_token = (
-            bcrypt.hashpw(
-                str(datetime.datetime.now().microsecond).encode("utf-8"),
-                bcrypt.gensalt(6),
+    async with AsyncSessionLocal() as session:
+        old_refresh_token = request.cookies.get("refreshToken", "")
+        today = datetime.datetime.now()
+        result = await session.execute(
+            select(Session).where(
+                Session.refresh_token == old_refresh_token,
+                Session.broken.is_(None),
+                Session.end_date_refresh > today,
             )
-        ).decode("utf-8")
-        refresh_token = (
-            bcrypt.hashpw(
-                str(datetime.datetime.now().microsecond).encode("utf-8"),
-                bcrypt.gensalt(7),
+        )
+        row = result.scalar_one_or_none()
+        if row:
+            access_token = (
+                bcrypt.hashpw(
+                    str(datetime.datetime.now().microsecond).encode("utf-8"),
+                    bcrypt.gensalt(6),
+                )
+            ).decode("utf-8")
+            refresh_token = (
+                bcrypt.hashpw(
+                    str(datetime.datetime.now().microsecond).encode("utf-8"),
+                    bcrypt.gensalt(7),
+                )
+            ).decode("utf-8")
+
+            end_access = today + datetime.timedelta(minutes=40)
+            end_refresh = today + datetime.timedelta(days=60)
+
+            await session.execute(
+                update(Session)
+                .where(Session.id == row.id)
+                .values(
+                    end_date_access=end_access,
+                    end_date_refresh=end_refresh,
+                    access_token=access_token,
+                    refresh_token=refresh_token,
+                    last_request_date=today,
+                )
             )
-        ).decode("utf-8")
+            await session.commit()
 
-        end_access = today + datetime.timedelta(minutes=40)
-        end_refresh = today + datetime.timedelta(days=60)
+            response.set_cookie(
+                key="accessToken",
+                value=access_token,
+                httponly=True,
+                secure=config.COOKIE_SECURE,
+                samesite=config.COOKIE_SAMESITE,
+                max_age=2100,
+            )
+            response.set_cookie(
+                key="refreshToken",
+                value=refresh_token,
+                httponly=True,
+                secure=config.COOKIE_SECURE,
+                samesite=config.COOKIE_SAMESITE,
+                max_age=5184000,
+            )
+            response.set_cookie(
+                key="loginJS",
+                value=end_refresh.strftime(STANDART_STR_TIME),
+                secure=config.COOKIE_SECURE,
+                samesite=config.COOKIE_SAMESITE,
+                max_age=5184000,
+            )
+            response.set_cookie(
+                key="accessJS",
+                value=end_access.strftime(STANDART_STR_TIME),
+                secure=config.COOKIE_SECURE,
+                samesite=config.COOKIE_SAMESITE,
+                max_age=5184000,
+            )
+            response.set_cookie(
+                key="userID",
+                value=str(row.owner_id),
+                secure=config.COOKIE_SECURE,
+                samesite=config.COOKIE_SAMESITE,
+                max_age=5184000,
+            )
 
-        # Обновление БД
-        row.update(
-            {
-                "end_date_access": end_access,
-                "end_date_refresh": end_refresh,
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-                "last_request_date": today,
-            }
-        )
-        session.commit()
-
-        # Обновление данных в куки юзера
-        response.set_cookie(
-            key="accessToken",
-            value=access_token,
-            httponly=True,
-            secure=config.COOKIE_SECURE,
-            samesite=config.COOKIE_SAMESITE,
-            max_age=2100,
-        )
-        response.set_cookie(
-            key="refreshToken",
-            value=refresh_token,
-            httponly=True,
-            secure=config.COOKIE_SECURE,
-            samesite=config.COOKIE_SAMESITE,
-            max_age=5184000,
-        )
-
-        response.set_cookie(
-            key="loginJS",
-            value=end_refresh.strftime(STANDART_STR_TIME),
-            secure=config.COOKIE_SECURE,
-            samesite=config.COOKIE_SAMESITE,
-            max_age=5184000,
-        )
-        response.set_cookie(
-            key="accessJS",
-            value=end_access.strftime(STANDART_STR_TIME),
-            secure=config.COOKIE_SECURE,
-            samesite=config.COOKIE_SAMESITE,
-            max_age=5184000,
-        )
-        response.set_cookie(
-            key="userID",
-            value=str(res.owner_id),
-            secure=config.COOKIE_SECURE,
-            samesite=config.COOKIE_SAMESITE,
-            max_age=5184000,
-        )
-
-        if result_row:
-            rr = session.query(Session).filter_by(id=res.id).first().__dict__
-            session.close()
-            return rr
-        else:
-            session.close()
+            if result_row:
+                row_result = await session.execute(select(Session).where(Session.id == row.id))
+                rr = row_result.scalar_one().__dict__.copy()
+                return rr
             return True
-    session.close()
-    return False
+
+        return False
 
 
 async def check_session(user_access_token: str):
-    # Создание сессии
-    USession = sessionmaker(bind=engine)
-    session = USession()
-
-    # Выполнение запроса
-    row = session.query(Session).filter_by(access_token=user_access_token, broken=None)
-
-    today = datetime.datetime.now()
-    row = row.filter(Session.end_date_access > today)
-
-    res = row.first()
-    if res:
-        res = res.__dict__
-        # Обновление БД
-        row.update({"last_request_date": today})
-        session.commit()
-        session.close()
-
-        return res
-
-    session.close()
-    return False
+    async with AsyncSessionLocal() as session:
+        today = datetime.datetime.now()
+        result = await session.execute(
+            select(Session).where(
+                Session.access_token == user_access_token,
+                Session.broken.is_(None),
+                Session.end_date_access > today,
+            )
+        )
+        row = result.scalar_one_or_none()
+        if row:
+            await session.execute(
+                update(Session).where(Session.id == row.id).values(last_request_date=today)
+            )
+            await session.commit()
+            return row.__dict__.copy()
+        return False
 
 
 async def forget_accounts():
-    # Создание сессии
-    USession = sessionmaker(bind=engine)
-    session = USession()
-
-    # Выполнение запроса
-    delete_member = blocked_account_creation.delete().where(
-        blocked_account_creation.c.forget < datetime.datetime.now()
-    )
-
-    # Выполнение операции DELETE
-    session.execute(delete_member)
-    session.commit()
-    session.close()
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            delete(blocked_account_creation).where(
+                blocked_account_creation.c.forget < datetime.datetime.now()
+            )
+        )
+        await session.commit()
 
 
 async def check_access(response: Response, request: Request):
@@ -394,4 +399,6 @@ async def no_from_russia(request: Request):
     return False
 
 
-base.metadata.create_all(engine)
+async def init_models() -> None:
+    async with async_engine.begin() as connection:
+        await connection.run_sync(base.metadata.create_all)

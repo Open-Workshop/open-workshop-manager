@@ -30,7 +30,8 @@ from open_workshop_manager.logging_setup import setup_logging
 from open_workshop_manager.telemetry import setup_uptrace_telemetry
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 from open_workshop_manager.sql_logic import sql_account as account
-from sqlalchemy.orm import sessionmaker
+from open_workshop_manager.sql_logic import sql_statistics as statistics
+from sqlalchemy import delete, select
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -42,44 +43,36 @@ _cleanup_task: asyncio.Task | None = None
 
 async def _cleanup_stale_mods_once() -> None:
     cutoff = datetime.datetime.now() - datetime.timedelta(seconds=CLEANUP_STALE_SECONDS)
-    session = sessionmaker(bind=catalog.engine)()
-    try:
-        stale = (
-            session.query(catalog.Mod.id)
-            .filter(catalog.Mod.condition == 1)
-            .filter(catalog.Mod.date_creation < cutoff)
-            .all()
+    async with catalog.AsyncSessionLocal() as session:
+        stale_result = await session.execute(
+            select(catalog.Mod.id)
+            .where(catalog.Mod.condition == 1)
+            .where(catalog.Mod.date_creation < cutoff)
         )
-        stale_ids = [row.id for row in stale]
-    finally:
-        session.close()
+        stale_ids = list(stale_result.scalars().all())
 
     if not stale_ids:
         return
 
-    session = sessionmaker(bind=catalog.engine)()
-    try:
-        session.query(catalog.Mod).filter(catalog.Mod.id.in_(stale_ids)).delete(
-            synchronize_session=False
+    async with catalog.AsyncSessionLocal() as session:
+        await session.execute(delete(catalog.Mod).where(catalog.Mod.id.in_(stale_ids)))
+        await session.execute(
+            delete(catalog.mods_dependencies).where(
+                catalog.mods_dependencies.c.mod_id.in_(stale_ids)
+            )
         )
-        session.query(catalog.mods_dependencies).filter(
-            catalog.mods_dependencies.c.mod_id.in_(stale_ids)
-        ).delete(synchronize_session=False)
-        session.query(catalog.mods_tags).filter(
-            catalog.mods_tags.c.mod_id.in_(stale_ids)
-        ).delete(synchronize_session=False)
-        session.commit()
-    finally:
-        session.close()
+        await session.execute(
+            delete(catalog.mods_tags).where(catalog.mods_tags.c.mod_id.in_(stale_ids))
+        )
+        await session.commit()
 
-    session = sessionmaker(bind=account.engine)()
-    try:
-        session.query(account.mod_and_author).filter(
-            account.mod_and_author.c.mod_id.in_(stale_ids)
-        ).delete(synchronize_session=False)
-        session.commit()
-    finally:
-        session.close()
+    async with account.AsyncSessionLocal() as session:
+        await session.execute(
+            delete(account.mod_and_author).where(
+                account.mod_and_author.c.mod_id.in_(stale_ids)
+            )
+        )
+        await session.commit()
 
     logger.info("Cleanup stale mods deleted count=%s", len(stale_ids))
 
@@ -233,6 +226,11 @@ app.add_middleware(CookieDefaultsMiddleware)
 async def _start_cleanup_task() -> None:
     global _cleanup_task
     if _cleanup_task is None:
+        await asyncio.gather(
+            account.init_models(),
+            catalog.init_models(),
+            statistics.init_models(),
+        )
         _cleanup_task = asyncio.create_task(_cleanup_stale_mods_loop())
 
 

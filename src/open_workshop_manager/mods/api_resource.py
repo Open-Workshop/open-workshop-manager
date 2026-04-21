@@ -4,8 +4,7 @@ from open_workshop_manager import tools
 import uuid
 from urllib.parse import quote
 from open_workshop_manager.sql_logic import sql_catalog as catalog
-from sqlalchemy import insert
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import func, insert, select
 from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager import settings as config
 from open_workshop_manager.limits import LIMITS
@@ -258,19 +257,18 @@ async def add_resource_upload_init(
             instance=str(request.url),
         )
 
-    session = sessionmaker(bind=catalog.engine)()
-    insert_statement = insert(catalog.Resource).values(
-        type=resource_type,
-        url="",
-        size=None,
-        date_event=datetime.now(),
-        owner_type=owner_type,
-        owner_id=resource_owner_id,
-    )
-    result = session.execute(insert_statement)
-    resource_id = int(result.lastrowid)
-    session.commit()
-    session.close()
+    async with catalog.AsyncSessionLocal() as session:
+        insert_statement = insert(catalog.Resource).values(
+            type=resource_type,
+            url="",
+            size=None,
+            date_event=datetime.now(),
+            owner_type=owner_type,
+            owner_id=resource_owner_id,
+        )
+        result = await session.execute(insert_statement)
+        resource_id = int(result.lastrowid)
+        await session.commit()
 
     job_id = uuid.uuid4().hex
     ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
@@ -291,10 +289,13 @@ async def add_resource_upload_init(
     }
     token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
     if not token:
-        session = sessionmaker(bind=catalog.engine)()
-        session.query(catalog.Resource).filter_by(id=resource_id).delete()
-        session.commit()
-        session.close()
+        async with catalog.AsyncSessionLocal() as session:
+            await session.execute(
+                catalog.Resource.__table__.delete().where(
+                    catalog.Resource.id == resource_id
+                )
+            )
+            await session.commit()
         raise standarts.InternalServerError(
             detail="JWT secret missing",
             instance=str(request.url),
@@ -336,37 +337,33 @@ async def edit_resource_upload_init(
         min_length=LIMITS.resource.type_min,
         max_length=LIMITS.resource.type_max,
     ),
-):
-    session = sessionmaker(bind=catalog.engine)()
-    resource_query = session.query(catalog.Resource).filter_by(id=resource_id)
-    resource = resource_query.first()
-    if not resource:
-        session.close()
-        raise standarts.NotFoundError(
-            detail="not found",
-            instance=str(request.url),
-        )
+    ):
+    async with catalog.AsyncSessionLocal() as session:
+        resource = await session.get(catalog.Resource, resource_id)
+        if not resource:
+            raise standarts.NotFoundError(
+                detail="not found",
+                instance=str(request.url),
+            )
 
-    if resource.owner_type == "mods":
-        access_result = await tools.access_mods(
-            response=response,
-            request=request,
-            mods_ids=[resource.owner_id],
-            edit=True,
-        )
-    else:
-        access_result = await tools.access_admin(response=response, request=request)
-    if access_result is not True:
-        session.close()
-        return access_result
+        if resource.owner_type == "mods":
+            access_result = await tools.access_mods(
+                response=response,
+                request=request,
+                mods_ids=[resource.owner_id],
+                edit=True,
+            )
+        else:
+            access_result = await tools.access_admin(response=response, request=request)
+        if access_result is not True:
+            return access_result
 
-    if resource_type:
-        resource_query.update({"type": resource_type})
-        session.commit()
+        if resource_type:
+            resource.type = resource_type
+            await session.commit()
 
-    owner_type = str(resource.owner_type)
-    owner_id = int(resource.owner_id)
-    session.close()
+        owner_type = str(resource.owner_type)
+        owner_id = int(resource.owner_id)
 
     if not getattr(config, "TRANSFER_JWT_SECRET", None):
         raise standarts.InternalServerError(
@@ -427,9 +424,8 @@ async def delete_resource_rest(
     request: Request,
     resource_id: int = Path(description="ID ресурса для удаления."),
 ):
-    session = sessionmaker(bind=catalog.engine)()
-    resource = session.query(catalog.Resource).filter_by(id=resource_id).first()
-    session.close()
+    async with catalog.AsyncSessionLocal() as session:
+        resource = await session.get(catalog.Resource, resource_id)
 
     if not resource:
         raise standarts.NotFoundError(
@@ -522,45 +518,49 @@ async def list_resources(
         )
 
     # Создание сессии
-    session = sessionmaker(bind=catalog.engine)()
+    async with catalog.AsyncSessionLocal() as session:
+        count_stmt = select(func.count()).select_from(catalog.Resource).where(
+            catalog.Resource.owner_type == owner_type,
+            catalog.Resource.owner_id.in_(owner_ids),
+        )
+        list_stmt = select(catalog.Resource).where(
+            catalog.Resource.owner_type == owner_type,
+            catalog.Resource.owner_id.in_(owner_ids),
+        )
+        if len(resources_list_id) > 0:
+            count_stmt = count_stmt.where(catalog.Resource.id.in_(resources_list_id))
+            list_stmt = list_stmt.where(catalog.Resource.id.in_(resources_list_id))
+        if len(types_resources) > 0:
+            count_stmt = count_stmt.where(catalog.Resource.type.in_(types_resources))
+            list_stmt = list_stmt.where(catalog.Resource.type.in_(types_resources))
 
-    # Выполнение запроса
-    query = session.query(catalog.Resource)
-    query = query.filter_by(owner_type=owner_type)
-    query = query.filter(catalog.Resource.owner_id.in_(owner_ids))
-    if len(resources_list_id) > 0:
-        query = query.filter(catalog.Resource.id.in_(resources_list_id))
-    if len(types_resources) > 0:
-        query = query.filter(catalog.Resource.type.in_(types_resources))
+        resources_count = int((await session.execute(count_stmt)).scalar_one())
+        offset = page_size * page
+        resources = (
+            await session.execute(list_stmt.offset(offset).limit(page_size))
+        ).scalars().all()
 
-    resources_count = query.count()
-    offset = page_size * page
-    resources = query.offset(offset).limit(page_size).all()
+        if resources_count > 0:
+            mods_ids_check = [i.owner_id for i in resources]
 
-    # Проверка правомерности
-    if resources_count > 0:
-        mods_ids_check = [i.owner_id for i in resources]
+            result_mods = await session.execute(
+                select(catalog.Mod.id).where(catalog.Mod.id.in_(mods_ids_check))
+            )
+            ids_mods = list(result_mods.scalars().all())
 
-        query = session.query(catalog.Mod.id)
-        query = query.filter(catalog.Mod.id.in_(mods_ids_check))
-        ids_mods = [mod.id for mod in query.all()]
+            if len(ids_mods) > 0:
+                if not await tools.access_mods(
+                    response=response, request=request, mods_ids=ids_mods, check_mode=True
+                ):
+                    raise standarts.ForbiddenError(
+                        detail="Access denied.",
+                        instance=str(request.url),
+                    )
 
-        if len(ids_mods) > 0:
-            if not await tools.access_mods(
-                response=response, request=request, mods_ids=ids_mods, check_mode=True
-            ):
-                session.close()
-                raise standarts.ForbiddenError(
-                    detail="Access denied.",
-                    instance=str(request.url),
-                )
+        real_resources = await tools.resources_serialize(
+            resources=resources, only_urls=only_urls
+        )
 
-    real_resources = await tools.resources_serialize(
-        resources=resources, only_urls=only_urls
-    )
-
-    # Возврат успешного результата
-    session.close()
     return {
         "database_size": resources_count,
         "offset": offset,
@@ -606,22 +606,20 @@ async def add_resource(
                 instance=str(request.url),
             )
 
-        session = sessionmaker(bind=catalog.engine)()
+        async with catalog.AsyncSessionLocal() as session:
+            insert_statement = insert(catalog.Resource).values(
+                type=resource_type,
+                url=resource_url,
+                size=None,
+                date_event=datetime.now(),
+                owner_type=owner_type,
+                owner_id=resource_owner_id,
+            )
 
-        insert_statement = insert(catalog.Resource).values(
-            type=resource_type,
-            url=resource_url,
-            size=None,
-            date_event=datetime.now(),
-            owner_type=owner_type,
-            owner_id=resource_owner_id,
-        )
+            result = await session.execute(insert_statement)
+            id = result.lastrowid  # Получаем ID последней вставленной строки
 
-        result = session.execute(insert_statement)
-        id = result.lastrowid  # Получаем ID последней вставленной строки
-
-        session.commit()
-        session.close()
+            await session.commit()
 
         return JSONResponse(status_code=202, content=id)  # Возвращаем значение `id`
     else:
@@ -645,68 +643,61 @@ async def edit_resource(
         max_length=LIMITS.resource.url_max,
     ),
 ):
-    session = sessionmaker(bind=catalog.engine)()
-
-    resource = session.query(catalog.Resource).filter_by(id=resource_id)
-    got_resource = resource.first()
-    if not got_resource:
-        raise standarts.NotFoundError(
-            detail="The element does not exist.",
-            instance=str(request.url),
-        )
-
-    if got_resource.owner_type == "mods":
-        access_result = await tools.access_mods(
-            response=response,
-            request=request,
-            mods_ids=[got_resource.owner_id],
-            edit=True,
-        )
-    else:
-        access_result = await tools.access_admin(response=response, request=request)
-
-    if access_result is True:
-        # Подготавливаем данные
-        data_edit: dict[str, object] = {}
-        if resource_type:
-            data_edit["type"] = resource_type
-
-        if resource_url:
-            if (
-                len(resource_url) < LIMITS.resource.url_min
-                or len(resource_url) > LIMITS.resource.url_max
-                or not resource_url.startswith("http")
-            ):
-                raise standarts.BadRequestError(
-                    detail="Incorrect URL",
-                    instance=str(request.url),
-                )
-            if got_resource.url.startswith(
-                "local/"
-            ) and not await tools.storage_file_delete(
-                type="resource", path=got_resource.url.replace("local/", "")
-            ):
-                raise standarts.InternalServerError(
-                    detail="delete old file error",
-                    instance=str(request.url),
-                )
-            data_edit["url"] = resource_url
-            data_edit["size"] = None
-
-        if len(data_edit) <= 0:
-            raise standarts.RequestRejectedError(
-                detail="The request is empty",
+    async with catalog.AsyncSessionLocal() as session:
+        got_resource = await session.get(catalog.Resource, resource_id)
+        if not got_resource:
+            raise standarts.NotFoundError(
+                detail="The element does not exist.",
                 instance=str(request.url),
             )
 
-        data_edit["date_event"] = datetime.now()
+        if got_resource.owner_type == "mods":
+            access_result = await tools.access_mods(
+                response=response,
+                request=request,
+                mods_ids=[got_resource.owner_id],
+                edit=True,
+            )
+        else:
+            access_result = await tools.access_admin(response=response, request=request)
 
-        # Меняем данные в БД
-        resource.update(data_edit)
-        session.commit()
+        if access_result is True:
+            data_edit: dict[str, object] = {}
+            if resource_type:
+                data_edit["type"] = resource_type
 
-        session.close()
-        return JSONResponse(status_code=202, content="Complite")
-    else:
-        session.close()
-        return access_result
+            if resource_url:
+                if (
+                    len(resource_url) < LIMITS.resource.url_min
+                    or len(resource_url) > LIMITS.resource.url_max
+                    or not resource_url.startswith("http")
+                ):
+                    raise standarts.BadRequestError(
+                        detail="Incorrect URL",
+                        instance=str(request.url),
+                    )
+                if got_resource.url.startswith("local/") and not await tools.storage_file_delete(
+                    type="resource", path=got_resource.url.replace("local/", "")
+                ):
+                    raise standarts.InternalServerError(
+                        detail="delete old file error",
+                        instance=str(request.url),
+                    )
+                data_edit["url"] = resource_url
+                data_edit["size"] = None
+
+            if len(data_edit) <= 0:
+                raise standarts.RequestRejectedError(
+                    detail="The request is empty",
+                    instance=str(request.url),
+                )
+
+            data_edit["date_event"] = datetime.now()
+
+            for key, value in data_edit.items():
+                setattr(got_resource, key, value)
+            await session.commit()
+
+            return JSONResponse(status_code=202, content="Complite")
+        else:
+            return access_result

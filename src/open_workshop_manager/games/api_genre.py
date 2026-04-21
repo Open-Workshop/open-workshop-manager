@@ -3,10 +3,10 @@ from fastapi.responses import JSONResponse
 from open_workshop_manager import tools
 from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.limits import LIMITS
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import insert, delete
+from sqlalchemy import delete, insert
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 from open_workshop_manager import standarts
+from sqlalchemy import select, func
 
 router = APIRouter()
 
@@ -43,6 +43,7 @@ router = APIRouter()
     },
 )
 async def list_genres(
+    request: Request,
     page_size: int = Query(
         LIMITS.page.default,
         description="Размер 1 страницы. Диапазон - 1...50 элементов.",
@@ -59,19 +60,20 @@ async def list_genres(
             context={"error_id": 1},
         )
 
-    # Создание сессии
-    Session = sessionmaker(bind=catalog.engine)
-    session = Session()
-    # Выполнение запроса
-    query = session.query(catalog.Genre)
-    if len(name) > 0:
-        query = query.filter(catalog.Genre.name.ilike(f"%{name}%"))
+    async with catalog.AsyncSessionLocal() as session:
+        count_stmt = select(func.count()).select_from(catalog.Genre)
+        list_stmt = select(catalog.Genre)
+        if len(name) > 0:
+            condition = catalog.Genre.name.ilike(f"%{name}%")
+            count_stmt = count_stmt.where(condition)
+            list_stmt = list_stmt.where(condition)
 
-    genres_count = query.count()
-    offset = page_size * page
-    genres = query.offset(offset).limit(page_size).all()
+        genres_count = int((await session.execute(count_stmt)).scalar_one())
+        offset = page_size * page
+        genres = (
+            await session.execute(list_stmt.offset(offset).limit(page_size))
+        ).scalars().all()
 
-    session.close()
     return {"database_size": genres_count, "offset": offset, "results": genres}
 
 
@@ -98,17 +100,15 @@ async def add_genre(
     access_result = await tools.access_admin(response=response, request=request)
 
     if access_result is True:
-        session = sessionmaker(bind=catalog.engine)()
+        async with catalog.AsyncSessionLocal() as session:
+            insert_statement = insert(catalog.Genre).values(name=genre_name)
 
-        insert_statement = insert(catalog.Genre).values(name=genre_name)
+            result = await session.execute(insert_statement)
+            genre_id = result.lastrowid  # Получаем ID последней вставленной строки
 
-        result = session.execute(insert_statement)
-        id = result.lastrowid  # Получаем ID последней вставленной строки
+            await session.commit()
 
-        session.commit()
-        session.close()
-
-        return JSONResponse(status_code=202, content=id)  # Возвращаем значение `id`
+        return JSONResponse(status_code=202, content=genre_id)  # Возвращаем значение `id`
     else:
         return access_result
 
@@ -139,33 +139,28 @@ async def edit_genre(
     access_result = await tools.access_admin(response=response, request=request)
 
     if access_result is True:
-        session = sessionmaker(bind=catalog.engine)()
+        async with catalog.AsyncSessionLocal() as session:
+            genre = await session.get(catalog.Genre, genre_id)
+            if not genre:
+                raise standarts.NotFoundError(
+                    detail="The element does not exist.",
+                    instance=str(request.url),
+                )
 
-        genre = session.query(catalog.Genre).filter_by(id=genre_id)
-        if not genre.first():
-            session.close()
-            raise standarts.NotFoundError(
-                detail="The element does not exist.",
-                instance=str(request.url),
-            )
+            # Подготавливаем данные
+            data_edit = {}
+            if genre_name:
+                data_edit["name"] = genre_name
 
-        # Подготавливаем данные
-        data_edit = {}
-        if genre_name:
-            data_edit["name"] = genre_name
+            if len(data_edit) <= 0:
+                raise standarts.RequestRejectedError(
+                    detail="The request is empty",
+                    instance=str(request.url),
+                )
 
-        if len(data_edit) <= 0:
-            session.close()
-            raise standarts.RequestRejectedError(
-                detail="The request is empty",
-                instance=str(request.url),
-            )
-
-        # Меняем данные в БД
-        genre = session.query(catalog.Genre).filter_by(id=genre_id)
-        genre.update(data_edit)
-        session.commit()
-        session.close()
+            for key, value in data_edit.items():
+                setattr(genre, key, value)
+            await session.commit()
         return JSONResponse(status_code=202, content="Complite")
     else:
         return access_result
@@ -190,19 +185,17 @@ async def delete_genre(
     access_result = await tools.access_admin(response=response, request=request)
 
     if access_result is True:
-        session = sessionmaker(bind=catalog.engine)()
+        async with catalog.AsyncSessionLocal() as session:
+            delete_game = delete(catalog.Genre).where(catalog.Genre.id == genre_id)
 
-        delete_game = delete(catalog.Genre).where(catalog.Genre.id == genre_id)
+            delete_genres_association = catalog.game_genres.delete().where(
+                catalog.game_genres.c.genre_id == genre_id
+            )
 
-        delete_genres_association = catalog.game_genres.delete().where(
-            catalog.game_genres.c.genre_id == genre_id
-        )
-
-        # Выполнение операции DELETE
-        session.execute(delete_game)
-        session.execute(delete_genres_association)
-        session.commit()
-        session.close()
+            # Выполнение операции DELETE
+            await session.execute(delete_game)
+            await session.execute(delete_genres_association)
+            await session.commit()
         return JSONResponse(status_code=202, content="Complite")
     else:
         return access_result

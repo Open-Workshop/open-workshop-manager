@@ -20,8 +20,7 @@ from typing import Optional
 from urllib.parse import quote
 
 import aiohttp
-from sqlalchemy import text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import select, text
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SRC_DIR = ROOT_DIR / "src"
@@ -91,30 +90,27 @@ def ensure_value(name: str, value: str) -> str:
     return value
 
 
-def load_resources(limit: int) -> list[tuple[int, str]]:
-    session = sessionmaker(bind=catalog.engine)()
-    try:
+async def load_resources(limit: int) -> list[tuple[int, str]]:
+    async with catalog.AsyncSessionLocal() as session:
         query = (
-            session.query(catalog.Resource.id, catalog.Resource.url)
-            .filter(catalog.Resource.size.is_(None))
+            select(catalog.Resource.id, catalog.Resource.url)
+            .where(catalog.Resource.size.is_(None))
             .order_by(catalog.Resource.id.asc())
         )
         if limit > 0:
             query = query.limit(limit)
-        return [(int(row.id), str(row.url or "")) for row in query.all()]
-    finally:
-        session.close()
+        result = await session.execute(query)
+        return [(int(row.id), str(row.url or "")) for row in result.all()]
 
 
-def flush_updates(rows: list[dict[str, int]], dry_run: bool) -> int:
+async def flush_updates(rows: list[dict[str, int]], dry_run: bool) -> int:
     if not rows:
         return 0
     if dry_run:
         return len(rows)
 
-    session = sessionmaker(bind=catalog.engine)()
-    try:
-        session.execute(
+    async with catalog.AsyncSessionLocal() as session:
+        await session.execute(
             text(
                 "UPDATE resources "
                 "SET size=:size "
@@ -122,10 +118,8 @@ def flush_updates(rows: list[dict[str, int]], dry_run: bool) -> int:
             ),
             rows,
         )
-        session.commit()
+        await session.commit()
         return len(rows)
-    finally:
-        session.close()
 
 
 def _parse_non_negative(raw: Optional[str]) -> Optional[int]:
@@ -224,7 +218,7 @@ async def probe_resource(
 async def run(args: argparse.Namespace) -> int:
     storage_base = ensure_value("storage-base", args.storage_base)
 
-    resources = load_resources(args.limit)
+    resources = await load_resources(args.limit)
     total = len(resources)
     if total == 0:
         logging.info("No resources with NULL size found")
@@ -299,7 +293,7 @@ async def run(args: argparse.Namespace) -> int:
                 )
 
             if len(pending_updates) >= max(1, int(args.batch_size)):
-                updated += flush_updates(pending_updates, args.dry_run)
+                updated += await flush_updates(pending_updates, args.dry_run)
                 pending_updates.clear()
 
             if processed % 100 == 0 or processed == total:
@@ -311,7 +305,7 @@ async def run(args: argparse.Namespace) -> int:
                 )
 
     if pending_updates:
-        updated += flush_updates(pending_updates, args.dry_run)
+        updated += await flush_updates(pending_updates, args.dry_run)
         pending_updates.clear()
 
     logging.info(

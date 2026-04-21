@@ -109,7 +109,7 @@ def mysql_url(database: str) -> str:
         auth = f"{safe_user}@"
     else:
         auth = ""
-    return f"mysql+pymysql://{auth}{MYSQL_HOST}:{MYSQL_PORT}/{safe_database}"
+    return f"mysql+aiomysql://{auth}{MYSQL_HOST}:{MYSQL_PORT}/{safe_database}"
 
 access_mods_check_anonymous = _read_str(
     "ACCESS_MODS_CHECK_ANONYMOUS", "", "access_mods_check_anonymous"

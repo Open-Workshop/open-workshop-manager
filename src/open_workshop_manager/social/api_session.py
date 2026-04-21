@@ -25,8 +25,7 @@ from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.limits import LIMITS
 from open_workshop_manager import settings as config
 import aiohttp
-from sqlalchemy import insert
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import insert, select, update
 from open_workshop_manager import standarts
 
 logger = logging.getLogger(__name__)
@@ -184,77 +183,75 @@ async def password_authorization(
     """
     Рекомендую использовать внешние SSO сервисы авторизации.
     """
-    # Создание сессии
-    session = sessionmaker(bind=account.engine)()
-
-    # Получаем запись о юзере
-    user_query = session.query(
-        account.Account.id, account.Account.password_hash
-    ).filter_by(username=login)
-    user = user_query.first()
-
-    if (
-        user
-        and user.password_hash is not None
-        and len(user.password_hash) > 1
-        and bcrypt.checkpw(
-            password=password.encode("utf-8"),
-            hashed_password=user.password_hash.encode("utf-8"),
+    async with account.AsyncSessionLocal() as session:
+        # Получаем запись о юзере
+        result = await session.execute(
+            select(account.Account.id, account.Account.password_hash).where(
+                account.Account.username == login
+            )
         )
-    ):
-        sessions_data = await account.gen_session(
-            user_id=user.id, session=session, login_method="password"
-        )
+        user = result.first()
 
-        response.set_cookie(
-            key="accessToken",
-            value=sessions_data["access"]["token"],
-            httponly=True,
-            secure=config.COOKIE_SECURE,
-            samesite=config.COOKIE_SAMESITE,
-            max_age=2100,
-        )
-        response.set_cookie(
-            key="refreshToken",
-            value=sessions_data["refresh"]["token"],
-            httponly=True,
-            secure=config.COOKIE_SECURE,
-            samesite=config.COOKIE_SAMESITE,
-            max_age=5184000,
-        )
+        if (
+            user
+            and user.password_hash is not None
+            and len(user.password_hash) > 1
+            and bcrypt.checkpw(
+                password=password.encode("utf-8"),
+                hashed_password=user.password_hash.encode("utf-8"),
+            )
+        ):
+            sessions_data = await account.gen_session(
+                user_id=user.id, session=session, login_method="password"
+            )
 
-        response.set_cookie(
-            key="loginJS",
-            value=sessions_data["refresh"]["end"].strftime(STANDART_STR_TIME),
-            secure=config.COOKIE_SECURE,
-            samesite=config.COOKIE_SAMESITE,
-            max_age=5184000,
-        )
-        response.set_cookie(
-            key="accessJS",
-            value=sessions_data["access"]["end"].strftime(STANDART_STR_TIME),
-            secure=config.COOKIE_SECURE,
-            samesite=config.COOKIE_SAMESITE,
-            max_age=5184000,
-        )
-        response.set_cookie(
-            key="userID",
-            value=user.id,
-            secure=config.COOKIE_SECURE,
-            samesite=config.COOKIE_SAMESITE,
-            max_age=5184000,
-        )
+            response.set_cookie(
+                key="accessToken",
+                value=sessions_data["access"]["token"],
+                httponly=True,
+                secure=config.COOKIE_SECURE,
+                samesite=config.COOKIE_SAMESITE,
+                max_age=2100,
+            )
+            response.set_cookie(
+                key="refreshToken",
+                value=sessions_data["refresh"]["token"],
+                httponly=True,
+                secure=config.COOKIE_SECURE,
+                samesite=config.COOKIE_SAMESITE,
+                max_age=5184000,
+            )
 
-        session.commit()
-        session.close()
+            response.set_cookie(
+                key="loginJS",
+                value=sessions_data["refresh"]["end"].strftime(STANDART_STR_TIME),
+                secure=config.COOKIE_SECURE,
+                samesite=config.COOKIE_SAMESITE,
+                max_age=5184000,
+            )
+            response.set_cookie(
+                key="accessJS",
+                value=sessions_data["access"]["end"].strftime(STANDART_STR_TIME),
+                secure=config.COOKIE_SECURE,
+                samesite=config.COOKIE_SAMESITE,
+                max_age=5184000,
+            )
+            response.set_cookie(
+                key="userID",
+                value=user.id,
+                secure=config.COOKIE_SECURE,
+                samesite=config.COOKIE_SAMESITE,
+                max_age=5184000,
+            )
 
-        return True
+            await session.commit()
 
-    session.close()
-    raise standarts.UnauthorizedError(
-        detail="Неправильный пароль или логин.",
-        instance=str(request.url),
-    )
+            return True
+
+        raise standarts.UnauthorizedError(
+            detail="Неправильный пароль или логин.",
+            instance=str(request.url),
+        )
 
 
 @router.get(
@@ -316,111 +313,115 @@ async def google_complite(
             ) as user_info_response:
                 user_data = await user_info_response.json()
 
-    # Создание сессии
-    session = sessionmaker(bind=account.engine)()
-
-    # Выполнение запроса
-    rows = (
-        session.query(account.Account.id)
-        .filter(account.Account.google_id == user_data["id"])
-        .first()
-    )
-
-    if not rows:
-        if (
-            session.query(account.blocked_account_creation)
-            .filter_by(google_id=user_data["id"])
-            .first()
-        ):
-            raise standarts.GoneError(
-                detail="Этот аккаунт Google использовался в недавно удаленном аккаунте Open Workshop!",
-                instance=str(request.url),
+    async with account.AsyncSessionLocal() as session:
+        # Выполнение запроса
+        rows = (
+            await session.execute(
+                select(account.Account.id).where(
+                    account.Account.google_id == user_data["id"]
+                )
             )
+        ).scalar_one_or_none()
 
-        access_result = await account.check_access(request=request, response=response)
-
-        if access_result and access_result.get("owner_id", -1) >= 0:
-            row_connect = session.query(account.Account).filter_by(
-                google_id=None, id=access_result.get("owner_id", -1)
+        if not rows:
+            blocked_exists = await session.execute(
+                select(account.blocked_account_creation.c.google_id).where(
+                    account.blocked_account_creation.c.google_id == user_data["id"]
+                )
             )
-            row_connect_result = row_connect.first()
-
-            if row_connect_result:
-                row_connect.update({"google_id": user_data["id"]})
-                session.commit()
-                id = row_connect_result.id
-            else:
-                session.close()
-                raise standarts.ConflictError(
-                    detail="К аккаунту пользователя уже подключен Google ID",
+            if blocked_exists.first():
+                raise standarts.GoneError(
+                    detail="Этот аккаунт Google использовался в недавно удаленном аккаунте Open Workshop!",
                     instance=str(request.url),
                 )
-        else:
-            dtime = datetime.datetime.now()
 
-            async def generate_unique_username():
-                prefix = "OW user "
-                suffix = "".join(
-                    random.choices(string.ascii_letters + string.digits, k=6)
+            access_result = await account.check_access(request=request, response=response)
+
+            if access_result and access_result.get("owner_id", -1) >= 0:
+                row_connect_result = (
+                    await session.execute(
+                        select(account.Account).where(
+                            account.Account.google_id.is_(None),
+                            account.Account.id == access_result.get("owner_id", -1),
+                        )
+                    )
+                ).scalar_one_or_none()
+
+                if row_connect_result:
+                    row_connect_result.google_id = user_data["id"]
+                    await session.commit()
+                    id = row_connect_result.id
+                else:
+                    raise standarts.ConflictError(
+                        detail="К аккаунту пользователя уже подключен Google ID",
+                        instance=str(request.url),
+                    )
+            else:
+                dtime = datetime.datetime.now()
+
+                async def generate_unique_username():
+                    prefix = "OW user "
+                    suffix = "".join(
+                        random.choices(string.ascii_letters + string.digits, k=6)
+                    )
+                    return prefix + suffix
+
+                logger.debug("Google registration time=%s", dtime)
+                insert_statement = insert(account.Account).values(
+                    google_id=user_data["id"],
+                    username=await generate_unique_username(),
+                    comments=0,
+                    author_mods=0,
+                    registration_date=dtime,
+                    reputation=0,
                 )
-                return prefix + suffix
+                # Выполнение операции INSERT
+                result = await session.execute(insert_statement)
+                id = result.lastrowid
 
-            logger.debug("Google registration time=%s", dtime)
-            insert_statement = insert(account.Account).values(
-                google_id=user_data["id"],
-                username=await generate_unique_username(),
-                comments=0,
-                author_mods=0,
-                registration_date=dtime,
-                reputation=0,
-            )
-            # Выполнение операции INSERT
-            result = session.execute(insert_statement)
-            id = result.lastrowid
+                if len(user_data.get("picture", "")) > 0:
+                    await session.commit()
 
-            if len(user_data.get("picture", "")) > 0:
-                session.commit()
-                session.close()
-
-                async with aiohttp.ClientSession() as NETsession:
-                    async with NETsession.get(user_data["picture"]) as resp:
-                        if resp.status == 200:
-                            result_upload_code, result_upload, result_response = (
-                                await tools.storage_file_upload(
-                                    type="avatar",
-                                    path=f"{id}.webp",
-                                    file=BytesIO(await resp.read()),
-                                    file_kind="img",
+                    async with aiohttp.ClientSession() as NETsession:
+                        async with NETsession.get(user_data["picture"]) as resp:
+                            if resp.status == 200:
+                                result_upload_code, result_upload, result_response = (
+                                    await tools.storage_file_upload(
+                                        type="avatar",
+                                        path=f"{id}.webp",
+                                        file=BytesIO(await resp.read()),
+                                        file_kind="img",
+                                    )
                                 )
-                            )
-                            if result_response is not False:
-                                # Помечаем в БД пользователя, что у него есть аватар
-                                session.query(account.Account).filter(
-                                    account.Account.id == id
-                                ).update({"avatar_url": "local.webp"})
-                                session.commit()
+                                if result_response is not False:
+                                    # Помечаем в БД пользователя, что у него есть аватар
+                                    await session.execute(
+                                        update(account.Account)
+                                        .where(account.Account.id == id)
+                                        .values(avatar_url="local.webp")
+                                    )
+                                    await session.commit()
+                                else:
+                                    logger.warning(
+                                        "Google регистрация: во время загрузки аватара "
+                                        "произошла ошибка! code=%s detail=%s",
+                                        result_upload_code,
+                                        result_upload,
+                                    )
                             else:
                                 logger.warning(
-                                    "Google регистрация: во время загрузки аватара "
-                                    "произошла ошибка! code=%s detail=%s",
-                                    result_upload_code,
-                                    result_upload,
+                                    "Google регистрация: во время получения изображения "
+                                    "произошла ошибка! status=%s",
+                                    resp.status,
                                 )
-                        else:
-                            logger.warning(
-                                "Google регистрация: во время получения изображения "
-                                "произошла ошибка! status=%s",
-                                resp.status,
-                            )
-    else:
-        id = rows.id
+        else:
+            id = rows.id
 
-    sessions_data = await account.gen_session(
-        user_id=id, session=session, login_method="google"
-    )
+        sessions_data = await account.gen_session(
+            user_id=id, session=session, login_method="google"
+        )
 
-    session.commit()
-    session.close()
+        await session.commit()
 
     response.set_cookie(
         key="accessToken",
@@ -491,91 +492,107 @@ async def yandex_complite(
     token = await yandex_oauth.get_token_from_code(code)
     user_data = await AsyncYandexID(oauth_token=token.access_token).get_user_info_json()
 
-    # Создание сессии
-    session = sessionmaker(bind=account.engine)()
-
-    # Выполнение запроса
-    rows = session.query(account.Account.id).filter(account.Account.yandex_id == user_data.id).first()
-
-    if not rows:
-        if session.query(account.blocked_account_creation).filter_by(yandex_id=user_data.id).first():
-            raise standarts.GoneError(
-                detail="Этот аккаунт Yandex использовался в недавно удаленном аккаунте Open Workshop!",
-                instance=str(request.url),
+    async with account.AsyncSessionLocal() as session:
+        # Выполнение запроса
+        rows = (
+            await session.execute(
+                select(account.Account.id).where(
+                    account.Account.yandex_id == user_data.id
+                )
             )
+        ).scalar_one_or_none()
 
-        access_result = await account.check_access(request=request, response=response)
-
-        if access_result and access_result.get("owner_id", -1) >= 0:
-            row_connect = session.query(account.Account).filter_by(yandex_id=None, id=access_result.get("owner_id", -1))
-            row_connect_result = row_connect.first()
-
-            if row_connect_result:
-                row_connect.update({"yandex_id": user_data.id})
-                session.commit()
-                rid = row_connect_result.id
-            else:
-                session.close()
-                raise standarts.ConflictError(
-                    detail="К аккаунту пользователя уже подключен Yandex ID",
+        if not rows:
+            blocked_exists = await session.execute(
+                select(account.blocked_account_creation.c.yandex_id).where(
+                    account.blocked_account_creation.c.yandex_id == user_data.id
+                )
+            )
+            if blocked_exists.first():
+                raise standarts.GoneError(
+                    detail="Этот аккаунт Yandex использовался в недавно удаленном аккаунте Open Workshop!",
                     instance=str(request.url),
                 )
-        else:
-            dtime = datetime.datetime.now()
-            print(dtime, type(dtime))
-            insert_statement = insert(account.Account).values(
-                yandex_id=user_data.id,
 
-                username=user_data.login,
+            access_result = await account.check_access(request=request, response=response)
 
-                comments=0,
-                author_mods=0,
+            if access_result and access_result.get("owner_id", -1) >= 0:
+                row_connect_result = (
+                    await session.execute(
+                        select(account.Account).where(
+                            account.Account.yandex_id.is_(None),
+                            account.Account.id == access_result.get("owner_id", -1),
+                        )
+                    )
+                ).scalar_one_or_none()
 
-                registration_date=dtime,
+                if row_connect_result:
+                    row_connect_result.yandex_id = user_data.id
+                    await session.commit()
+                    rid = row_connect_result.id
+                else:
+                    raise standarts.ConflictError(
+                        detail="К аккаунту пользователя уже подключен Yandex ID",
+                        instance=str(request.url),
+                    )
+            else:
+                dtime = datetime.datetime.now()
+                print(dtime, type(dtime))
+                insert_statement = insert(account.Account).values(
+                    yandex_id=user_data.id,
+                    username=user_data.login,
+                    comments=0,
+                    author_mods=0,
+                    registration_date=dtime,
+                    reputation=0,
+                )
+                # Выполнение операции INSERT
+                result = await session.execute(insert_statement)
+                rid = result.lastrowid
 
-                reputation=0
-            )
-            # Выполнение операции INSERT
-            result = session.execute(insert_statement)
-            rid = result.lastrowid
+                if not user_data.is_avatar_empty:
+                    await session.commit()
 
-            if not user_data.is_avatar_empty:
-                session.commit()
-                session.close()
-
-                async with aiohttp.ClientSession() as NETsession:
-                    async with NETsession.get(f"https://avatars.yandex.net/get-yapic/{user_data.default_avatar_id}/islands-200") as resp:
-                        if resp.status == 200:
-                            result_upload_code, result_upload, result_status = (
-                                await tools.storage_file_upload(
-                                    type="avatar",
-                                    path=f"{rid}.webp",
-                                    file=BytesIO(await resp.read()),
-                                    file_kind="img",
+                    async with aiohttp.ClientSession() as NETsession:
+                        async with NETsession.get(
+                            f"https://avatars.yandex.net/get-yapic/{user_data.default_avatar_id}/islands-200"
+                        ) as resp:
+                            if resp.status == 200:
+                                result_upload_code, result_upload, result_status = (
+                                    await tools.storage_file_upload(
+                                        type="avatar",
+                                        path=f"{rid}.webp",
+                                        file=BytesIO(await resp.read()),
+                                        file_kind="img",
+                                    )
                                 )
-                            )
-                            if result_status:
-                                 # Помечаем в БД пользователя, что у него есть аватар
-                                session.query(account.Account).filter(account.Account.id == rid).update({"avatar_url": "local.webp"})
-                                session.commit()
+                                if result_status:
+                                    # Помечаем в БД пользователя, что у него есть аватар
+                                    await session.execute(
+                                        update(account.Account)
+                                        .where(account.Account.id == rid)
+                                        .values(avatar_url="local.webp")
+                                    )
+                                    await session.commit()
+                                else:
+                                    logger.warning(
+                                        "Яндекс регистрация: ошибка загрузки аватара code=%s detail=%s",
+                                        result_upload_code,
+                                        result_upload,
+                                    )
                             else:
                                 logger.warning(
-                                    "Яндекс регистрация: ошибка загрузки аватара code=%s detail=%s",
-                                    result_upload_code,
-                                    result_upload,
+                                    "Яндекс регистрация: ошибка получения аватара status=%s",
+                                    resp.status,
                                 )
-                        else:
-                            logger.warning(
-                                "Яндекс регистрация: ошибка получения аватара status=%s",
-                                resp.status,
-                            )
-    else:
-        rid = rows.id
+        else:
+            rid = rows.id
 
-    sessions_data = await account.gen_session(user_id=rid, session=session, login_method="yandex")
+        sessions_data = await account.gen_session(
+            user_id=rid, session=session, login_method="yandex"
+        )
 
-    session.commit()
-    session.close()
+        await session.commit()
 
     response.set_cookie(key='accessToken', value=sessions_data["access"]["token"], httponly=True, secure=True, max_age=2100)
     response.set_cookie(key='refreshToken', value=sessions_data["refresh"]["token"], httponly=True, secure=True, max_age=5184000)
@@ -635,35 +652,27 @@ async def disconnect_service(
     access_result = await account.check_access(request=request, response=response)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
-        # Создание сессии
-        Session = sessionmaker(bind=account.engine)
+        async with account.AsyncSessionLocal() as session:
+            row_result = await session.get(
+                account.Account, access_result.get("owner_id", -1)
+            )
+            if row_result:
+                if row_result.yandex_id and row_result.google_id:
+                    setattr(row_result, service_name + "_id", None)
 
-        # Выполнение запроса
-        session = Session()
-        row = session.query(account.Account).filter_by(
-            id=access_result.get("owner_id", -1)
-        )
-        row_result = row.first()
-        if row_result:
-            if row_result.yandex_id and row_result.google_id:
-                row.update({service_name + "_id": None})
+                    await session.commit()
 
-                session.commit()
-                session.close()
-
-                return PlainTextResponse(status_code=200, content="Успешно!")
+                    return PlainTextResponse(status_code=200, content="Успешно!")
+                else:
+                    raise standarts.ConflictError(
+                        detail="Нельзя отсоединить все сервисы от аккаунта!",
+                        instance=str(request.url),
+                    )
             else:
-                session.close()
-                raise standarts.ConflictError(
-                    detail="Нельзя отсоединить все сервисы от аккаунта!",
+                raise standarts.NotFoundError(
+                    detail="Пользователь не найден!",
                     instance=str(request.url),
                 )
-        else:
-            session.close()
-            raise standarts.NotFoundError(
-                detail="Пользователь не найден!",
-                instance=str(request.url),
-            )
     else:
         raise standarts.UnauthorizedError(instance=str(request.url))
 
@@ -712,26 +721,32 @@ async def logout(response: Response, request: Request):
     Удаляет аккаунт-куки у пользователя, а так же убивает сессию *(соответсвующее токены становятся невалидными)*!
     """
 
-    # Создание сессии
-    session = sessionmaker(bind=account.engine)()
+    async with account.AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(account.Session).where(
+                account.Session.access_token == request.cookies.get("accessToken", "")
+            )
+        )
 
-    query = session.query(account.Session).filter_by(
-        access_token=request.cookies.get("accessToken", "")
-    )
+        if result.scalar_one_or_none():
+            # Выполнение запроса
+            await session.execute(
+                update(account.Session)
+                .where(
+                    account.Session.access_token
+                    == request.cookies.get("accessToken", "")
+                )
+                .values(broken="logout")
+            )
+            await session.commit()
 
-    if query.first():
-        # Выполнение запроса
-        query.update({"broken": "logout"})
-        session.commit()
-        session.close()
+            # Удаление токенов у юзера
+            response.delete_cookie(key="accessToken")
+            response.delete_cookie(key="refreshToken")
+            response.delete_cookie(key="loginJS")
+            response.delete_cookie(key="accessJS")
+            response.delete_cookie(key="userID")
 
-        # Удаление токенов у юзера
-        response.delete_cookie(key="accessToken")
-        response.delete_cookie(key="refreshToken")
-        response.delete_cookie(key="loginJS")
-        response.delete_cookie(key="accessJS")
-        response.delete_cookie(key="userID")
-
-        return PlainTextResponse(status_code=200, content="Успешно!")
-    else:
-        raise standarts.UnauthorizedError(instance=str(request.url))
+            return PlainTextResponse(status_code=200, content="Успешно!")
+        else:
+            raise standarts.UnauthorizedError(instance=str(request.url))

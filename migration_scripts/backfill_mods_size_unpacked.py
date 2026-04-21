@@ -19,8 +19,7 @@ from pathlib import Path
 from typing import Optional
 
 import aiohttp
-from sqlalchemy import text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import select, text
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SRC_DIR = ROOT_DIR / "src"
@@ -97,31 +96,28 @@ def ensure_value(name: str, value: str) -> str:
     return value
 
 
-def load_mod_ids(limit: int) -> list[int]:
-    session = sessionmaker(bind=catalog.engine)()
-    try:
+async def load_mod_ids(limit: int) -> list[int]:
+    async with catalog.AsyncSessionLocal() as session:
         query = (
-            session.query(catalog.Mod.id)
-            .filter(catalog.Mod.condition == 0)
-            .filter(catalog.Mod.size_unpacked.is_(None))
+            select(catalog.Mod.id)
+            .where(catalog.Mod.condition == 0)
+            .where(catalog.Mod.size_unpacked.is_(None))
             .order_by(catalog.Mod.id.asc())
         )
         if limit > 0:
             query = query.limit(limit)
-        return [int(row.id) for row in query.all()]
-    finally:
-        session.close()
+        result = await session.execute(query)
+        return [int(mod_id) for mod_id in result.scalars().all()]
 
 
-def flush_updates(rows: list[dict[str, int]], dry_run: bool) -> int:
+async def flush_updates(rows: list[dict[str, int]], dry_run: bool) -> int:
     if not rows:
         return 0
     if dry_run:
         return len(rows)
 
-    session = sessionmaker(bind=catalog.engine)()
-    try:
-        session.execute(
+    async with catalog.AsyncSessionLocal() as session:
+        await session.execute(
             text(
                 "UPDATE mods "
                 "SET size_unpacked=:size_unpacked "
@@ -129,10 +125,8 @@ def flush_updates(rows: list[dict[str, int]], dry_run: bool) -> int:
             ),
             rows,
         )
-        session.commit()
+        await session.commit()
         return len(rows)
-    finally:
-        session.close()
 
 
 def _parse_positive_int(raw: Optional[str]) -> Optional[int]:
@@ -213,7 +207,7 @@ async def probe_mod(
 async def run(args: argparse.Namespace) -> int:
     storage_base = ensure_value("storage-base", args.storage_base)
 
-    mod_ids = load_mod_ids(args.limit)
+    mod_ids = await load_mod_ids(args.limit)
     total = len(mod_ids)
     if total == 0:
         logging.info("No mods with NULL size_unpacked found")
@@ -282,7 +276,7 @@ async def run(args: argparse.Namespace) -> int:
                 )
 
             if len(pending_updates) >= max(1, int(args.batch_size)):
-                updated += flush_updates(pending_updates, args.dry_run)
+                updated += await flush_updates(pending_updates, args.dry_run)
                 pending_updates.clear()
 
             if processed % 100 == 0 or processed == total:
@@ -294,7 +288,7 @@ async def run(args: argparse.Namespace) -> int:
                 )
 
     if pending_updates:
-        updated += flush_updates(pending_updates, args.dry_run)
+        updated += await flush_updates(pending_updates, args.dry_run)
         pending_updates.clear()
 
     logging.info(

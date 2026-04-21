@@ -1,18 +1,30 @@
+from __future__ import annotations
+
 from sqlalchemy import (
-    create_engine,
-    Column,
-    Integer,
     BigInteger,
-    String,
-    Text,
+    Column,
     DateTime,
-    Table,
     ForeignKey,
+    Integer,
+    String,
+    Table,
+    Text,
 )
-from sqlalchemy.orm import relationship, declarative_base
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import declarative_base, relationship
+
 from open_workshop_manager import settings as config
 
-engine = create_engine(config.mysql_url("catalog"), pool_pre_ping=True)
+async_engine: AsyncEngine = create_async_engine(
+    config.mysql_url("catalog"),
+    pool_pre_ping=True,
+)
+engine = async_engine
+AsyncSessionLocal = async_sessionmaker(async_engine, expire_on_commit=False)
 base = declarative_base()
 
 
@@ -118,11 +130,10 @@ class Resource(base):  # Ресурсы (скриншоты и лого)
     size = Column(BigInteger, nullable=True)
 
     @property
-    def real_url(self, action="download"):
+    def real_url(self, action: str = "download"):
         if self.url.startswith("local/"):
             return f"{config.STORAGE_URL}/{action}/resource/{self.url.replace('local/', '')}"
-        else:
-            return self.url
+        return self.url
 
     date_event = Column(DateTime)
 
@@ -147,4 +158,6 @@ class Tag(base):  # Теги для модов
     )
 
 
-base.metadata.create_all(engine)
+async def init_models() -> None:
+    async with async_engine.begin() as connection:
+        await connection.run_sync(base.metadata.create_all)

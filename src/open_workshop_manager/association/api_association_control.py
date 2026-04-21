@@ -2,8 +2,7 @@ from fastapi import APIRouter, Request, Response, Form, Path
 from fastapi.responses import JSONResponse
 from open_workshop_manager import tools
 from open_workshop_manager.settings import MAIN_URL
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import insert
+from sqlalchemy import insert, select
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 from open_workshop_manager import standarts
 
@@ -47,39 +46,37 @@ async def association_game_with_genre(
     access_result = await tools.access_admin(response=response, request=request)
 
     if access_result is True:
-        session = sessionmaker(bind=catalog.engine)()
-
-        if mode:
-            output = (
-                session.query(catalog.game_genres)
-                .filter_by(game_id=game_id, genre_id=genre_id)
-                .first()
-            )
-            if output is None:
-                insert_statement = insert(catalog.game_genres).values(
-                    game_id=game_id, genre_id=genre_id
+        async with catalog.AsyncSessionLocal() as session:
+            if mode:
+                result = await session.execute(
+                    select(catalog.game_genres).where(
+                        catalog.game_genres.c.game_id == game_id,
+                        catalog.game_genres.c.genre_id == genre_id,
+                    )
                 )
-                session.execute(insert_statement)
-                session.commit()
-                session.close()
-                return JSONResponse(status_code=202, content="Complite")
+                output = result.first()
+                if output is None:
+                    insert_statement = insert(catalog.game_genres).values(
+                        game_id=game_id, genre_id=genre_id
+                    )
+                    await session.execute(insert_statement)
+                    await session.commit()
+                    return JSONResponse(status_code=202, content="Complite")
+                else:
+                    raise standarts.ConflictError(
+                        detail="The association is already present",
+                        instance=str(request.url),
+                    )
             else:
-                session.close()
-                raise standarts.ConflictError(
-                    detail="The association is already present",
-                    instance=str(request.url),
+                delete_genre_association = catalog.game_genres.delete().where(
+                    catalog.game_genres.c.game_id == game_id,
+                    catalog.game_genres.c.genre_id == genre_id,
                 )
-        else:
-            delete_genre_association = catalog.game_genres.delete().where(
-                catalog.game_genres.c.game_id == game_id,
-                catalog.game_genres.c.genre_id == genre_id,
-            )
 
-            # Выполнение операции DELETE
-            session.execute(delete_genre_association)
-            session.commit()
-            session.close()
-            return JSONResponse(status_code=202, content="Complite")
+                # Выполнение операции DELETE
+                await session.execute(delete_genre_association)
+                await session.commit()
+                return JSONResponse(status_code=202, content="Complite")
     else:
         return access_result
 
@@ -160,39 +157,37 @@ async def association_game_with_tag(
     access_result = await tools.access_admin(response=response, request=request)
 
     if access_result is True:
-        session = sessionmaker(bind=catalog.engine)()
-
-        if mode:
-            output = (
-                session.query(catalog.allowed_mods_tags)
-                .filter_by(game_id=game_id, tag_id=tag_id)
-                .first()
-            )
-            if output is None:
-                insert_statement = insert(catalog.allowed_mods_tags).values(
-                    game_id=game_id, tag_id=tag_id
+        async with catalog.AsyncSessionLocal() as session:
+            if mode:
+                result = await session.execute(
+                    select(catalog.allowed_mods_tags).where(
+                        catalog.allowed_mods_tags.c.game_id == game_id,
+                        catalog.allowed_mods_tags.c.tag_id == tag_id,
+                    )
                 )
-                session.execute(insert_statement)
-                session.commit()
-                session.close()
-                return JSONResponse(status_code=202, content="Complite")
+                output = result.first()
+                if output is None:
+                    insert_statement = insert(catalog.allowed_mods_tags).values(
+                        game_id=game_id, tag_id=tag_id
+                    )
+                    await session.execute(insert_statement)
+                    await session.commit()
+                    return JSONResponse(status_code=202, content="Complite")
+                else:
+                    raise standarts.ConflictError(
+                        detail="The association is already present",
+                        instance=str(request.url),
+                    )
             else:
-                session.close()
-                raise standarts.ConflictError(
-                    detail="The association is already present",
-                    instance=str(request.url),
+                delete_tags_association = catalog.allowed_mods_tags.delete().where(
+                    catalog.allowed_mods_tags.c.game_id == game_id,
+                    catalog.allowed_mods_tags.c.tag_id == tag_id,
                 )
-        else:
-            delete_tags_association = catalog.allowed_mods_tags.delete().where(
-                catalog.allowed_mods_tags.c.game_id == game_id,
-                catalog.allowed_mods_tags.c.tag_id == tag_id,
-            )
 
-            # Выполнение операции DELETE
-            session.execute(delete_tags_association)
-            session.commit()
-            session.close()
-            return JSONResponse(status_code=202, content="Complite")
+                # Выполнение операции DELETE
+                await session.execute(delete_tags_association)
+                await session.commit()
+                return JSONResponse(status_code=202, content="Complite")
     else:
         return access_result
 
@@ -223,39 +218,37 @@ async def association_mod_with_tag(
     )
 
     if access_result is True:
-        session = sessionmaker(bind=catalog.engine)()
-
-        if mode:
-            output = (
-                session.query(catalog.mods_tags)
-                .filter_by(mod_id=mod_id, tag_id=tag_id)
-                .first()
-            )
-            if output is None:
-                insert_statement = insert(catalog.mods_tags).values(
-                    mod_id=mod_id, tag_id=tag_id
+        async with catalog.AsyncSessionLocal() as session:
+            if mode:
+                result = await session.execute(
+                    select(catalog.mods_tags).where(
+                        catalog.mods_tags.c.mod_id == mod_id,
+                        catalog.mods_tags.c.tag_id == tag_id,
+                    )
                 )
-                session.execute(insert_statement)
-                session.commit()
-                session.close()
-                return JSONResponse(status_code=202, content="Complite")
+                output = result.first()
+                if output is None:
+                    insert_statement = insert(catalog.mods_tags).values(
+                        mod_id=mod_id, tag_id=tag_id
+                    )
+                    await session.execute(insert_statement)
+                    await session.commit()
+                    return JSONResponse(status_code=202, content="Complite")
+                else:
+                    raise standarts.ConflictError(
+                        detail="The association is already present",
+                        instance=str(request.url),
+                    )
             else:
-                session.close()
-                raise standarts.ConflictError(
-                    detail="The association is already present",
-                    instance=str(request.url),
+                delete_tags_association = catalog.mods_tags.delete().where(
+                    catalog.mods_tags.c.mod_id == mod_id,
+                    catalog.mods_tags.c.tag_id == tag_id,
                 )
-        else:
-            delete_tags_association = catalog.mods_tags.delete().where(
-                catalog.mods_tags.c.mod_id == mod_id,
-                catalog.mods_tags.c.tag_id == tag_id,
-            )
 
-            # Выполнение операции DELETE
-            session.execute(delete_tags_association)
-            session.commit()
-            session.close()
-            return JSONResponse(status_code=202, content="Complite")
+                # Выполнение операции DELETE
+                await session.execute(delete_tags_association)
+                await session.commit()
+                return JSONResponse(status_code=202, content="Complite")
     else:
         return access_result
 
@@ -341,38 +334,36 @@ async def association_mod_with_dependencie(
     )
 
     if access_result is True:
-        session = sessionmaker(bind=catalog.engine)()
-
-        if mode:
-            output = (
-                session.query(catalog.mods_dependencies)
-                .filter_by(mod_id=mod_id, dependence=dependencie)
-                .first()
-            )
-            if output is None:
-                insert_statement = insert(catalog.mods_dependencies).values(
-                    mod_id=mod_id, dependence=dependencie
+        async with catalog.AsyncSessionLocal() as session:
+            if mode:
+                result = await session.execute(
+                    select(catalog.mods_dependencies).where(
+                        catalog.mods_dependencies.c.mod_id == mod_id,
+                        catalog.mods_dependencies.c.dependence == dependencie,
+                    )
                 )
-                session.execute(insert_statement)
-                session.commit()
-                session.close()
-                return JSONResponse(status_code=202, content="Complite")
+                output = result.first()
+                if output is None:
+                    insert_statement = insert(catalog.mods_dependencies).values(
+                        mod_id=mod_id, dependence=dependencie
+                    )
+                    await session.execute(insert_statement)
+                    await session.commit()
+                    return JSONResponse(status_code=202, content="Complite")
+                else:
+                    raise standarts.ConflictError(
+                        detail="The association is already present",
+                        instance=str(request.url),
+                    )
             else:
-                session.close()
-                raise standarts.ConflictError(
-                    detail="The association is already present",
-                    instance=str(request.url),
+                delete_dependence_association = catalog.mods_dependencies.delete().where(
+                    catalog.mods_dependencies.c.mod_id == mod_id,
+                    catalog.mods_dependencies.c.dependence == dependencie,
                 )
-        else:
-            delete_dependence_association = catalog.mods_dependencies.delete().where(
-                catalog.mods_dependencies.c.mod_id == mod_id,
-                catalog.mods_dependencies.c.dependence == dependencie,
-            )
 
-            # Выполнение операции DELETE
-            session.execute(delete_dependence_association)
-            session.commit()
-            session.close()
-            return JSONResponse(status_code=202, content="Complite")
+                # Выполнение операции DELETE
+                await session.execute(delete_dependence_association)
+                await session.commit()
+                return JSONResponse(status_code=202, content="Complite")
     else:
         return access_result

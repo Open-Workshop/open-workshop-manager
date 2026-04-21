@@ -7,8 +7,7 @@ from io import BytesIO
 import aiohttp
 import jwt
 from fastapi import Request, Response
-from sqlalchemy import desc
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import delete, desc, select
 
 from open_workshop_manager import settings as config
 from open_workshop_manager import standarts
@@ -96,20 +95,18 @@ async def access_admin(response: Response, request: Request) -> bool:
     if not access_result or access_result.get("owner_id", -1) < 0:
         raise standarts.UnauthorizedError(instance=str(request.url))
 
-    session = sessionmaker(bind=account.engine)()
-    try:
-        row_result = (
-            session.query(account.Account.admin)
-            .filter_by(id=access_result.get("owner_id", -1))
-            .first()
+    async with account.AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(account.Account).where(
+                account.Account.id == access_result.get("owner_id", -1)
+            )
         )
+        row_result = result.scalar_one_or_none()
         if row_result and row_result.admin:
             return True
         if row_result is None:
             raise standarts.UnauthorizedError(instance=str(request.url))
         raise standarts.AdminRequiredError(instance=str(request.url))
-    finally:
-        session.close()
 
 
 def str_to_list(string: str | list) -> list:
@@ -185,90 +182,71 @@ async def anonymous_access_mods(
     if isinstance(mods_ids, int):
         mods_ids = [mods_ids]
 
-    # Создание сессии
-    session = sessionmaker(bind=account.engine)()
+    async with account.AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(account.Account).where(account.Account.id == user_id)
+        )
+        user_req = result.scalar_one_or_none()
 
-    # Выполнение запроса
-    user_req = session.query(account.Account).filter_by(id=user_id).first()
-
-    async def mini(session, user_req, mods_ids: list[int], edit: bool = False):
-        if user_req.admin:
-            return mods_ids
-        else:
+        async def mini() -> list[int]:
+            if user_req.admin:
+                return mods_ids
             if edit and (
                 user_req.mute_until and user_req.mute_until > datetime.datetime.now()
             ):
                 return []
 
-            mods_to_user = session.query(account.mod_and_author).filter_by(
-                user_id=user_id
+            result_links = await session.execute(
+                select(account.mod_and_author.c.mod_id, account.mod_and_author.c.owner).where(
+                    account.mod_and_author.c.user_id == user_id,
+                    account.mod_and_author.c.mod_id.in_(mods_ids),
+                )
             )
-            mods_to_user = mods_to_user.filter(
-                account.mod_and_author.c.mod_id.in_(mods_ids)
-            )
+            mods_to_user = {row.mod_id: row.owner for row in result_links.all()}
 
-            mods_to_user = {mod.mod_id: mod.owner for mod in mods_to_user.all()}
-
-            session_catalog = sessionmaker(bind=account.engine)()
-            mods = session_catalog.query(catalog.Mod.id, catalog.Mod.public)
-            mods = mods.filter(catalog.Mod.id.in_(mods_ids)).all()
+            async with catalog.AsyncSessionLocal() as session_catalog:
+                result_mods = await session_catalog.execute(
+                    select(catalog.Mod.id, catalog.Mod.public).where(
+                        catalog.Mod.id.in_(mods_ids)
+                    )
+                )
+                mods = result_mods.all()
 
             output_check: list[int] = []
-
             if len(mods) == 0:
                 return output_check
 
             for mod in mods:
                 if mod.id in mods_to_user:
                     if edit and (
-                        not user_req.change_self_mods
-                        or not mods_to_user.get(mod.id, False)
+                        not user_req.change_self_mods or not mods_to_user.get(mod.id, False)
                     ):
                         continue
                 elif mod.public > 1 or (edit and not user_req.change_mods):
                     continue
 
                 output_check.append(mod.id)
-            else:
-                return output_check
+            return output_check
 
-    # АДМИН
-    # или
-    # ВЛАДЕЛЕЦ МОДА и НЕ В МУТЕ и ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ СВОИХ МОДОВ
-    # или
-    # УЧАСТНИК и НЕ В МУТЕ и ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ СВОИХ МОДОВ и ДЕЙСТВИЕ НЕ ЗАПРЕЩЕНО УЧАСТНИКАМ
-    # или
-    # НЕ В МУТЕ И ИМЕЕТ ПРАВО НА РЕДАКТИРОВАНИЕ ЧУЖИХ МОДОВ
-
-    # т.е.:
-    # АДМИН или (НЕ В МУТЕ и ((в числе участников И имеет право на редактирование своих модов И (владелец ИЛИ действие не запрещено участникам)) ИЛИ не участник И имеет право на редактирование чужих модов))
-
-    if user_id > 0 and user_req:
-        mini_result = await mini(
-            session=session, user_req=user_req, mods_ids=mods_ids, edit=edit
-        )
-        session.close()
-        return mini_result if check_mode else len(mini_result) == len(mods_ids)
-    else:
-        session.close()
+        if user_id > 0 and user_req:
+            mini_result = await mini()
+            return mini_result if check_mode else len(mini_result) == len(mods_ids)
 
         if edit:
             return [] if check_mode else False
 
-        session_catalog = sessionmaker(bind=catalog.engine)()
-        mods = session_catalog.query(catalog.Mod.id).filter(
-            catalog.Mod.id.in_(mods_ids)
-        )
-        mods = mods.filter(catalog.Mod.public <= 1)
-        if check_mode:
-            mods = mods.all()
-
-            if len(mods) == 0:
-                return []
-
-            return [mod.id for mod in mods]
-        else:
-            return len(mods_ids) == mods.count()
+        async with catalog.AsyncSessionLocal() as session_catalog:
+            result_mods = await session_catalog.execute(
+                select(catalog.Mod.id).where(
+                    catalog.Mod.id.in_(mods_ids), catalog.Mod.public <= 1
+                )
+            )
+            mods = result_mods.scalars().all()
+            if check_mode:
+                if len(mods) == 0:
+                    return []
+                return mods
+            return len(mods_ids) == len(mods)
 
 
 async def access_mods(
@@ -332,12 +310,9 @@ async def check_game_exists(game_id: int) -> bool:
     Returns:
         bool: True if a game with the given ID exists, False otherwise.
     """
-    session = sessionmaker(bind=catalog.engine)()
-
-    result = session.query(catalog.Game).filter_by(id=game_id).first()
-
-    session.close()
-    return bool(result)
+    async with catalog.AsyncSessionLocal() as session:
+        result = await session.get(catalog.Game, game_id)
+        return bool(result)
 
 
 async def storage_file_upload(
@@ -501,18 +476,18 @@ async def delete_resources(
         owner_id,
         len(resources_ids),
     )
-    Session = sessionmaker(bind=catalog.engine)
+    async with catalog.AsyncSessionLocal() as session:
+        query = select(catalog.Resource).where(catalog.Resource.owner_type == owner_type)
 
-    session = Session()
-    query = session.query(catalog.Resource).filter_by(owner_type=owner_type)
+        if owner_id > 0:
+            query = query.where(catalog.Resource.owner_id == owner_id)
+        if len(resources_ids) > 0:
+            query = query.where(catalog.Resource.id.in_(resources_ids))
 
-    if owner_id > 0:
-        query = query.filter_by(owner_id=owner_id)
-    if len(resources_ids) > 0:
-        query = query.filter(catalog.Resource.id.in_(resources_ids))
-
-    resources = {i.id: i.url for i in query.all()}
-    session.close()
+        resources = {
+            resource.id: resource.url
+            for resource in (await session.execute(query)).scalars().all()
+        }
 
     logger.debug("Delete resources found=%s", len(resources))
     deleted = []
@@ -533,12 +508,11 @@ async def delete_resources(
             deleted.append(resource)
 
     if len(deleted) > 0:
-        session = Session()
-        session.query(catalog.Resource).filter(catalog.Resource.id.in_(deleted)).delete(
-            synchronize_session=False
-        )
-        session.commit()
-        session.close()
+        async with catalog.AsyncSessionLocal() as session:
+            await session.execute(
+                delete(catalog.Resource).where(catalog.Resource.id.in_(deleted))
+            )
+            await session.commit()
     else:
         logger.info("Delete Resources: No resources deleted")
 

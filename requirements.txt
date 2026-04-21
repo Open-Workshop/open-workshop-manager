@@ -7,7 +7,8 @@ yandexid-new
 bcrypt
 aiohttp
 granian
-pymysql
+aiomysql
+greenlet
 PyJWT
 opentelemetry-sdk
 opentelemetry-exporter-otlp-proto-http

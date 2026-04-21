@@ -1,17 +1,27 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 from datetime import date, datetime
-from typing import Iterator
+from typing import AsyncIterator
 
-from sqlalchemy import Column, Date, DateTime, Integer, String, create_engine, insert
-from sqlalchemy.orm import Session, declarative_base, sessionmaker
+from sqlalchemy import Column, Date, DateTime, Integer, String, insert, update
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import declarative_base
 
 from open_workshop_manager import settings as config
 
-engine = create_engine(config.mysql_url("access"), pool_pre_ping=True)
+async_engine: AsyncEngine = create_async_engine(
+    config.mysql_url("access"),
+    pool_pre_ping=True,
+)
+engine = async_engine
+AsyncSessionLocal = async_sessionmaker(async_engine, expire_on_commit=False)
 Base = declarative_base()
-SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
 
 class StatisticsHour(Base):
@@ -58,21 +68,21 @@ class ProcessingTime(Base):
     delay = Column(Integer)
 
 
-@contextmanager
-def session_scope() -> Iterator[Session]:
-    session = SessionLocal()
+@asynccontextmanager
+async def session_scope() -> AsyncIterator[AsyncSession]:
+    session = AsyncSessionLocal()
     try:
         yield session
-        session.commit()
+        await session.commit()
     except Exception:
-        session.rollback()
+        await session.rollback()
         raise
     finally:
-        session.close()
+        await session.close()
 
 
-def _increment_stat(
-    session: Session,
+async def _increment_stat(
+    session: AsyncSession,
     model,
     time_field,
     time_value: datetime | date,
@@ -80,19 +90,19 @@ def _increment_stat(
     entity_id: int | None,
     name: str,
 ) -> None:
-    updated = (
-        session.query(model)
-        .filter(
+    result = await session.execute(
+        update(model)
+        .where(
             time_field == time_value,
             model.type == str(entity_type),
             model.type_id == entity_id,
             model.name == name,
         )
-        .update({model.count: model.count + 1}, synchronize_session=False)
+        .values(count=model.count + 1)
     )
 
-    if not updated:
-        session.execute(
+    if result.rowcount == 0:
+        await session.execute(
             insert(model).values(
                 **{
                     time_field.name: time_value,
@@ -105,20 +115,20 @@ def _increment_stat(
         )
 
 
-def create_processing(type: str, type_id: int, name: str, time_start: datetime) -> None:
+async def create_processing(type: str, type_id: int, name: str, time_start: datetime) -> None:
     """Backward-compatible wrapper for recording processing time."""
-    record_processing_time(
+    await record_processing_time(
         entity_type=type, entity_id=type_id, name=name, time_start=time_start
     )
 
 
-def record_processing_time(
+async def record_processing_time(
     entity_type: str, entity_id: int, name: str, time_start: datetime
 ) -> None:
     milliseconds = int((datetime.now() - time_start).total_seconds() * 1000)
 
-    with session_scope() as session:
-        session.execute(
+    async with session_scope() as session:
+        await session.execute(
             insert(ProcessingTime).values(
                 time=time_start,
                 type=entity_type,
@@ -129,14 +139,13 @@ def record_processing_time(
         )
 
 
-# Производит обновление в статистике (почасовая, ежедневная)
-def update(type: str, type_id: int, name: str) -> None:
+async def update(type: str, type_id: int, name: str) -> None:
     now = datetime.now()
-    with session_scope() as session:
-        _update_hour(
+    async with session_scope() as session:
+        await _update_hour(
             session=session, entity_type=type, entity_id=type_id, name=name, now=now
         )
-        _update_day(
+        await _update_day(
             session=session,
             entity_type=type,
             entity_id=type_id,
@@ -145,8 +154,8 @@ def update(type: str, type_id: int, name: str) -> None:
         )
 
 
-def update_hour(session: Session, type: str, type_id: int, name: str) -> None:
-    _update_hour(
+async def update_hour(session: AsyncSession, type: str, type_id: int, name: str) -> None:
+    await _update_hour(
         session=session,
         entity_type=type,
         entity_id=type_id,
@@ -155,8 +164,8 @@ def update_hour(session: Session, type: str, type_id: int, name: str) -> None:
     )
 
 
-def update_day(session: Session, type: str, type_id: int, name: str) -> None:
-    _update_day(
+async def update_day(session: AsyncSession, type: str, type_id: int, name: str) -> None:
+    await _update_day(
         session=session,
         entity_type=type,
         entity_id=type_id,
@@ -165,12 +174,12 @@ def update_day(session: Session, type: str, type_id: int, name: str) -> None:
     )
 
 
-def _update_hour(
-    session: Session, entity_type: str, entity_id: int, name: str, now: datetime
+async def _update_hour(
+    session: AsyncSession, entity_type: str, entity_id: int, name: str, now: datetime
 ) -> None:
     current_hour = now.replace(minute=0, second=0, microsecond=0)
     entity_id_value = int(entity_id) if entity_id is not None else None
-    _increment_stat(
+    await _increment_stat(
         session=session,
         model=StatisticsHour,
         time_field=StatisticsHour.date_time,
@@ -181,11 +190,11 @@ def _update_hour(
     )
 
 
-def _update_day(
-    session: Session, entity_type: str, entity_id: int, name: str, today: date
+async def _update_day(
+    session: AsyncSession, entity_type: str, entity_id: int, name: str, today: date
 ) -> None:
     entity_id_value = int(entity_id) if entity_id is not None else None
-    _increment_stat(
+    await _increment_stat(
         session=session,
         model=StatisticsDay,
         time_field=StatisticsDay.date,
@@ -196,5 +205,6 @@ def _update_day(
     )
 
 
-# Создаем таблицу в базе данных
-Base.metadata.create_all(engine)
+async def init_models() -> None:
+    async with async_engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
