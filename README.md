@@ -42,9 +42,13 @@ Create a new account with a password hash directly in the database.
 python scripts/register_user.py <username>
 python scripts/register_user.py <username> --password "secret123"
 python scripts/register_user.py <username> --admin
+
+python scripts/change_password.py <username>
+python scripts/change_password.py <username> --password "new-secret"
 ```
 
-The script reads DB settings through the package settings layer, which still understands `ow_config.py` for compatibility.
+These scripts read DB settings through the package settings layer, which still understands `ow_config.py` for compatibility.
+The password change tool updates the stored bcrypt hash and invalidates the user's active sessions.
 
 ## Uptrace telemetry
 
