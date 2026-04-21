@@ -623,7 +623,7 @@ async def yandex_complite(
     responses={
         200: {"description": "Отвязывание прошло успешно."},
         400: {"description": "Недопустимое значение `service_name`"},
-        403: standarts.responses["non-admin"][403],
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         404: {"description": "Аккаунт не найден."},
         406: {"description": "Нельзя отсоединить все сервисы от аккаунта."},
     },
@@ -636,7 +636,7 @@ async def yandex_complite(
     responses={
         200: {"description": "Отвязывание прошло успешно."},
         400: {"description": "Недопустимое значение `service_name`"},
-        403: standarts.responses["non-admin"][403],
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         404: {"description": "Аккаунт не найден."},
         406: {"description": "Нельзя отсоединить все сервисы от аккаунта."},
     },
@@ -695,7 +695,7 @@ async def disconnect_service(
     summary="Обновление токенов доступа",
     responses={
         200: {"description": "Токены обновлены."},
-        401: standarts.responses[401],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
     },
 )
 async def refresh(response: Response, request: Request):
@@ -715,7 +715,7 @@ async def refresh(response: Response, request: Request):
     summary="Выход из системы",
     responses={
         200: {"description": "Успешно"},
-        401: standarts.responses[401],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
     },
 )
 @router.post(
@@ -723,7 +723,7 @@ async def refresh(response: Response, request: Request):
     tags=["Session"],
     status_code=200,
     summary="Выход из системы",
-    responses={200: {"description": "Успешно"}, 401: standarts.responses[401]},
+    responses={200: {"description": "Успешно"}, 401: standarts.UNAUTHORIZED_RESPONSE_SPEC},
 )
 async def logout(response: Response, request: Request):
     """

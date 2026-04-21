@@ -6,6 +6,7 @@ from urllib.parse import quote
 import bcrypt
 from fastapi import APIRouter, Form, Path, Query, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import insert, select, update
 
 from open_workshop_manager import settings as config
@@ -18,29 +19,31 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-PROFILE_RIGHTS_FIELDS = (
-    "admin",
-    "write_comments",
-    "set_reactions",
-    "create_reactions",
-    "publish_mods",
-    "change_authorship_mods",
-    "change_self_mods",
-    "change_mods",
-    "delete_self_mods",
-    "delete_mods",
-    "mute_users",
-    "create_forums",
-    "change_authorship_forums",
-    "change_self_forums",
-    "change_forums",
-    "delete_self_forums",
-    "delete_forums",
-    "change_username",
-    "change_about",
-    "change_avatar",
-    "vote_for_reputation",
-)
+
+class ProfileRightsPayload(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    admin: bool
+    write_comments: bool
+    set_reactions: bool
+    create_reactions: bool
+    publish_mods: bool
+    change_authorship_mods: bool
+    change_self_mods: bool
+    change_mods: bool
+    delete_self_mods: bool
+    delete_mods: bool
+    mute_users: bool
+    create_forums: bool
+    change_authorship_forums: bool
+    change_self_forums: bool
+    change_forums: bool
+    delete_self_forums: bool
+    delete_forums: bool
+    change_username: bool
+    change_about: bool
+    change_avatar: bool
+    vote_for_reputation: bool
 
 
 def _profile_private_payload(row: account.Account) -> dict[str, object]:
@@ -53,10 +56,9 @@ def _profile_private_payload(row: account.Account) -> dict[str, object]:
 
 
 def _profile_rights_payload(row: account.Account) -> dict[str, object]:
-    payload: dict[str, object] = {}
-    for field in PROFILE_RIGHTS_FIELDS:
-        payload[field] = bool(getattr(row, field))
-    return payload
+    return ProfileRightsPayload.model_validate(row, from_attributes=True).model_dump(
+        mode="json"
+    )
 
 
 def _profile_general_payload(
@@ -85,8 +87,8 @@ def _profile_general_payload(
         200: {
             "description": "Возвращает информацию о профиле по запрошенным разделам."
         },
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         404: {"description": "Профиль не найден."},
     },
 )
@@ -151,7 +153,7 @@ async def info_profile(
     summary="Аватар профиля",
     status_code=307,
     responses={
-        207: {"description": "Пользователь не назначил аватар."},
+        200: {"description": "Пользователь не назначил аватар."},
         307: {"description": "Перенаправляет на аватар*(файл)* пользователя."},
         404: {"description": "Пользователь не найден."},
     },
@@ -175,7 +177,7 @@ async def avatar_profile(
             )
         if len(avatar_url) > 0:
             return RedirectResponse(url=avatar_url)
-        return PlainTextResponse(status_code=204, content="Avatar not set.")
+        return PlainTextResponse(status_code=200, content="Avatar not set.")
 
     raise standarts.NotFoundError(
         detail="User not found!",
@@ -191,7 +193,7 @@ async def avatar_profile(
     responses={
         200: {"description": "JSON с transfer_url/ws_url для прямой загрузки"},
         307: {"description": "Redirect на Storage transfer/upload"},
-        403: standarts.responses["non-admin"][403],
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         404: {"description": "Пользователь не найден."},
         425: {"description": "Временное ограничение социальной активности."},
         500: {"description": "Не настроен JWT секрет."},
@@ -301,7 +303,7 @@ async def init_avatar_upload(
     responses={
         202: {"description": "Профиль успешно отредактирован."},
         400: {"description": "Нельзя замутить самого себя."},
-        403: standarts.responses["non-admin"][403],
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         404: {"description": "Пользователь не найден."},
         411: {
             "description": "Недостигнута длина *(слишком короткий никнейм/грейд/пароль)*, либо указанная дата мута уже прошла."
@@ -569,8 +571,8 @@ async def edit_profile(
     status_code=202,
     responses={
         202: {"description": "Изменения приняты."},
-        401: standarts.responses[401],
-        403: standarts.responses["admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
         404: {"description": "Профиль не найден."},
     },
 )
@@ -686,8 +688,8 @@ async def edit_profile_rights(
     status_code=200,
     responses={
         200: {"description": "Удален успешно."},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         523: {
             "description": "Не удалось удалить аватар пользователя *(удаление прервано)*."
         },

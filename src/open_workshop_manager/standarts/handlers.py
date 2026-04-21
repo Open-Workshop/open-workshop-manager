@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Literal, overload
+from typing import Any, Final
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -23,59 +23,6 @@ from .schemas import ProblemDetails, ValidationIssue
 from .utils import status_code_name, status_title
 
 ResponseSpec = dict[str, Any]
-
-
-class ResponseRegistry:
-    def __init__(self) -> None:
-        self._responses: dict[
-            int | str, ResponseSpec | dict[int, ResponseSpec]
-        ] = {
-            401: response_spec(
-                build_problem(
-                    401,
-                    title=status_title(401),
-                    detail=DEFAULT_UNAUTHORIZED_DETAIL,
-                    code="session_invalid",
-                ),
-                "Недействительный ключ сессии (не авторизован).",
-            ),
-            "admin": {
-                403: response_spec(
-                    build_problem(
-                        403,
-                        title=status_title(403),
-                        detail=DEFAULT_ADMIN_FORBIDDEN_DETAIL,
-                        code="admin_required",
-                    ),
-                    "Требуются права администратора.",
-                ),
-            },
-            "non-admin": {
-                403: response_spec(
-                    build_problem(
-                        403,
-                        title=status_title(403),
-                        detail=DEFAULT_FORBIDDEN_DETAIL,
-                        code="access_denied",
-                    ),
-                    "Нехватка прав.",
-                ),
-            },
-        }
-
-    @overload
-    def __getitem__(self, key: Literal[401]) -> ResponseSpec: ...
-
-    @overload
-    def __getitem__(self, key: Literal["admin"]) -> dict[int, ResponseSpec]: ...
-
-    @overload
-    def __getitem__(self, key: Literal["non-admin"]) -> dict[int, ResponseSpec]: ...
-
-    def __getitem__(
-        self, key: int | str
-    ) -> ResponseSpec | dict[int, ResponseSpec]:
-        return self._responses[key]
 
 
 def build_problem(
@@ -131,7 +78,35 @@ def response_spec(
     }
 
 
-responses = ResponseRegistry()
+UNAUTHORIZED_RESPONSE_SPEC: Final[ResponseSpec] = response_spec(
+    build_problem(
+        401,
+        title=status_title(401),
+        detail=DEFAULT_UNAUTHORIZED_DETAIL,
+        code="session_invalid",
+    ),
+    "Недействительный ключ сессии (не авторизован).",
+)
+
+ADMIN_FORBIDDEN_RESPONSE_SPEC: Final[ResponseSpec] = response_spec(
+    build_problem(
+        403,
+        title=status_title(403),
+        detail=DEFAULT_ADMIN_FORBIDDEN_DETAIL,
+        code="admin_required",
+    ),
+    "Требуются права администратора.",
+)
+
+FORBIDDEN_RESPONSE_SPEC: Final[ResponseSpec] = response_spec(
+    build_problem(
+        403,
+        title=status_title(403),
+        detail=DEFAULT_FORBIDDEN_DETAIL,
+        code="access_denied",
+    ),
+    "Нехватка прав.",
+)
 
 
 def _validation_problem(

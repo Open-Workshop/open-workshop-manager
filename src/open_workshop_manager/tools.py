@@ -513,7 +513,7 @@ async def storage_job_move(
 
 
 async def delete_resources(
-    owner_type: str, resources_ids: list[int] = [], owner_id: int = -1
+    owner_type: str, resources_ids: list[int] | None = None, owner_id: int = -1
 ) -> bool:
     """
     Deletes resources based on the owner type and resource IDs or owner ID.
@@ -530,6 +530,9 @@ async def delete_resources(
     """
     # Нужно обязательно передать либо resources_ids либо owner_id (сами фильтры не противоречат друг другу, но не рекомендую использовать одновременно).
     # Если resources_ids будут удаляться конкретные ресурсы, а если owner_id, то ресурсы овнера (если без переданного списка, то все).
+
+    if resources_ids is None:
+        resources_ids = []
 
     if len(resources_ids) <= 0 and owner_id <= 0:
         return False

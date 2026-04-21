@@ -22,8 +22,8 @@ router = APIRouter()
             "description": "Возвращает ID добавленного тега",
             "content": {"application/json": {"example": 1}},
         },
-        401: standarts.responses[401],
-        403: standarts.responses["admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
     },
 )
 async def add_tag(
@@ -59,8 +59,8 @@ async def add_tag(
             "description": "Успешно изменено.",
             "content": {"application/json": {"example": "Complite"}},
         },
-        401: standarts.responses[401],
-        403: standarts.responses["admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
         404: {
             "description": "Тег не найден.",
             "content": {"text/plain": {"example": "The element does not exist."}},
@@ -119,8 +119,8 @@ async def edit_tag(
             "description": "Успешно удалено.",
             "content": {"text/plain": {"example": "Complite"}},
         },
-        401: standarts.responses[401],
-        403: standarts.responses["admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
     },
 )
 async def delete_tag(

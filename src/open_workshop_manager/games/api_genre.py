@@ -87,8 +87,8 @@ async def list_genres(
         202: {
             "description": "Возвращает ID добавленного жанра.",
         },
-        401: standarts.responses[401],
-        403: standarts.responses["admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
     },
 )
 async def add_genre(
@@ -121,8 +121,8 @@ async def add_genre(
     status_code=202,
     responses={
         202: {"description": "Изменение данных в базе данных по указанному ID жанра."},
-        401: standarts.responses[401],
-        403: standarts.responses["admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
         404: {"description": "Жанр не найден."},
         418: {
             "description": "Пустой запрос. Возникает если не передан ни один из параметров-свойств."
@@ -174,8 +174,8 @@ async def edit_genre(
     status_code=202,
     responses={
         202: {"description": "Удалено успешно."},
-        401: standarts.responses[401],
-        403: standarts.responses["admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
     },
 )
 async def delete_genre(

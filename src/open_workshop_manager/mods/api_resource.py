@@ -54,7 +54,7 @@ def _transfer_init_response(
     responses={
         200: {"description": "Обычный ответ."},
         400: {"description": "Не переданы `owner_ids` или `owner_id`."},
-        403: standarts.responses["non-admin"][403],
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         405: {"description": "Неизвестный `owner_type`."},
         413: {
             "description": "Неккоректный диапазон параметров *(размеров)*.",
@@ -132,8 +132,8 @@ async def list_resources_rest(
             "content": {"application/json": {"example": 1}},
         },
         400: {"description": "Передан некорректный `resource_url`."},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         405: {"description": "Неизвестный тип ресурса-владельца."},
         500: {"description": "Произошла ошибка на стороне Storage сервера."},
     },
@@ -179,8 +179,8 @@ async def add_resource_rest(
     responses={
         202: {"description": "Успешное редактирование"},
         400: {"description": "Передан неккоректный `resource_url`."},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         404: {"description": "Ресурс не найден."},
         418: {"description": "Пустой запрос."},
         500: {"description": "Произошла ошибка на стороне Storage сервера."},
@@ -220,8 +220,8 @@ async def edit_resource_rest(
     responses={
         200: {"description": "JSON с transfer_url/ws_url"},
         307: {"description": "Redirect на Storage transfer/upload"},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         405: {"description": "Неизвестный тип ресурса-владельца."},
         500: {"description": "Не настроен JWT секрет."},
     },
@@ -325,8 +325,8 @@ async def add_resource_upload_init(
     responses={
         200: {"description": "JSON с transfer_url/ws_url"},
         307: {"description": "Redirect на Storage transfer/upload"},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         404: {"description": "Ресурс не найден."},
         500: {"description": "Не настроен JWT секрет."},
     },
@@ -414,8 +414,8 @@ async def edit_resource_upload_init(
     status_code=200,
     responses={
         200: {"description": "Успешное удаление"},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         404: {"description": "Ресурс не найден."},
         405: {
             "description": "Неккоректный `owner_type`. Доступные значения: `mods`, `games`."

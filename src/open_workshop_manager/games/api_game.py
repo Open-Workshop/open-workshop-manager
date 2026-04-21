@@ -274,8 +274,8 @@ async def game_info(
             "description": "Возвращает ID созданной игры",
             "content": {"application/json": {"example": 123}},
         },
-        401: standarts.responses[401],
-        403: standarts.responses["admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
     },
 )
 async def add_game(
@@ -320,8 +320,8 @@ async def add_game(
     status_code=202,
     responses={
         202: {"description": "Изменение данных в базе данных по указанному ID игры."},
-        401: standarts.responses[401],
-        403: standarts.responses["admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
         404: {"description": "Игра не найдена."},
         412: {"description": "Такая source-связка уже существует."},
         418: {"description": "Пустой запрос. Возникает если не передан ни один из параметров-свойств."},
@@ -401,8 +401,8 @@ async def edit_game(
     status_code=202,
     responses={
         202: {"description": "Успешно"},
-        401: standarts.responses[401],
-        403: standarts.responses["admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
     },
 )
 async def delete_game(

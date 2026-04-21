@@ -40,10 +40,12 @@ from .errors import (
     UnsupportedOwnerTypeError,
 )
 from .handlers import (
+    ADMIN_FORBIDDEN_RESPONSE_SPEC,
+    FORBIDDEN_RESPONSE_SPEC,
+    UNAUTHORIZED_RESPONSE_SPEC,
     build_problem,
     install_exception_handlers,
     problem_response,
     response_spec,
-    responses,
 )
 from .schemas import ProblemDetails, SuccessResponse, ValidationIssue

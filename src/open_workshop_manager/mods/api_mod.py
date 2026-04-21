@@ -63,8 +63,8 @@ router = APIRouter()
     status_code=307,
     responses={
         307: {"description": "Перенаправление на Storage для загрузки"},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         411: routers_edit_mod_response[411],
         412: {
             "description": "Неккоректный ID выбранной игры ИЛИ source-связка уже занята.",
@@ -293,8 +293,8 @@ async def add_mod_from_file(
     status_code=307,
     responses={
         307: {"description": "Перенаправление на Storage для загрузки"},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         404: {"description": "Мод не найден."},
         411: routers_edit_mod_response[411],
         413: routers_edit_mod_response[413],
@@ -389,8 +389,8 @@ async def update_mod_file(
     status_code=307,
     responses={
         307: {"description": "Перенаправление на Storage для загрузки"},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         411: routers_edit_mod_response[411],
         412: {
             "description": "Неккоректный ID выбранной игры ИЛИ source-связка уже занята.",
@@ -1546,8 +1546,8 @@ async def mod_list(
                 }
             },
         },
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         404: {
             "description": "Not found",
             "content": {"text/plain": {"example": "Mod not found."}},
@@ -1670,8 +1670,8 @@ async def info_mod(
     status_code=200,
     responses={
         200: {"description": "OK"},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         404: {"description": "Мод не найден."},
         413: {"description": "Неккоректный диапазон параметров *(размеров)*."},
     },
@@ -1771,8 +1771,8 @@ async def mod_resources(
     status_code=200,
     responses={
         200: {"description": "OK"},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         404: {"description": "Мод не найден."},
     },
 )
@@ -1817,8 +1817,8 @@ async def mod_tags(
     status_code=200,
     responses={
         200: {"description": "OK"},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         404: {"description": "Мод не найден."},
     },
 )
@@ -1971,8 +1971,8 @@ async def edit_mod(
     status_code=201,
     responses={
         201: {"description": "Изменения успешно выполнены."},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         411: routers_edit_mod_response[411],
         412: {
             "description": "Такой игры не существует или такая source-связка занята."
@@ -2026,8 +2026,8 @@ async def edit_mod_rest(
     status_code=202,
     responses={
         200: {"description": "Изменения успешно выполнены."},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
     },
 )
 async def edit_authors_mod(
@@ -2140,8 +2140,8 @@ async def edit_authors_mod(
     status_code=200,
     responses={
         200: {"description": "Мод успешно удален."},
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
         500: {
             "description": "Не удалось удалить архив/ресурсы мода с файлового хранилища *(поробовать еще раз попозже)*.",
             "content": {"text/plain": {"example": "Не удалось удалить мод!"}},

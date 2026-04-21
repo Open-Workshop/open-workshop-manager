@@ -33,8 +33,8 @@ ASSOCIATION_RESPONSES: dict[int | str, dict[str, Any]] = {
     status_code=202,
     responses=ASSOCIATION_RESPONSES
     | {
-        401: standarts.responses[401],
-        403: standarts.responses["admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
     },
 )
 async def association_game_with_genre(
@@ -92,8 +92,8 @@ async def association_game_with_genre(
     status_code=202,
     responses=ASSOCIATION_RESPONSES
     | {
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
     },
 )
 async def mod_add_dependency(
@@ -118,8 +118,8 @@ async def mod_add_dependency(
     status_code=202,
     responses=ASSOCIATION_RESPONSES
     | {
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
     },
 )
 async def mod_delete_dependency(
@@ -144,8 +144,8 @@ async def mod_delete_dependency(
     status_code=202,
     responses=ASSOCIATION_RESPONSES
     | {
-        401: standarts.responses[401],
-        403: standarts.responses["admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
     },
 )
 async def association_game_with_tag(
@@ -203,8 +203,8 @@ async def association_game_with_tag(
     status_code=202,
     responses=ASSOCIATION_RESPONSES
     | {
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
     },
 )
 async def association_mod_with_tag(
@@ -264,8 +264,8 @@ async def association_mod_with_tag(
     status_code=202,
     responses=ASSOCIATION_RESPONSES
     | {
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
     },
 )
 async def mod_add_tag(
@@ -290,8 +290,8 @@ async def mod_add_tag(
     status_code=202,
     responses=ASSOCIATION_RESPONSES
     | {
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
     },
 )
 async def mod_delete_tag(
@@ -316,8 +316,8 @@ async def mod_delete_tag(
     status_code=202,
     responses=ASSOCIATION_RESPONSES
     | {
-        401: standarts.responses[401],
-        403: standarts.responses["non-admin"][403],
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
     },
 )
 async def association_mod_with_dependencie(
