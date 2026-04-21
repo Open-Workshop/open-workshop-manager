@@ -18,6 +18,63 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+PROFILE_RIGHTS_FIELDS = (
+    "admin",
+    "write_comments",
+    "set_reactions",
+    "create_reactions",
+    "publish_mods",
+    "change_authorship_mods",
+    "change_self_mods",
+    "change_mods",
+    "delete_self_mods",
+    "delete_mods",
+    "mute_users",
+    "create_forums",
+    "change_authorship_forums",
+    "change_self_forums",
+    "change_forums",
+    "delete_self_forums",
+    "delete_forums",
+    "change_username",
+    "change_about",
+    "change_avatar",
+    "vote_for_reputation",
+)
+
+
+def _profile_private_payload(row: account.Account) -> dict[str, object]:
+    return {
+        "last_username_reset": row.last_username_reset,
+        "last_password_reset": row.last_password_reset,
+        "yandex": bool(row.yandex_id),
+        "google": bool(row.google_id),
+    }
+
+
+def _profile_rights_payload(row: account.Account) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    for field in PROFILE_RIGHTS_FIELDS:
+        payload[field] = bool(getattr(row, field))
+    return payload
+
+
+def _profile_general_payload(
+    row: account.Account, now: datetime.datetime
+) -> dict[str, object]:
+    return {
+        "id": row.id,
+        "username": row.username,
+        "about": row.about,
+        "avatar_url": row.avatar_url,
+        "grade": row.grade,
+        "comments": row.comments,
+        "author_mods": row.author_mods,
+        "registration_date": row.registration_date,
+        "reputation": row.reputation,
+        "mute": row.mute_until if row.mute_until and row.mute_until > now else False,
+    }
+
 
 @router.get(
     MAIN_URL + "/profiles/{user_id}",
@@ -75,54 +132,15 @@ async def info_profile(
                         )
 
                 if private:
-                    result["private"] = {}
-                    result["private"]["last_username_reset"] = row.last_username_reset
-                    result["private"]["last_password_reset"] = row.last_password_reset
-                    result["private"]["yandex"] = bool(row.yandex_id)
-                    result["private"]["google"] = bool(row.google_id)
+                    result["private"] = _profile_private_payload(row)
 
                 if rights:
-                    result["rights"] = {}
-                    result["rights"]["admin"] = row.admin
-                    result["rights"]["write_comments"] = row.write_comments
-                    result["rights"]["set_reactions"] = row.set_reactions
-                    result["rights"]["create_reactions"] = row.create_reactions
-                    result["rights"]["publish_mods"] = row.publish_mods
-                    result["rights"]["change_authorship_mods"] = row.change_authorship_mods
-                    result["rights"]["change_self_mods"] = row.change_self_mods
-                    result["rights"]["change_mods"] = row.change_mods
-                    result["rights"]["delete_self_mods"] = row.delete_self_mods
-                    result["rights"]["delete_mods"] = row.delete_mods
-                    result["rights"]["mute_users"] = row.mute_users
-                    result["rights"]["create_forums"] = row.create_forums
-                    result["rights"]["change_authorship_forums"] = row.change_authorship_forums
-                    result["rights"]["change_self_forums"] = row.change_self_forums
-                    result["rights"]["change_forums"] = row.change_forums
-                    result["rights"]["delete_self_forums"] = row.delete_self_forums
-                    result["rights"]["delete_forums"] = row.delete_forums
-                    result["rights"]["change_username"] = row.change_username
-                    result["rights"]["change_about"] = row.change_about
-                    result["rights"]["change_avatar"] = row.change_avatar
-                    result["rights"]["vote_for_reputation"] = row.vote_for_reputation
+                    result["rights"] = _profile_rights_payload(row)
             else:
                 raise standarts.UnauthorizedError(instance=str(request.url))
 
         if general:
-            result["general"] = {}
-            result["general"]["id"] = row.id
-            result["general"]["username"] = row.username
-            result["general"]["about"] = row.about
-            result["general"]["avatar_url"] = row.avatar_url
-            result["general"]["grade"] = row.grade
-            result["general"]["comments"] = row.comments
-            result["general"]["author_mods"] = row.author_mods
-            result["general"]["registration_date"] = row.registration_date
-            result["general"]["reputation"] = row.reputation
-            result["general"]["mute"] = (
-                row.mute_until
-                if row.mute_until and row.mute_until > datetime.datetime.now()
-                else False
-            )
+            result["general"] = _profile_general_payload(row, datetime.datetime.now())
 
     return result
 
