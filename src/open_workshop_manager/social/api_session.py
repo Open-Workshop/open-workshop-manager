@@ -38,6 +38,9 @@ GOOGLE_CREDENTIALS_PATH_ENV = "GOOGLE_OAUTH_CREDENTIALS_PATH"
 DEFAULT_GOOGLE_CREDENTIALS_PATH = (
     FilePath(__file__).resolve().parents[3] / "credentials.json"
 )
+GOOGLE_OAUTH_STATE_COOKIE = "googleOAuthState"
+GOOGLE_OAUTH_CODE_VERIFIER_COOKIE = "googleOAuthCodeVerifier"
+GOOGLE_OAUTH_COOKIE_MAX_AGE = 600
 
 
 class _GoogleWebConfig(TypedDict):
@@ -135,7 +138,33 @@ async def google_send_link(request: Request):
         )
 
     authorization_url, _state = flow.authorization_url()
-    return RedirectResponse(url=authorization_url)
+    response = RedirectResponse(url=authorization_url)
+    cookie_path = MAIN_URL or "/"
+
+    if _state:
+        response.set_cookie(
+            key=GOOGLE_OAUTH_STATE_COOKIE,
+            value=_state,
+            secure=config.COOKIE_SECURE,
+            samesite=config.COOKIE_SAMESITE,
+            httponly=True,
+            max_age=GOOGLE_OAUTH_COOKIE_MAX_AGE,
+            path=cookie_path,
+        )
+
+    code_verifier = getattr(flow, "code_verifier", None)
+    if code_verifier:
+        response.set_cookie(
+            key=GOOGLE_OAUTH_CODE_VERIFIER_COOKIE,
+            value=code_verifier,
+            secure=config.COOKIE_SECURE,
+            samesite=config.COOKIE_SAMESITE,
+            httponly=True,
+            max_age=GOOGLE_OAUTH_COOKIE_MAX_AGE,
+            path=cookie_path,
+        )
+
+    return response
 
 
 @router.get(
@@ -295,7 +324,7 @@ async def google_complite(
     response: Response,
     request: Request,
     code: str = Query(description="Код доступа к Google OAuth API"),
-    _state: str = "",
+    state: str = Query(default="", description="OAuth state"),
     _scope: str = "",
     _authuser: int = -1,
     _prompt: str = "",
@@ -312,6 +341,13 @@ async def google_complite(
             instance=str(request.url),
         )
 
+    cookie_state = request.cookies.get(GOOGLE_OAUTH_STATE_COOKIE, "")
+    if not cookie_state or state != cookie_state:
+        raise standarts.BadRequestError(
+            detail="Google OAuth state mismatch",
+            instance=str(request.url),
+        )
+
     try:
         data = _google_token_data()
     except FileNotFoundError:
@@ -320,9 +356,17 @@ async def google_complite(
             instance=str(request.url),
         )
 
+    code_verifier = request.cookies.get(GOOGLE_OAUTH_CODE_VERIFIER_COOKIE, "")
+    if not code_verifier:
+        raise standarts.BadRequestError(
+            detail="Google OAuth verifier is missing",
+            instance=str(request.url),
+        )
+
     async with aiohttp.ClientSession() as NETsession:
         data_complite = data.copy()
         data_complite["code"] = parse.unquote(code)
+        data_complite["code_verifier"] = code_verifier
 
         async with NETsession.post(
             "https://oauth2.googleapis.com/token", data=data_complite
@@ -364,6 +408,11 @@ async def google_complite(
                 headers={"Authorization": f"Bearer {google_access.access_token}"},
             ) as user_info_response:
                 user_data = await user_info_response.json()
+
+    response.delete_cookie(key=GOOGLE_OAUTH_STATE_COOKIE, path=MAIN_URL or "/")
+    response.delete_cookie(
+        key=GOOGLE_OAUTH_CODE_VERIFIER_COOKIE, path=MAIN_URL or "/"
+    )
 
     async with account.AsyncSessionLocal() as session:
         # Выполнение запроса
