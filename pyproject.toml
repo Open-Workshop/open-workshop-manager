@@ -31,6 +31,7 @@ dependencies = [
 dev = [
     "black",
     "flake8",
+    "isort",
     "mypy",
 ]
 
@@ -47,6 +48,12 @@ include = ["open_workshop_manager*"]
 [tool.black]
 line-length = 88
 include = '\\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 88
+src_paths = ["src"]
+skip_gitignore = true
 
 [tool.mypy]
 python_version = "3.11"
