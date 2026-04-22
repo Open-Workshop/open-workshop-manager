@@ -47,7 +47,7 @@ async def association_game_with_genre(
     ),
     genre_id: int = Form(..., description="ID жанра"),
 ):
-    access_result = await tools.access_admin(response=response, request=request)
+    access_result = await tools.access_admin(request=request)
 
     if access_result is True:
         async with catalog.AsyncSessionLocal() as session:
@@ -158,7 +158,7 @@ async def association_game_with_tag(
     ),
     tag_id: int = Form(..., description="ID тега"),
 ):
-    access_result = await tools.access_admin(response=response, request=request)
+    access_result = await tools.access_admin(request=request)
 
     if access_result is True:
         async with catalog.AsyncSessionLocal() as session:
@@ -218,7 +218,7 @@ async def association_mod_with_tag(
     tag_id: int = Form(..., description="ID тега"),
 ):
     access_result = await tools.access_mods(
-        response=response, request=request, mods_ids=mod_id
+        request=request, mods_ids=mod_id
     )
 
     if access_result is True:
@@ -334,7 +334,7 @@ async def association_mod_with_dependencie(
     Создание ассоциативной зависимости между модом и другим модом в качестве зависимости.
     """
     access_result = await tools.access_mods(
-        response=response, request=request, mods_ids=mod_id
+        request=request, mods_ids=mod_id
     )
 
     if access_result is True:

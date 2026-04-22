@@ -153,7 +153,6 @@ async def info_profile(
                 bool(request.cookies.get("accessToken")),
             )
             access_result = await tools.access_profile(
-                response=response,
                 request=request,
                 profile_id=user_id,
             )
@@ -162,9 +161,10 @@ async def info_profile(
                 raise standarts.UnauthorizedError(instance=str(request.url))
 
             if user_id != access_result.owner_id and not access_result.info.meta.value:
-                tools.raise_forbidden_from_right(
-                    access_result.info.meta,
+                raise standarts.ForbiddenError(
+                    detail=access_result.info.meta.reason,
                     instance=str(request.url),
+                    context={"reason_code": access_result.info.meta.reason_code},
                 )
 
             if private:
@@ -237,7 +237,6 @@ async def init_avatar_upload(
     user_id: int = Path(description="ID профиля."),
 ):
     access_result = await tools.access_profile(
-        response=response,
         request=request,
         profile_id=user_id,
     )
@@ -253,9 +252,10 @@ async def init_avatar_upload(
             )
 
         if not access_result.edit.avatar.value:
-            tools.raise_forbidden_from_right(
-                access_result.edit.avatar,
+            raise standarts.ForbiddenError(
+                detail=access_result.edit.avatar.reason,
                 instance=str(request.url),
+                context={"reason_code": access_result.edit.avatar.reason_code},
             )
 
     if not getattr(config, "TRANSFER_JWT_SECRET", None):
@@ -373,7 +373,6 @@ async def edit_profile(
     Редактирование пользователей *(самого себя или другого юзера)*.
     """
     access_result = await tools.access_profile(
-        response=response,
         request=request,
         profile_id=user_id,
     )
@@ -402,29 +401,34 @@ async def edit_profile(
                         instance=str(request.url),
                     )
                 if username is not None and not access_result.edit.nickname.value:
-                    tools.raise_forbidden_from_right(
-                        access_result.edit.nickname,
+                    raise standarts.ForbiddenError(
+                        detail=access_result.edit.nickname.reason,
                         instance=str(request.url),
+                        context={"reason_code": access_result.edit.nickname.reason_code},
                     )
                 if about is not None and not access_result.edit.description.value:
-                    tools.raise_forbidden_from_right(
-                        access_result.edit.description,
+                    raise standarts.ForbiddenError(
+                        detail=access_result.edit.description.reason,
                         instance=str(request.url),
+                        context={"reason_code": access_result.edit.description.reason_code},
                     )
                 if empty_avatar is not None and not access_result.edit.avatar.value:
-                    tools.raise_forbidden_from_right(
-                        access_result.edit.avatar,
+                    raise standarts.ForbiddenError(
+                        detail=access_result.edit.avatar.reason,
                         instance=str(request.url),
+                        context={"reason_code": access_result.edit.avatar.reason_code},
                     )
                 if grade is not None and not access_result.edit.grade.value:
-                    tools.raise_forbidden_from_right(
-                        access_result.edit.grade,
+                    raise standarts.ForbiddenError(
+                        detail=access_result.edit.grade.reason,
                         instance=str(request.url),
+                        context={"reason_code": access_result.edit.grade.reason_code},
                     )
                 if mute is not None and not access_result.edit.mute.value:
-                    tools.raise_forbidden_from_right(
-                        access_result.edit.mute,
+                    raise standarts.ForbiddenError(
+                        detail=access_result.edit.mute.reason,
                         instance=str(request.url),
+                        context={"reason_code": access_result.edit.mute.reason_code},
                     )
             elif new_password is not None or off_password is not None:
                 raise standarts.ForbiddenError(
@@ -445,9 +449,10 @@ async def edit_profile(
                     )
 
                 if grade is not None:
-                    tools.raise_forbidden_from_right(
-                        access_result.edit.grade,
+                    raise standarts.ForbiddenError(
+                        detail=access_result.edit.grade.reason,
                         instance=str(request.url),
+                        context={"reason_code": access_result.edit.grade.reason_code},
                     )
 
                 if (
@@ -464,9 +469,10 @@ async def edit_profile(
 
                 if username is not None:
                     if not access_result.edit.nickname.value:
-                        tools.raise_forbidden_from_right(
-                            access_result.edit.nickname,
+                        raise standarts.ForbiddenError(
+                            detail=access_result.edit.nickname.reason,
                             instance=str(request.url),
+                            context={"reason_code": access_result.edit.nickname.reason_code},
                         )
                     elif (
                         access_result.last_username_reset
@@ -480,15 +486,17 @@ async def edit_profile(
                         )
 
                 if empty_avatar is not None and not access_result.edit.avatar.value:
-                    tools.raise_forbidden_from_right(
-                        access_result.edit.avatar,
+                    raise standarts.ForbiddenError(
+                        detail=access_result.edit.avatar.reason,
                         instance=str(request.url),
+                        context={"reason_code": access_result.edit.avatar.reason_code},
                     )
 
                 if about is not None and not access_result.edit.description.value:
-                    tools.raise_forbidden_from_right(
-                        access_result.edit.description,
+                    raise standarts.ForbiddenError(
+                        detail=access_result.edit.description.reason,
                         instance=str(request.url),
+                        context={"reason_code": access_result.edit.description.reason_code},
                     )
 
         if username:
@@ -639,7 +647,6 @@ async def edit_profile_rights(
     Изменять права может только администратор.
     """
     access_result = await tools.access_profile(
-        response=response,
         request=request,
         profile_id=user_id,
     )
@@ -658,9 +665,10 @@ async def edit_profile_rights(
             )
 
         if not access_result.edit.rights.value:
-            tools.raise_forbidden_from_right(
-                access_result.edit.rights,
+            raise standarts.ForbiddenError(
+                detail=access_result.edit.rights.reason,
                 instance=str(request.url),
+                context={"reason_code": access_result.edit.rights.reason_code},
             )
 
         sample_query_update: dict[str, bool | None] = {
@@ -724,7 +732,6 @@ async def delete_account(
     "следы" такие, как история сессий, комментарии (сохраняется факт их наличия, содержимое удаляется) и т.п..
     """
     access_result = await tools.access_profile(
-        response=response,
         request=request,
         profile_id=user_id,
     )
@@ -733,9 +740,10 @@ async def delete_account(
         raise standarts.UnauthorizedError(instance=str(request.url))
 
     if not access_result.delete.value:
-        tools.raise_forbidden_from_right(
-            access_result.delete,
+        raise standarts.ForbiddenError(
+            detail=access_result.delete.reason,
             instance=str(request.url),
+            context={"reason_code": access_result.delete.reason_code},
         )
 
     user_id = access_result.owner_id

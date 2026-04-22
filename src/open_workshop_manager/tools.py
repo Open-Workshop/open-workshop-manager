@@ -7,7 +7,7 @@ from typing import Literal, Sequence, overload
 import aiohttp
 import bcrypt
 import jwt
-from fastapi import Request, Response
+from fastapi import Request
 from sqlalchemy import delete, desc, select
 
 from open_workshop_manager import access_client
@@ -106,24 +106,11 @@ def _raise_access_service_error(
     ) from exc
 
 
-def raise_forbidden_from_right(
-    right: access_client.BaseRight,
-    *,
-    instance: str,
-) -> None:
-    raise standarts.ForbiddenError(
-        detail=right.reason,
-        instance=instance,
-        context={"reason_code": right.reason_code},
-    )
-
-
-async def access_admin(response: Response, request: Request) -> bool:
+async def access_admin(request: Request) -> bool:
     """
     Asynchronously checks if the user has admin access.
 
     Args:
-        response (Response): The response object.
         request (Request): The request object.
 
     Returns:
@@ -133,7 +120,7 @@ async def access_admin(response: Response, request: Request) -> bool:
         standarts.UnauthorizedError: If the session is invalid.
         standarts.AdminRequiredError: If the session is valid but the user is not an admin.
     """
-    access_result = await account.check_access(request=request, response=response)
+    access_result = await account.check_access(request=request)
     if not access_result or access_result.get("owner_id", -1) < 0:
         raise standarts.UnauthorizedError(instance=str(request.url))
 
@@ -256,7 +243,6 @@ async def anonymous_access_mods(
 
 @overload
 async def access_mods(
-    response: Response,
     request: Request,
     mods_ids: list[int] | int,
     edit: bool = False,
@@ -267,7 +253,6 @@ async def access_mods(
 
 @overload
 async def access_mods(
-    response: Response,
     request: Request,
     mods_ids: list[int] | int,
     edit: bool = False,
@@ -277,7 +262,6 @@ async def access_mods(
 
 
 async def access_mods(
-    response: Response,
     request: Request,
     mods_ids: list[int] | int,
     edit: bool = False,
@@ -288,7 +272,6 @@ async def access_mods(
     Asynchronously checks the access permissions for a set of mods.
 
     Args:
-        response (Response): The response object.
         request (Request): The request object.
         mods_ids (list[int]): The list of mod IDs to check access for.
         edit (bool, optional): Whether to check for edit access. Defaults to False (read access).
@@ -308,7 +291,6 @@ async def access_mods(
     try:
         access_result = await access_client.resolve_mods(
             request=request,
-            response=response,
             mods_ids=normalized_mod_ids,
             edit=edit,
         )
@@ -328,14 +310,12 @@ async def access_mods(
 
 
 async def access_mod_add(
-    response: Response,
     request: Request,
     without_author: bool | None = None,
 ) -> access_client.ModAddResponse:
     try:
         return await access_client.resolve_mod_add(
             request=request,
-            response=response,
             without_author=without_author,
         )
     except access_client.AccessServiceError as exc:
@@ -343,14 +323,12 @@ async def access_mod_add(
 
 
 async def access_profile(
-    response: Response,
     request: Request,
     profile_id: int,
 ) -> access_client.ProfileResponse:
     try:
         return await access_client.resolve_profile(
             request=request,
-            response=response,
             profile_id=profile_id,
         )
     except access_client.AccessServiceError as exc:
@@ -358,22 +336,18 @@ async def access_profile(
 
 
 async def access_mod_action(
-    response: Response,
     request: Request,
     mod_id: int,
     *,
     author_id: int | None = None,
     mode: bool | None = None,
-    without_author: bool | None = None,
 ) -> access_client.ModResponse:
     try:
         return await access_client.resolve_mod(
             request=request,
-            response=response,
             mod_id=mod_id,
             author_id=author_id,
             mode=mode,
-            without_author=without_author,
         )
     except access_client.AccessServiceError as exc:
         _raise_access_service_error(str(request.url), exc)

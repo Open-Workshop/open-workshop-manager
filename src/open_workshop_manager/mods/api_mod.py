@@ -102,16 +102,16 @@ async def add_mod_from_file(
     pack_level: int = Form(3, description="Степень сжатия (0-9)."),
 ):
     access_result = await tools.access_mod_add(
-        response=response,
         request=request,
         without_author=without_author,
     )
     if not access_result.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
     if not access_result.add.value:
-        tools.raise_forbidden_from_right(
-            access_result.add,
+        raise standarts.ForbiddenError(
+            detail=access_result.add.reason,
             instance=str(request.url),
+            context={"reason_code": access_result.add.reason_code},
         )
 
     user_id = access_result.owner_id
@@ -293,9 +293,7 @@ async def update_mod_file(
     pack_format: str = Form("zip", description="Формат упаковки."),
     pack_level: int = Form(3, description="Степень сжатия (0-9)."),
 ):
-    access_result = await tools.access_mods(
-        response=response, request=request, mods_ids=mod_id, edit=True
-    )
+    access_result = await tools.access_mods(request=request, mods_ids=mod_id, edit=True)
     if access_result is not True:
         return access_result
 
@@ -414,16 +412,16 @@ async def add_mod_from_url(
     pack_level: int = Form(3, description="Степень сжатия (0-9)."),
 ):
     access_result = await tools.access_mod_add(
-        response=response,
         request=request,
         without_author=without_author,
     )
     if not access_result.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
     if not access_result.add.value:
-        tools.raise_forbidden_from_right(
-            access_result.add,
+        raise standarts.ForbiddenError(
+            detail=access_result.add.reason,
             instance=str(request.url),
+            context={"reason_code": access_result.add.reason_code},
         )
 
     user_id = access_result.owner_id
@@ -1127,7 +1125,7 @@ async def access_to_mods(
             return mods_ids
         elif await tools.check_token(
             token_name="access_mods_check_anonymous", token=token
-        ) or await tools.access_admin(response=response, request=request):
+        ) or await tools.access_admin(request=request):
             return await tools.anonymous_access_mods(
                 user_id=user, mods_ids=ids_array, edit=edit, check_mode=True
             )
@@ -1138,7 +1136,6 @@ async def access_to_mods(
             )
     else:
         return await tools.access_mods(
-            response=response,
             request=request,
             mods_ids=ids_array,
             edit=edit,
@@ -1364,7 +1361,7 @@ async def mod_list(
         if user <= 0:
             raise standarts.ForbiddenError(instance=str(request.url))
 
-        access_result = await account.check_access(request=request, response=response)
+        access_result = await account.check_access(request=request)
         req_user_id = access_result.get("owner_id", -1) if access_result else -1
         if req_user_id < 0:
             raise standarts.UnauthorizedError(instance=str(request.url))
@@ -1439,7 +1436,6 @@ async def mod_list(
     result_access_mods: list[int] = []
     if not only_publics:
         result_access_mods = await tools.access_mods(
-            response=response,
             request=request,
             mods_ids=[mod.id for mod in mods],
             check_mode=True,
@@ -1549,9 +1545,7 @@ async def info_mod(
             )
 
         if pre_result.public >= 2:
-            result_access = await tools.access_mods(
-                response=response, request=request, mods_ids=mod_id, edit=False
-            )
+            result_access = await tools.access_mods(request=request, mods_ids=mod_id, edit=False)
             if not result_access:
                 return result_access
 
@@ -1697,9 +1691,7 @@ async def mod_resources(
             instance=str(request.url),
         )
 
-    access_result = await tools.access_mods(
-        response=response, request=request, mods_ids=[mod_id]
-    )
+    access_result = await tools.access_mods(request=request, mods_ids=[mod_id])
     if access_result is not True:
         return access_result
 
@@ -1758,9 +1750,7 @@ async def mod_tags(
             instance=str(request.url),
         )
 
-    access_result = await tools.access_mods(
-        response=response, request=request, mods_ids=[mod_id]
-    )
+    access_result = await tools.access_mods(request=request, mods_ids=[mod_id])
     if access_result is not True:
         return access_result
 
@@ -1803,9 +1793,7 @@ async def mod_dependencies(
             instance=str(request.url),
         )
 
-    access_result = await tools.access_mods(
-        response=response, request=request, mods_ids=[mod_id]
-    )
+    access_result = await tools.access_mods(request=request, mods_ids=[mod_id])
     if access_result is not True:
         return access_result
 
@@ -1845,9 +1833,7 @@ async def edit_mod(
         None, description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."
     ),
 ):
-    access_result = await tools.access_mods(
-        response=response, request=request, mods_ids=mod_id, edit=True
-    )
+    access_result = await tools.access_mods(request=request, mods_ids=mod_id, edit=True)
     if access_result is True:
         body: dict[str, object] = {}
         if mod_name is not None:
@@ -2010,7 +1996,6 @@ async def edit_authors_mod(
     ),
 ):
     mod_access = await tools.access_mod_action(
-        response=response,
         request=request,
         mod_id=mod_id,
         author_id=author,
@@ -2019,9 +2004,10 @@ async def edit_authors_mod(
     if not mod_access.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
     if not mod_access.edit.authors.value:
-        tools.raise_forbidden_from_right(
-            mod_access.edit.authors,
+        raise standarts.ForbiddenError(
+            detail=mod_access.edit.authors.reason,
             instance=str(request.url),
+            context={"reason_code": mod_access.edit.authors.reason_code},
         )
 
     async with account.AsyncSessionLocal() as session:
@@ -2102,7 +2088,6 @@ async def delete_mod(
     mod_id: int = Path(description="ID мода для удаления."),
 ):
     mod_access = await tools.access_mod_action(
-        response=response,
         request=request,
         mod_id=mod_id,
     )
@@ -2120,9 +2105,10 @@ async def delete_mod(
             mod_id,
             user_id,
         )
-        tools.raise_forbidden_from_right(
-            mod_access.delete,
+        raise standarts.ForbiddenError(
+            detail=mod_access.delete.reason,
             instance=str(request.url),
+            context={"reason_code": mod_access.delete.reason_code},
         )
 
     # Удаление ресурсов

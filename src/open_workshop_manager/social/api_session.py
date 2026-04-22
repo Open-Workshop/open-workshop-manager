@@ -436,7 +436,7 @@ async def google_complite(
                     instance=str(request.url),
                 )
 
-            access_result = await account.check_access(request=request, response=response)
+            access_result = await account.check_access(request=request)
 
             if access_result and access_result.get("owner_id", -1) >= 0:
                 row_connect_result = (
@@ -634,7 +634,7 @@ async def yandex_complite(
                     instance=str(request.url),
                 )
 
-            access_result = await account.check_access(request=request, response=response)
+            access_result = await account.check_access(request=request)
 
             if access_result and access_result.get("owner_id", -1) >= 0:
                 row_connect_result = (
@@ -769,7 +769,7 @@ async def disconnect_service(
             instance=str(request.url),
         )
 
-    access_result = await account.check_access(request=request, response=response)
+    access_result = await account.check_access(request=request)
 
     if access_result and access_result.get("owner_id", -1) >= 0:
         async with account.AsyncSessionLocal() as session:
@@ -811,7 +811,7 @@ async def refresh(response: Response, request: Request):
     """
     Получение новой пары access+refresh токенов на основе еще живого refresh токена
     """
-    if not await account.update_session(response=response, request=request):
+    if not await account.update_session(request=request):
         raise standarts.UnauthorizedError(instance=str(request.url))
 
     return PlainTextResponse(status_code=200, content="Запрос обработан")

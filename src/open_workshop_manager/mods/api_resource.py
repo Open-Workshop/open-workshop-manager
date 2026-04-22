@@ -247,10 +247,10 @@ async def add_resource_upload_init(
         raise standarts.UnsupportedOwnerTypeError(instance=str(request.url))
     elif owner_type == "mods":
         access_result = await tools.access_mods(
-            response=response, request=request, mods_ids=[resource_owner_id], edit=True
+            request=request, mods_ids=[resource_owner_id], edit=True
         )
     else:
-        access_result = await tools.access_admin(response=response, request=request)
+        access_result = await tools.access_admin(request=request)
     if access_result is not True:
         return access_result
 
@@ -358,7 +358,7 @@ async def edit_resource_upload_init(
                 edit=True,
             )
         else:
-            access_result = await tools.access_admin(response=response, request=request)
+            access_result = await tools.access_admin(request=request)
         if access_result is not True:
             return access_result
 
@@ -448,7 +448,7 @@ async def delete_resource_rest(
             edit=True,
         )
     else:
-        access_result = await tools.access_admin(response=response, request=request)
+        access_result = await tools.access_admin(request=request)
 
     if access_result is not True:
         return access_result
@@ -554,7 +554,7 @@ async def list_resources(
 
             if len(ids_mods) > 0:
                 if not await tools.access_mods(
-                    response=response, request=request, mods_ids=ids_mods, check_mode=True
+                    request=request, mods_ids=ids_mods, check_mode=True
                 ):
                     raise standarts.ForbiddenError(
                         detail="Access denied.",
@@ -598,10 +598,10 @@ async def add_resource(
         raise standarts.UnsupportedOwnerTypeError(instance=str(request.url))
     elif owner_type == "mods":
         access_result = await tools.access_mods(
-            response=response, request=request, mods_ids=[resource_owner_id], edit=True
+            request=request, mods_ids=[resource_owner_id], edit=True
         )
     else:
-        access_result = await tools.access_admin(response=response, request=request)
+        access_result = await tools.access_admin(request=request)
 
     if access_result is True:
         if len(resource_url) > LIMITS.resource.url_max or not resource_url.startswith("http"):
@@ -663,7 +663,7 @@ async def edit_resource(
                 edit=True,
             )
         else:
-            access_result = await tools.access_admin(response=response, request=request)
+            access_result = await tools.access_admin(request=request)
 
         if access_result is True:
             data_edit: dict[str, object] = {}

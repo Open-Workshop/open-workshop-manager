@@ -4,7 +4,7 @@ import datetime
 from typing import TypedDict
 
 import bcrypt
-from fastapi import Request, Response
+from fastapi import Request
 from sqlalchemy import (
     Boolean,
     Column,
@@ -291,7 +291,7 @@ async def no_from_russia(request: Request) -> str | None:
     return None
 
 
-async def check_access(response: Response, request: Request):
+async def check_access(request: Request):
     access_token = request.cookies.get("accessToken", "")
     refresh_token = request.cookies.get("refreshToken", "")
 
@@ -301,7 +301,6 @@ async def check_access(response: Response, request: Request):
     try:
         context = await access_client.resolve_context(
             request=request,
-            response=response,
         )
     except access_client.AccessServiceError as exc:
         status_code = getattr(exc, "status_code", None)
@@ -321,8 +320,8 @@ async def check_access(response: Response, request: Request):
     return context
 
 
-async def update_session(response: Response, request: Request) -> bool:
-    access_result = await check_access(response=response, request=request)
+async def update_session(request: Request) -> bool:
+    access_result = await check_access(request=request)
     if not access_result or access_result.get("owner_id", -1) < 0:
         return False
 

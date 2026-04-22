@@ -181,7 +181,7 @@ async def list_tags_for_mods(
         )
         if len(result.scalars().all()) > 0:
             result_access = await tools.access_mods(
-                response=response, request=request, mods_ids=mods_ids_list
+                request=request, mods_ids=mods_ids_list
             )
             if not result_access:
                 return result_access

@@ -98,7 +98,7 @@ async def add_genre(
         ..., description="Название добавляемого жанра", max_length=LIMITS.genre.name_max
     ),
 ):
-    access_result = await tools.access_admin(response=response, request=request)
+    access_result = await tools.access_admin(request=request)
 
     if access_result is True:
         async with catalog.AsyncSessionLocal() as session:
@@ -137,7 +137,7 @@ async def edit_genre(
         None, description="Название жанра", max_length=LIMITS.genre.name_max
     ),
 ):
-    access_result = await tools.access_admin(response=response, request=request)
+    access_result = await tools.access_admin(request=request)
 
     if access_result is True:
         async with catalog.AsyncSessionLocal() as session:
@@ -183,7 +183,7 @@ async def delete_genre(
     request: Request,
     genre_id: int = Form(..., description="ID жанра для удаления"),
 ):
-    access_result = await tools.access_admin(response=response, request=request)
+    access_result = await tools.access_admin(request=request)
 
     if access_result is True:
         async with catalog.AsyncSessionLocal() as session:

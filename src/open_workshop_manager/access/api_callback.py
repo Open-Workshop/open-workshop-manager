@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Cookie, Header, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
@@ -31,10 +31,7 @@ class AccessModEntry(BaseModel):
 class AccessCallbackRequest(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra="ignore")
 
-    access_token: str | None = None
-    refresh_token: str | None = None
     user_id: int | None = None
-    mod_id: int | None = None
     mods_ids: list[int] = Field(default_factory=list)
 
 
@@ -202,6 +199,8 @@ async def _load_mods(
 async def callback_context(
     request: Request,
     payload: AccessCallbackRequest,
+    access_token: str | None = Cookie(None, alias="accessToken"),
+    refresh_token: str | None = Cookie(None, alias="refreshToken"),
     token: str = Header("", alias="x-token"),
 ):
     if not await tools.check_token("ACCESS_CALLBACK_TOKEN", token):
@@ -213,11 +212,11 @@ async def callback_context(
     async with account.AsyncSessionLocal() as session:
         session_row = None
         account_row = None
-        if payload.access_token and payload.refresh_token:
+        if access_token and refresh_token:
             result = await session.execute(
                 select(account.Session).where(
-                    account.Session.access_token == payload.access_token,
-                    account.Session.refresh_token == payload.refresh_token,
+                    account.Session.access_token == access_token,
+                    account.Session.refresh_token == refresh_token,
                     account.Session.broken.is_(None),
                 )
             )
@@ -247,7 +246,5 @@ async def callback_context(
         session_context = AccessCallbackContext(authenticated=False, owner_id=-1)
 
     mods_ids = list(payload.mods_ids)
-    if payload.mod_id is not None and payload.mod_id > 0:
-        mods_ids.append(payload.mod_id)
     session_context.mods = await _load_mods(subject_user_id, mods_ids) if mods_ids else None
     return session_context

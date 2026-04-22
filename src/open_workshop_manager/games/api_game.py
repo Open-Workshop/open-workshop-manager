@@ -290,7 +290,7 @@ async def add_game(
     ),
     game_type: str = Form("game", description="Тип игры", max_length=LIMITS.game.type_max),
 ):
-    access_result = await tools.access_admin(response=response, request=request)
+    access_result = await tools.access_admin(request=request)
     if access_result is not True:
         return access_result
 
@@ -344,7 +344,7 @@ async def edit_game(
     ),
     game_source_id: int = Form(None, description="ID игры в первоисточнике"),
 ) -> Response:
-    await tools.access_admin(response=response, request=request)
+    await tools.access_admin(request=request)
 
     async with catalog.AsyncSessionLocal() as session:
         game = await session.get(catalog.Game, game_id)
@@ -410,7 +410,7 @@ async def delete_game(
     request: Request,
     game_id: int = Form(..., description="ID игры для удаления"),
 ):
-    access_result = await tools.access_admin(response=response, request=request)
+    access_result = await tools.access_admin(request=request)
     if access_result is not True:
         return access_result
 

@@ -33,7 +33,7 @@ async def add_tag(
         ..., description="Название тега", max_length=LIMITS.tag.name_max
     ),
 ):
-    access_result = await tools.access_admin(response=response, request=request)
+    access_result = await tools.access_admin(request=request)
 
     if access_result is True:
         async with catalog.AsyncSessionLocal() as session:
@@ -79,7 +79,7 @@ async def edit_tag(
         ..., description="Название тега", max_length=LIMITS.tag.name_max
     ),
 ):
-    access_result = await tools.access_admin(response=response, request=request)
+    access_result = await tools.access_admin(request=request)
 
     if access_result is True:
         async with catalog.AsyncSessionLocal() as session:
@@ -128,7 +128,7 @@ async def delete_tag(
     request: Request,
     tag_id: int = Form(..., description="ID тега для удаления"),
 ):
-    access_result = await tools.access_admin(response=response, request=request)
+    access_result = await tools.access_admin(request=request)
 
     if access_result is True:
         async with catalog.AsyncSessionLocal() as session:
