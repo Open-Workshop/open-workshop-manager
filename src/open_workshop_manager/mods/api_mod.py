@@ -1235,7 +1235,7 @@ async def public_mods(
             "description": "Слишком сложный запрос ИЛИ page_size вне диапазона.",
         },
         400: {
-            "description": "Некорректный диапазон размера мода.",
+            "description": "Некорректный диапазон размера мода или распакованного размера.",
         },
     },
 )
@@ -1294,6 +1294,16 @@ async def mod_list(
         ge=0,
         description="Максимальный размер мода в байтах.",
     ),
+    size_unpacked_min: int | None = Query(
+        None,
+        ge=0,
+        description="Минимальный распакованный размер мода в байтах.",
+    ),
+    size_unpacked_max: int | None = Query(
+        None,
+        ge=0,
+        description="Максимальный распакованный размер мода в байтах.",
+    ),
     name: str = Query("", description="Поиск по названию."),
     user: int = Query(
         0, description="Фильтрация по модам определенного автора, 0 <= не фильтровать."
@@ -1349,6 +1359,8 @@ async def mod_list(
 
     О фильтрации по размеру:
     `size_min` и `size_max` задают диапазон в байтах для поля `size`.
+    `size_unpacked_min` и `size_unpacked_max` задают диапазон в байтах
+    для поля `size_unpacked`.
     Можно передать только одну границу или обе сразу.
     """
     tags = tools.str_to_list(tags)
@@ -1401,6 +1413,16 @@ async def mod_list(
             detail="Минимальный размер мода не может быть больше максимального!",
             instance=str(request.url),
             context={"error_id": 5},
+        )
+    elif (
+        size_unpacked_min is not None
+        and size_unpacked_max is not None
+        and size_unpacked_min > size_unpacked_max
+    ):
+        raise standarts.BadRequestError(
+            detail="Минимальный распакованный размер мода не может быть больше максимального!",
+            instance=str(request.url),
+            context={"error_id": 6},
         )
 
     want_not_public = show_not_public and user > 0
@@ -1464,6 +1486,10 @@ async def mod_list(
             stmt = stmt.where(catalog.Mod.size >= size_min)
         if size_max is not None:
             stmt = stmt.where(catalog.Mod.size <= size_max)
+        if size_unpacked_min is not None:
+            stmt = stmt.where(catalog.Mod.size_unpacked >= size_unpacked_min)
+        if size_unpacked_max is not None:
+            stmt = stmt.where(catalog.Mod.size_unpacked <= size_unpacked_max)
 
         if len(tags) > 0:
             for tag in tags:
@@ -1547,6 +1573,67 @@ async def mod_list(
 
     # Вывод результатов
     return {"database_size": mods_count, "offset": offset, "results": output_mods}
+
+
+@router.get(
+    MAIN_URL + "/mods/feed",
+    tags=["Mod"],
+    summary="Диапазон размеров модов и распакованных размеров",
+    status_code=200,
+    responses={
+        200: {
+            "description": "OK",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "database_size": 123,
+                        "size_min": 1024,
+                        "size_max": 1048576,
+                        "size_unpacked_min": 2048,
+                        "size_unpacked_max": 2097152,
+                    }
+                }
+            },
+        }
+    },
+)
+async def mod_feed():
+    """
+    Возвращает диапазоны размеров публичных модов и их распакованных версий
+    для настройки фильтров и слайдеров.
+    Если модов в каталоге нет, все min/max поля будут `null`.
+    """
+    async with catalog.AsyncSessionLocal() as session:
+        visibility_clause = (
+            (catalog.Mod.condition == 0) & (catalog.Mod.public == 0)
+        )
+        count_stmt = select(func.count()).select_from(catalog.Mod).where(visibility_clause)
+        min_stmt = select(func.min(catalog.Mod.size)).where(visibility_clause)
+        max_stmt = select(func.max(catalog.Mod.size)).where(visibility_clause)
+        unpacked_min_stmt = select(func.min(catalog.Mod.size_unpacked)).where(
+            visibility_clause
+        )
+        unpacked_max_stmt = select(func.max(catalog.Mod.size_unpacked)).where(
+            visibility_clause
+        )
+
+        mods_count = int((await session.scalar(count_stmt)) or 0)
+        size_min = await session.scalar(min_stmt)
+        size_max = await session.scalar(max_stmt)
+        size_unpacked_min = await session.scalar(unpacked_min_stmt)
+        size_unpacked_max = await session.scalar(unpacked_max_stmt)
+
+    return {
+        "database_size": mods_count,
+        "size_min": int(size_min) if size_min is not None else None,
+        "size_max": int(size_max) if size_max is not None else None,
+        "size_unpacked_min": (
+            int(size_unpacked_min) if size_unpacked_min is not None else None
+        ),
+        "size_unpacked_max": (
+            int(size_unpacked_max) if size_unpacked_max is not None else None
+        ),
+    }
 
 
 @router.get(

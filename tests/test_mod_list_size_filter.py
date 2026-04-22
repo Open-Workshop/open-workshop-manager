@@ -50,9 +50,10 @@ class _DummyResult:
 
 
 class _DummySession:
-    def __init__(self, rows: list[object]) -> None:
+    def __init__(self, rows: list[object], scalar_values: list[object] | None = None) -> None:
         self.rows = rows
         self.executed_sql: list[str] = []
+        self.scalar_values = list(scalar_values) if scalar_values is not None else [1]
 
     async def __aenter__(self) -> "_DummySession":
         return self
@@ -60,8 +61,11 @@ class _DummySession:
     async def __aexit__(self, exc_type, exc, tb) -> bool:
         return False
 
-    async def scalar(self, stmt) -> int:  # pragma: no cover - simple stub
-        return 1
+    async def scalar(self, stmt) -> object:  # pragma: no cover - simple stub
+        self.executed_sql.append(str(stmt))
+        if self.scalar_values:
+            return self.scalar_values.pop(0)
+        return 0
 
     async def execute(self, stmt) -> _DummyResult:
         self.executed_sql.append(str(stmt))
@@ -217,6 +221,94 @@ class ModListSizeFilterTests(unittest.TestCase):
                 f"{dummy_session.executed_sql}"
             ),
         )
+
+    def test_mod_list_applies_unpacked_size_range_filter(self) -> None:
+        mod = types.SimpleNamespace(
+            id=8,
+            name="Unpacked Mod",
+            description="",
+            short_description="",
+            date_creation=None,
+            date_update_file=None,
+            date_edit=None,
+            size=150,
+            size_unpacked=320,
+            source="local",
+            source_id=11,
+            downloads=42,
+        )
+        dummy_session = _DummySession([mod])
+
+        with patch.object(
+            self.api_mod.catalog,
+            "AsyncSessionLocal",
+            return_value=dummy_session,
+        ):
+            response = self.client.get(
+                f"{self.main_url}/mods",
+                params={"size_unpacked_min": 300, "size_unpacked_max": 400},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["database_size"], 1)
+        self.assertEqual(body["results"][0]["size_unpacked"], 320)
+        self.assertTrue(
+            any(
+                "mods.size_unpacked >= " in sql and "mods.size_unpacked <= " in sql
+                for sql in dummy_session.executed_sql
+            ),
+            msg=(
+                "Captured SQL did not include unpacked size bounds: "
+                f"{dummy_session.executed_sql}"
+            ),
+        )
+
+    def test_mod_feed_returns_size_range(self) -> None:
+        dummy_session = _DummySession(
+            [],
+            scalar_values=[7, 1024, 1048576, 2048, 2097152],
+        )
+
+        with patch.object(
+            self.api_mod.catalog,
+            "AsyncSessionLocal",
+            return_value=dummy_session,
+        ):
+            response = self.client.get(f"{self.main_url}/mods/feed")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["database_size"], 7)
+        self.assertEqual(body["size_min"], 1024)
+        self.assertEqual(body["size_max"], 1048576)
+        self.assertEqual(body["size_unpacked_min"], 2048)
+        self.assertEqual(body["size_unpacked_max"], 2097152)
+        self.assertTrue(
+            any(
+                "mods.public" in sql and "mods.condition" in sql
+                for sql in dummy_session.executed_sql
+            ),
+            msg=f"Captured SQL did not include visibility filters: {dummy_session.executed_sql}",
+        )
+
+    def test_mod_feed_returns_null_ranges_for_empty_catalog(self) -> None:
+        dummy_session = _DummySession([], scalar_values=[0, None, None, None, None])
+
+        with patch.object(
+            self.api_mod.catalog,
+            "AsyncSessionLocal",
+            return_value=dummy_session,
+        ):
+            response = self.client.get(f"{self.main_url}/mods/feed")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["database_size"], 0)
+        self.assertIsNone(body["size_min"])
+        self.assertIsNone(body["size_max"])
+        self.assertIsNone(body["size_unpacked_min"])
+        self.assertIsNone(body["size_unpacked_max"])
 
 
 if __name__ == "__main__":  # pragma: no cover
