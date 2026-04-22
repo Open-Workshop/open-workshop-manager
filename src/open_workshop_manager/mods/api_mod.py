@@ -2101,7 +2101,7 @@ async def delete_mod(
     )
     logger.info("Delete mod request received mod_id=%s", mod_id)
 
-    if not mod_access.authenticated or mod_access.owner_id < 0:
+    if not mod_access.authenticated:
         logger.info("Delete mod denied: invalid session mod_id=%s", mod_id)
         raise standarts.UnauthorizedError(instance=str(request.url))
     user_id = mod_access.owner_id

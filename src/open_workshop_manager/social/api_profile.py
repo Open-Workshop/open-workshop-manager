@@ -157,7 +157,7 @@ async def info_profile(
                 profile_id=user_id,
             )
 
-            if not access_result.authenticated or access_result.owner_id < 0:
+            if not access_result.authenticated:
                 raise standarts.UnauthorizedError(instance=str(request.url))
 
             if user_id != access_result.owner_id and not access_result.info.meta.value:
@@ -240,7 +240,7 @@ async def init_avatar_upload(
         request=request,
         profile_id=user_id,
     )
-    if not access_result.authenticated or access_result.owner_id < 0:
+    if not access_result.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
 
     async with account.AsyncSessionLocal() as session:
@@ -378,10 +378,11 @@ async def edit_profile(
     )
 
     # Смотрим действительна ли она (сессия)
-    if not access_result.authenticated or access_result.owner_id < 0:
+    if not access_result.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
 
     owner_id = access_result.owner_id  # id юзера запрашивающего данные
+    can_manage_rights = bool(access_result.edit.rights.value)
 
     today = datetime.datetime.now()
 
@@ -394,7 +395,7 @@ async def edit_profile(
             )
 
         if owner_id != user_id:
-            if not access_result.admin:
+            if not can_manage_rights:
                 if new_password is not None or off_password is not None:
                     raise standarts.ForbiddenError(
                         detail="Доступ запрещен!",
@@ -441,7 +442,7 @@ async def edit_profile(
                     detail="Нельзя замутить самого себя!",
                     instance=str(request.url),
                 )
-            elif not access_result.admin:
+            elif not can_manage_rights:
                 if access_result.mute_until and access_result.mute_until > today:
                     raise standarts.TooEarlyError(
                         detail="Вам выдано временное ограничение на социальную активность :(",
@@ -651,7 +652,7 @@ async def edit_profile_rights(
         profile_id=user_id,
     )
 
-    if not access_result.authenticated or access_result.owner_id < 0:
+    if not access_result.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
 
     owner_id = access_result.owner_id  # id юзера запрашивающего изменения
@@ -736,7 +737,7 @@ async def delete_account(
         profile_id=user_id,
     )
 
-    if not access_result.authenticated or access_result.owner_id < 0:
+    if not access_result.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
 
     if not access_result.delete.value:

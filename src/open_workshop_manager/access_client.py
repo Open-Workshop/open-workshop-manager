@@ -252,10 +252,16 @@ async def resolve_mods(
     *,
     request: Request | None = None,
     mods_ids: list[int] | int,
+    author_id: int | None = None,
+    mode: bool | None = None,
 ) -> dict[int, ModResponse]:
     payload = {
         "mods_ids": _normalize_mod_ids(mods_ids),
     }
+    if author_id is not None:
+        payload["author_id"] = author_id
+    if mode is not None:
+        payload["mode"] = mode
     data = await _post_json(
         "/mods",
         payload,
