@@ -1578,7 +1578,7 @@ async def mod_list(
 @router.get(
     MAIN_URL + "/mods/feed",
     tags=["Mod"],
-    summary="Диапазон размеров модов и распакованных размеров",
+    summary="Диапазон размеров модов и распакованных размеров по игре",
     status_code=200,
     responses={
         200: {
@@ -1597,10 +1597,13 @@ async def mod_list(
         }
     },
 )
-async def mod_feed():
+async def mod_feed(
+    game: int = Query(-1, description="ID игры."),
+):
     """
     Возвращает диапазоны размеров публичных модов и их распакованных версий
-    для настройки фильтров и слайдеров.
+    для настройки фильтров и слайдеров. Если передан `game`, диапазоны
+    считаются только по модам этой игры.
     Если модов в каталоге нет, все min/max поля будут `null`.
     """
     async with catalog.AsyncSessionLocal() as session:
@@ -1616,6 +1619,13 @@ async def mod_feed():
         unpacked_max_stmt = select(func.max(catalog.Mod.size_unpacked)).where(
             visibility_clause
         )
+
+        if game > 0:
+            count_stmt = count_stmt.where(catalog.Mod.game == game)
+            min_stmt = min_stmt.where(catalog.Mod.game == game)
+            max_stmt = max_stmt.where(catalog.Mod.game == game)
+            unpacked_min_stmt = unpacked_min_stmt.where(catalog.Mod.game == game)
+            unpacked_max_stmt = unpacked_max_stmt.where(catalog.Mod.game == game)
 
         mods_count = int((await session.scalar(count_stmt)) or 0)
         size_min = await session.scalar(min_stmt)

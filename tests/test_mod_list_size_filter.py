@@ -292,6 +292,37 @@ class ModListSizeFilterTests(unittest.TestCase):
             msg=f"Captured SQL did not include visibility filters: {dummy_session.executed_sql}",
         )
 
+    def test_mod_feed_applies_game_filter(self) -> None:
+        dummy_session = _DummySession(
+            [],
+            scalar_values=[4, 128, 256, 512, 1024],
+        )
+
+        with patch.object(
+            self.api_mod.catalog,
+            "AsyncSessionLocal",
+            return_value=dummy_session,
+        ):
+            response = self.client.get(
+                f"{self.main_url}/mods/feed",
+                params={"game": 12},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["database_size"], 4)
+        self.assertEqual(body["size_min"], 128)
+        self.assertEqual(body["size_max"], 256)
+        self.assertEqual(body["size_unpacked_min"], 512)
+        self.assertEqual(body["size_unpacked_max"], 1024)
+        self.assertTrue(
+            any(
+                "mods.game =" in sql
+                for sql in dummy_session.executed_sql
+            ),
+            msg=f"Captured SQL did not include game filter: {dummy_session.executed_sql}",
+        )
+
     def test_mod_feed_returns_null_ranges_for_empty_catalog(self) -> None:
         dummy_session = _DummySession([], scalar_values=[0, None, None, None, None])
 
