@@ -7,7 +7,7 @@ from typing import Literal, Sequence, overload
 import aiohttp
 import bcrypt
 import jwt
-from fastapi import Request
+from fastapi import HTTPException, Request
 from sqlalchemy import delete, desc, select
 
 from open_workshop_manager import access_client
@@ -94,12 +94,22 @@ def _raise_access_service_error(
     instance: str,
     exc: Exception,
 ) -> None:
+    problem = getattr(exc, "problem", None)
+    if problem is not None:
+        raise HTTPException(
+            status_code=problem.status,
+            detail=problem.model_dump(mode="json", exclude_none=True),
+        ) from exc
+
     status_code = getattr(exc, "status_code", None)
     if status_code in {408, 504}:
         raise standarts.GatewayTimeoutError(
             detail="Access service timeout",
             instance=instance,
         ) from exc
+    if status_code is not None:
+        detail = getattr(exc, "response_text", None) or "Access service rejected request"
+        raise HTTPException(status_code=status_code, detail=detail) from exc
     raise standarts.InternalServerError(
         detail="Access service unavailable",
         instance=instance,

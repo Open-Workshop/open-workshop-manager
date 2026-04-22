@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 from typing import Any, TypeVar
 
 import aiohttp
@@ -8,6 +9,7 @@ from fastapi import Request
 from pydantic import BaseModel, ConfigDict
 
 from open_workshop_manager import settings as config
+from open_workshop_manager.standarts.schemas import ProblemDetails
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -146,6 +148,39 @@ class AccessServiceError(RuntimeError):
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.problem: ProblemDetails | None = None
+        self.response_text: str | None = None
+
+    @classmethod
+    def with_problem(
+        cls,
+        message: str,
+        *,
+        status_code: int | None = None,
+        problem: ProblemDetails | None = None,
+        response_text: str | None = None,
+    ) -> "AccessServiceError":
+        error = cls(message, status_code=status_code)
+        error.problem = problem
+        error.response_text = response_text
+        return error
+
+
+def _parse_problem_details(status_code: int, text: str) -> ProblemDetails | None:
+    try:
+        payload = json.loads(text)
+    except (TypeError, json.JSONDecodeError):
+        return None
+
+    try:
+        problem = ProblemDetails.model_validate(payload)
+    except Exception:
+        return None
+
+    if problem.status != status_code:
+        problem = problem.model_copy(update={"status": status_code})
+
+    return problem
 
 
 def _normalize_mod_ids(mods_ids: list[int] | int | None) -> list[int]:
@@ -203,9 +238,12 @@ async def _post_json(
             async with session.post(url, **post_kwargs) as response:
                 if response.status >= 400:
                     text = await response.text()
-                    raise AccessServiceError(
+                    problem = _parse_problem_details(response.status, text)
+                    raise AccessServiceError.with_problem(
                         f"Access service rejected request with status {response.status}: {text}",
                         status_code=response.status,
+                        problem=problem,
+                        response_text=text,
                     )
                 try:
                     return await response.json()
