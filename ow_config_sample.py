@@ -5,7 +5,6 @@ STORAGE_URL = "http://127.0.0.1:7070"
 MAIN_URL = "/api/accounts"
 API_BASE_URL = "https://api.openworkshop.miskler.ru"
 ACCESS_SERVICE_URL = "http://127.0.0.1:7777"
-ACCESS_SERVICE_TOKEN = ""
 ACCESS_CALLBACK_TOKEN = ""
 ACCESS_TIMEOUT_SECONDS = 30
 TRANSFER_JWT_SECRET = ""

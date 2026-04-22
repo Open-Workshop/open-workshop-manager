@@ -191,13 +191,11 @@ async def _post_json(
     cookies: dict[str, str] | None = None,
 ) -> Any:
     url = config.ACCESS_SERVICE_URL.rstrip("/") + path
-    headers = {"Authorization": f"Bearer {config.ACCESS_SERVICE_TOKEN}"}
     timeout = aiohttp.ClientTimeout(total=float(config.ACCESS_TIMEOUT_SECONDS))
 
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
             post_kwargs: dict[str, Any] = {
-                "headers": headers,
                 "cookies": cookies or None,
             }
             if payload is not None:
