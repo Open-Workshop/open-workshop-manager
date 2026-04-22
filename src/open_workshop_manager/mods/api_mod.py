@@ -1235,7 +1235,10 @@ async def public_mods(
             "description": "Слишком сложный запрос ИЛИ page_size вне диапазона.",
         },
         400: {
-            "description": "Некорректный диапазон размера мода или распакованного размера.",
+            "description": (
+                "Некорректный диапазон размера мода, распакованного размера "
+                "или количества зависимых модов."
+            ),
         },
     },
 )
@@ -1273,6 +1276,16 @@ async def mod_list(
         [],
         description="Массив ID модов, которых не должно быть в зависимостях результата.",
         examples=["[1, 2, 3]"],
+    ),
+    dependents_count_min: int | None = Query(
+        None,
+        ge=0,
+        description="Минимальное количество зависимых модов у результата.",
+    ),
+    dependents_count_max: int | None = Query(
+        None,
+        ge=0,
+        description="Максимальное количество зависимых модов у результата.",
     ),
     primary_sources=Query(
         [],
@@ -1362,6 +1375,11 @@ async def mod_list(
     `size_unpacked_min` и `size_unpacked_max` задают диапазон в байтах
     для поля `size_unpacked`.
     Можно передать только одну границу или обе сразу.
+
+    О фильтрации по количеству зависимых модов:
+    `dependents_count_min` и `dependents_count_max` задают диапазон по числу
+    модов, которые зависят от результата. Это удобно для поиска модов-
+    фреймворков с разной популярностью среди плагинов.
     """
     tags = tools.str_to_list(tags)
     excluded_tags = tools.str_to_list(excluded_tags)
@@ -1423,6 +1441,16 @@ async def mod_list(
             detail="Минимальный распакованный размер мода не может быть больше максимального!",
             instance=str(request.url),
             context={"error_id": 6},
+        )
+    elif (
+        dependents_count_min is not None
+        and dependents_count_max is not None
+        and dependents_count_min > dependents_count_max
+    ):
+        raise standarts.BadRequestError(
+            detail="Минимальное количество зависимых модов не может быть больше максимального!",
+            instance=str(request.url),
+            context={"error_id": 7},
         )
 
     want_not_public = show_not_public and user > 0
@@ -1523,6 +1551,18 @@ async def mod_list(
                 )
                 .exists()
             )
+
+        dependents_count_stmt = (
+            select(func.count(func.distinct(catalog.mods_dependencies.c.mod_id)))
+            .select_from(catalog.mods_dependencies)
+            .where(catalog.mods_dependencies.c.dependence == catalog.Mod.id)
+            .correlate(catalog.Mod)
+            .scalar_subquery()
+        )
+        if dependents_count_min is not None:
+            stmt = stmt.where(dependents_count_stmt >= dependents_count_min)
+        if dependents_count_max is not None:
+            stmt = stmt.where(dependents_count_stmt <= dependents_count_max)
 
         mods_count = await session.scalar(
             select(func.count()).select_from(stmt.order_by(None).subquery())

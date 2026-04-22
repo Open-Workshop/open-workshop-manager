@@ -222,6 +222,63 @@ class ModListSizeFilterTests(unittest.TestCase):
             ),
         )
 
+    def test_mod_list_rejects_reversed_dependents_count_range(self) -> None:
+        response = self.client.get(
+            f"{self.main_url}/mods",
+            params={"dependents_count_min": 5, "dependents_count_max": 1},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["detail"],
+            "Минимальное количество зависимых модов не может быть больше максимального!",
+        )
+
+    def test_mod_list_applies_dependents_count_range_filter(self) -> None:
+        mod = types.SimpleNamespace(
+            id=9,
+            name="Framework Mod",
+            description="",
+            short_description="",
+            date_creation=None,
+            date_update_file=None,
+            date_edit=None,
+            size=150,
+            size_unpacked=320,
+            source="local",
+            source_id=11,
+            downloads=42,
+        )
+        dummy_session = _DummySession([mod])
+
+        with patch.object(
+            self.api_mod.catalog,
+            "AsyncSessionLocal",
+            return_value=dummy_session,
+        ):
+            response = self.client.get(
+                f"{self.main_url}/mods",
+                params={"dependents_count_min": 2, "dependents_count_max": 4},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["database_size"], 1)
+        self.assertEqual(body["results"][0]["id"], 9)
+        self.assertTrue(
+            any(
+                "unity_mods_dependencies" in sql
+                and "dependence" in sql
+                and ">=" in sql
+                and "<=" in sql
+                for sql in dummy_session.executed_sql
+            ),
+            msg=(
+                "Captured SQL did not include dependents count bounds: "
+                f"{dummy_session.executed_sql}"
+            ),
+        )
+
     def test_mod_list_applies_unpacked_size_range_filter(self) -> None:
         mod = types.SimpleNamespace(
             id=8,
