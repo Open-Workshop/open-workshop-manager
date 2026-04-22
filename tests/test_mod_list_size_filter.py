@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import literal_column
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -277,6 +278,40 @@ class ModListSizeFilterTests(unittest.TestCase):
                 "Captured SQL did not include dependents count bounds: "
                 f"{dummy_session.executed_sql}"
             ),
+        )
+
+    def test_sort_helpers_support_download_and_plugins_count_aliases(self) -> None:
+        count_expr = literal_column("plugins_count")
+
+        self.assertIs(
+            self.api_mod.tools.sort_mods("MOD_DOWNLOADS"),
+            self.api_mod.catalog.Mod.downloads,
+        )
+        self.assertIn(
+            "DESC",
+            str(self.api_mod.tools.sort_mods("iMOD_DOWNLOADS")).upper(),
+        )
+        self.assertIn(
+            "DESC",
+            str(self.api_mod.tools.sort_mods("DOWNLOADS")).upper(),
+        )
+        self.assertIs(
+            self.api_mod.tools.sort_games("MOD_DOWNLOADS"),
+            self.api_mod.catalog.Game.mods_downloads,
+        )
+        self.assertIn(
+            "DESC",
+            str(self.api_mod.tools.sort_games("MODS_DOWNLOADS")).upper(),
+        )
+        self.assertIn(
+            "DESC",
+            str(self.api_mod.tools.sort_games("iMOD_DOWNLOADS")).upper(),
+        )
+
+        self.assertIs(self.api_mod.tools.sort_mods("PLUGINS_COUNT", count_expr), count_expr)
+        self.assertIn(
+            "DESC",
+            str(self.api_mod.tools.sort_mods("iPLUGINS_COUNT", count_expr)).upper(),
         )
 
     def test_mod_list_applies_unpacked_size_range_filter(self) -> None:

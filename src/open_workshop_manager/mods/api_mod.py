@@ -1238,7 +1238,7 @@ async def public_mods(
         400: {
             "description": (
                 "Некорректный диапазон размера мода, распакованного размера "
-                "или количества зависимых модов."
+                "или количества плагинов."
             ),
         },
     },
@@ -1281,12 +1281,16 @@ async def mod_list(
     dependents_count_min: int | None = Query(
         None,
         ge=0,
-        description="Минимальное количество зависимых модов у результата.",
+        description=(
+            "Минимальное количество плагинов, у которых этот мод находится в зависимостях."
+        ),
     ),
     dependents_count_max: int | None = Query(
         None,
         ge=0,
-        description="Максимальное количество зависимых модов у результата.",
+        description=(
+            "Максимальное количество плагинов, у которых этот мод находится в зависимостях."
+        ),
     ),
     primary_sources=Query(
         [],
@@ -1363,7 +1367,11 @@ async def mod_list(
     4. UPDATE_DATE - сортировка по дате обновления.
     5. EDIT_DATE - сортировка по дате редактирования.
     6. SOURCE - сортировка по источнику.
-    7. MOD_DOWNLOADS *(по умолчанию)* - сортировка по количеству загрузок.
+    7. MOD_DOWNLOADS - сортировка по количеству загрузок.
+    8. PLUGINS_COUNT - сортировка по количеству плагинов, у которых этот мод находится в зависимостях.
+    Для обратного порядка используйте префикс `i`.
+    Для совместимости поддерживается старое значение `DOWNLOADS`.
+    Также поддерживаются `iMOD_DOWNLOADS` и `iPLUGINS_COUNT`.
 
     О фильтрации по тегам и зависимостям:
     `tags` и `dependencies` принимают массивы ID и применяют логику `И`.
@@ -1377,10 +1385,10 @@ async def mod_list(
     для поля `size_unpacked`.
     Можно передать только одну границу или обе сразу.
 
-    О фильтрации по количеству зависимых модов:
+    О фильтрации по количеству плагинов:
     `dependents_count_min` и `dependents_count_max` задают диапазон по числу
-    модов, которые зависят от результата. Это удобно для поиска модов-
-    фреймворков с разной популярностью среди плагинов.
+    модов, у которых этот мод указан в зависимостях. Это удобно для поиска
+    модов-фреймворков с разной популярностью среди плагинов.
     """
     tags = tools.str_to_list(tags)
     excluded_tags = tools.str_to_list(excluded_tags)
@@ -1449,7 +1457,7 @@ async def mod_list(
         and dependents_count_min > dependents_count_max
     ):
         raise standarts.BadRequestError(
-            detail="Минимальное количество зависимых модов не может быть больше максимального!",
+            detail="Минимальное количество плагинов не может быть больше максимального!",
             instance=str(request.url),
             context={"error_id": 7},
         )
@@ -1468,10 +1476,32 @@ async def mod_list(
             if not access_result.admin:
                 raise standarts.ForbiddenError(instance=str(request.url))
 
+    only_publics = not want_not_public
+
     async with catalog.AsyncSessionLocal() as session:
-        stmt = select(catalog.Mod).order_by(tools.sort_mods(sort))
+        dependent_mod = aliased(catalog.Mod)
+        dependent_filters = [
+            catalog.mods_dependencies.c.dependence == catalog.Mod.id,
+            dependent_mod.condition == 0,
+        ]
+        if only_publics:
+            dependent_filters.append(dependent_mod.public == 0)
+        dependents_count_stmt = (
+            select(func.count(func.distinct(catalog.mods_dependencies.c.mod_id)))
+            .select_from(
+                catalog.mods_dependencies.join(
+                    dependent_mod, dependent_mod.id == catalog.mods_dependencies.c.mod_id
+                )
+            )
+            .where(*dependent_filters)
+            .correlate(catalog.Mod)
+            .scalar_subquery()
+        )
+
+        stmt = select(catalog.Mod).order_by(
+            tools.sort_mods(sort, dependents_count_stmt)
+        )
         stmt = stmt.where(catalog.Mod.condition == 0)
-        only_publics = not want_not_public
         if only_publics:
             stmt = stmt.where(catalog.Mod.public == 0)
 
@@ -1552,25 +1582,6 @@ async def mod_list(
                 )
                 .exists()
             )
-
-        dependent_mod = aliased(catalog.Mod)
-        dependent_filters = [
-            catalog.mods_dependencies.c.dependence == catalog.Mod.id,
-            dependent_mod.condition == 0,
-        ]
-        if only_publics:
-            dependent_filters.append(dependent_mod.public == 0)
-        dependents_count_stmt = (
-            select(func.count(func.distinct(catalog.mods_dependencies.c.mod_id)))
-            .select_from(
-                catalog.mods_dependencies.join(
-                    dependent_mod, dependent_mod.id == catalog.mods_dependencies.c.mod_id
-                )
-            )
-            .where(*dependent_filters)
-            .correlate(catalog.Mod)
-            .scalar_subquery()
-        )
         if dependents_count_min is not None:
             stmt = stmt.where(dependents_count_stmt >= dependents_count_min)
         if dependents_count_max is not None:

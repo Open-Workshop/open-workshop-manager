@@ -619,7 +619,7 @@ async def delete_resources(
     return True
 
 
-def sort_mods(sort_by: str):
+def sort_mods(sort_by: str, dependents_count_stmt=None):
     match sort_by:
         case "NAME":
             return catalog.Mod.name
@@ -645,8 +645,26 @@ def sort_mods(sort_by: str):
             return catalog.Mod.source
         case "iSOURCE":
             return desc(catalog.Mod.source)
+        case "MOD_DOWNLOADS":
+            return catalog.Mod.downloads
+        case "iMOD_DOWNLOADS":
+            return desc(catalog.Mod.downloads)
+        case "PLUGINS_COUNT":
+            return (
+                dependents_count_stmt
+                if dependents_count_stmt is not None
+                else catalog.Mod.downloads
+            )
+        case "iPLUGINS_COUNT":
+            return (
+                desc(dependents_count_stmt)
+                if dependents_count_stmt is not None
+                else desc(catalog.Mod.downloads)
+            )
         case "DOWNLOADS":
             return desc(catalog.Mod.downloads)
+        case "iDOWNLOADS":
+            return catalog.Mod.downloads
         case _:
             return catalog.Mod.downloads  # По умолчанию сортируем по загрузкам
 
@@ -669,11 +687,21 @@ def sort_games(sort_by: str):
             return catalog.Game.source
         case "iSOURCE":
             return desc(catalog.Game.source)
+        case "MODS_DOWNLOADS":
+            return desc(catalog.Game.mods_downloads)
+        case "iMODS_DOWNLOADS":
+            return catalog.Game.mods_downloads
+        case "MOD_DOWNLOADS":
+            return catalog.Game.mods_downloads
+        case "iMOD_DOWNLOADS":
+            return desc(catalog.Game.mods_downloads)
         case "MODS_COUNT":
             return catalog.Game.mods_count
         case "iMODS_COUNT":
             return desc(catalog.Game.mods_count)
         case "DOWNLOADS":
             return desc(catalog.Game.mods_downloads)
+        case "iDOWNLOADS":
+            return catalog.Game.mods_downloads
         case _:
             return catalog.Game.mods_downloads
