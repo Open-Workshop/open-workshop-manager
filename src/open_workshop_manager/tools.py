@@ -10,6 +10,7 @@ import jwt
 from fastapi import Request, Response
 from sqlalchemy import delete, desc, select
 
+from open_workshop_manager import access_client
 from open_workshop_manager import settings as config
 from open_workshop_manager import standarts
 from open_workshop_manager.sql_logic import sql_account as account
@@ -38,11 +39,17 @@ async def check_token(token_name: str, token: str) -> bool:
         logger.warning("Токен `%s` не найден в config!", token_name)
         return False
 
-    # Хеш из config должен быть строкой, конвертируем в байты
-    stored_token_hash = stored_token_hash.encode()
+    stored_token = str(stored_token_hash)
+    if not stored_token:
+        return False
 
-    # Хешируем переданный токен с использованием bcrypt и проверяем соответствие
-    return bcrypt.checkpw(token.encode(), stored_token_hash)
+    if stored_token.startswith("$2"):
+        try:
+            return bcrypt.checkpw(token.encode(), stored_token.encode())
+        except ValueError:
+            return False
+
+    return token == stored_token
 
 
 def create_transfer_jwt(
@@ -77,6 +84,40 @@ def decode_transfer_jwt(token: str, audience: str) -> dict | None:
         return None
 
 
+def _normalize_mod_ids(mods_ids: list[int] | int) -> list[int]:
+    if isinstance(mods_ids, int):
+        return [mods_ids]
+    return [int(mod_id) for mod_id in mods_ids]
+
+
+def _raise_access_service_error(
+    instance: str,
+    exc: Exception,
+) -> None:
+    status_code = getattr(exc, "status_code", None)
+    if status_code in {408, 504}:
+        raise standarts.GatewayTimeoutError(
+            detail="Access service timeout",
+            instance=instance,
+        ) from exc
+    raise standarts.InternalServerError(
+        detail="Access service unavailable",
+        instance=instance,
+    ) from exc
+
+
+def raise_forbidden_from_right(
+    right: access_client.BaseRight,
+    *,
+    instance: str,
+) -> None:
+    raise standarts.ForbiddenError(
+        detail=right.reason,
+        instance=instance,
+        context={"reason_code": right.reason_code},
+    )
+
+
 async def access_admin(response: Response, request: Request) -> bool:
     """
     Asynchronously checks if the user has admin access.
@@ -96,18 +137,10 @@ async def access_admin(response: Response, request: Request) -> bool:
     if not access_result or access_result.get("owner_id", -1) < 0:
         raise standarts.UnauthorizedError(instance=str(request.url))
 
-    async with account.AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(account.Account).where(
-                account.Account.id == access_result.get("owner_id", -1)
-            )
-        )
-        row_result = result.scalar_one_or_none()
-        if row_result and row_result.admin:
-            return True
-        if row_result is None:
-            raise standarts.UnauthorizedError(instance=str(request.url))
-        raise standarts.AdminRequiredError(instance=str(request.url))
+    if access_result.admin:
+        return True
+
+    raise standarts.AdminRequiredError(instance=str(request.url))
 
 
 def str_to_list(string: str | list) -> list:
@@ -204,87 +237,21 @@ async def anonymous_access_mods(
     Returns:
         bool or list[int]: If check_mode is True, returns a list of mod IDs that the user has access to. Otherwise, returns True if the user has access, False otherwise.
     """
-    if isinstance(mods_ids, int):
-        mods_ids = [mods_ids]
+    normalized_mod_ids = _normalize_mod_ids(mods_ids)
 
-    async with account.AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(account.Account).where(account.Account.id == user_id)
+    try:
+        access_result = await access_client.resolve_mods(
+            mods_ids=normalized_mod_ids,
+            edit=edit,
+            user_id=user_id if user_id > 0 else None,
         )
-        user_req = result.scalar_one_or_none()
-        if user_req is None:
-            if edit:
-                return [] if check_mode else False
-            async with catalog.AsyncSessionLocal() as session_catalog:
-                result_mods = await session_catalog.execute(
-                    select(catalog.Mod.id).where(
-                        catalog.Mod.id.in_(mods_ids), catalog.Mod.public <= 1
-                    )
-                )
-                public_mod_ids: list[int] = list(result_mods.scalars().all())
-                if check_mode:
-                    return public_mod_ids
-                return len(mods_ids) == len(public_mod_ids)
+    except access_client.AccessServiceError as exc:
+        _raise_access_service_error("anonymous_access_mods", exc)
 
-        async def mini() -> list[int]:
-            if user_req.admin:
-                return mods_ids
-            if edit and (
-                user_req.mute_until and user_req.mute_until > datetime.datetime.now()
-            ):
-                return []
+    if check_mode:
+        return access_result.allowed_ids
 
-            result_links = await session.execute(
-                select(account.mod_and_author.c.mod_id, account.mod_and_author.c.owner).where(
-                    account.mod_and_author.c.user_id == user_id,
-                    account.mod_and_author.c.mod_id.in_(mods_ids),
-                )
-            )
-            mods_to_user = {row.mod_id: row.owner for row in result_links.all()}
-
-            async with catalog.AsyncSessionLocal() as session_catalog:
-                result_mods = await session_catalog.execute(
-                    select(catalog.Mod.id, catalog.Mod.public).where(
-                        catalog.Mod.id.in_(mods_ids)
-                    )
-                )
-                mods = result_mods.all()
-
-            output_check: list[int] = []
-            if len(mods) == 0:
-                return output_check
-
-            for mod in mods:
-                if mod.id in mods_to_user:
-                    if edit and (
-                        not user_req.change_self_mods or not mods_to_user.get(mod.id, False)
-                    ):
-                        continue
-                elif mod.public > 1 or (edit and not user_req.change_mods):
-                    continue
-
-                output_check.append(mod.id)
-            return output_check
-
-        if user_id > 0 and user_req:
-            mini_result = await mini()
-            return mini_result if check_mode else len(mini_result) == len(mods_ids)
-
-        if edit:
-            return [] if check_mode else False
-
-        async with catalog.AsyncSessionLocal() as session_catalog:
-            result_mods = await session_catalog.execute(
-                select(catalog.Mod.id).where(
-                    catalog.Mod.id.in_(mods_ids), catalog.Mod.public <= 1
-                )
-            )
-            allowed_public_mod_ids: list[int] = list(result_mods.scalars().all())
-            if check_mode:
-                if len(allowed_public_mod_ids) == 0:
-                    return []
-                return allowed_public_mod_ids
-            return len(mods_ids) == len(allowed_public_mod_ids)
+    return len(access_result.allowed_ids) == len(normalized_mod_ids)
 
 
 @overload
@@ -336,32 +303,80 @@ async def access_mods(
             - If access is denied: Raises `standarts.ForbiddenError`.
             - If the session key is invalid: Raises `standarts.UnauthorizedError`.
     """
-    if isinstance(mods_ids, int):
-        mods_ids = [mods_ids]
+    normalized_mod_ids = _normalize_mod_ids(mods_ids)
 
-    access_result = await account.check_access(request=request, response=response)
-    uid = access_result.get("owner_id", -1) if access_result else -1
-
-    if not edit or (access_result and uid >= 0):
-        if check_mode:
-            allowed_mod_ids = await anonymous_access_mods(
-                user_id=uid, mods_ids=mods_ids, edit=edit, check_mode=True
-            )
-            return allowed_mod_ids
-
-        has_access = await anonymous_access_mods(
-            user_id=uid, mods_ids=mods_ids, edit=edit, check_mode=False
+    try:
+        access_result = await access_client.resolve_mods(
+            request=request,
+            response=response,
+            mods_ids=normalized_mod_ids,
+            edit=edit,
         )
+    except access_client.AccessServiceError as exc:
+        _raise_access_service_error(str(request.url), exc)
 
-        if has_access:
-            return True
-
-        raise standarts.ForbiddenError(instance=str(request.url))
+    if edit and not access_result.authenticated:
+        raise standarts.UnauthorizedError(instance=str(request.url))
 
     if check_mode:
-        return []
+        return access_result.allowed_ids
 
-    raise standarts.UnauthorizedError(instance=str(request.url))
+    if len(access_result.allowed_ids) == len(normalized_mod_ids):
+        return True
+
+    raise standarts.ForbiddenError(instance=str(request.url))
+
+
+async def access_mod_add(
+    response: Response,
+    request: Request,
+    without_author: bool | None = None,
+) -> access_client.ModAddResponse:
+    try:
+        return await access_client.resolve_mod_add(
+            request=request,
+            response=response,
+            without_author=without_author,
+        )
+    except access_client.AccessServiceError as exc:
+        _raise_access_service_error(str(request.url), exc)
+
+
+async def access_profile(
+    response: Response,
+    request: Request,
+    profile_id: int,
+) -> access_client.ProfileResponse:
+    try:
+        return await access_client.resolve_profile(
+            request=request,
+            response=response,
+            profile_id=profile_id,
+        )
+    except access_client.AccessServiceError as exc:
+        _raise_access_service_error(str(request.url), exc)
+
+
+async def access_mod_action(
+    response: Response,
+    request: Request,
+    mod_id: int,
+    *,
+    author_id: int | None = None,
+    mode: bool | None = None,
+    without_author: bool | None = None,
+) -> access_client.ModResponse:
+    try:
+        return await access_client.resolve_mod(
+            request=request,
+            response=response,
+            mod_id=mod_id,
+            author_id=author_id,
+            mode=mode,
+            without_author=without_author,
+        )
+    except access_client.AccessServiceError as exc:
+        _raise_access_service_error(str(request.url), exc)
 
 
 async def check_game_exists(game_id: int) -> bool:

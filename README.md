@@ -109,6 +109,10 @@ start.bat
 - `MAIN_URL` - базовый префикс API, по умолчанию `/api/accounts`
 - `STORAGE_URL` - адрес storage-сервиса
 - `API_BASE_URL` - внешний базовый URL приложения
+- `ACCESS_SERVICE_URL` - адрес сервиса расчёта прав
+- `ACCESS_SERVICE_TOKEN` - токен manager -> access
+- `ACCESS_CALLBACK_TOKEN` - доверенный токен access -> manager для fallback callback
+- `ACCESS_TIMEOUT_SECONDS` - таймаут запросов к access-сервису
 - `TRANSFER_JWT_SECRET` - секрет для transfer JWT
 - `TRANSFER_JWT_TTL_SECONDS` - TTL для transfer JWT
 - `STORAGE_TIMEOUT_SECONDS` - таймаут запросов к storage
@@ -130,6 +134,15 @@ start.bat
 - `STORAGE_UPLOAD_TOKEN`
 - `STORAGE_DELETE_TOKEN`
 - `STORAGE_MANAGE_TOKEN`
+
+### Токены для access
+
+- `ACCESS_SERVICE_TOKEN`
+- `ACCESS_CALLBACK_TOKEN`
+
+`ACCESS_CALLBACK_TOKEN` используется доверенным callback-роутом между
+access-сервисом и manager. Его можно хранить как обычный секрет или как
+bcrypt-хэш.
 
 ### CORS
 

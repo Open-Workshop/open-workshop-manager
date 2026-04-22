@@ -152,26 +152,26 @@ async def info_profile(
                 "Access token cookie present=%s",
                 bool(request.cookies.get("accessToken")),
             )
-            access_result = await account.check_access(request=request, response=response)
+            access_result = await tools.access_profile(
+                response=response,
+                request=request,
+                profile_id=user_id,
+            )
 
-            if access_result and access_result.get("owner_id", -1) >= 0:
-                owner_id = access_result.get("owner_id", -1)
-
-                if user_id != owner_id:
-                    owner_row = await session.get(account.Account, owner_id)
-                    if owner_row is None or not owner_row.admin:
-                        raise standarts.ForbiddenError(
-                            detail="Вы не имеете доступа к этой информации!",
-                            instance=str(request.url),
-                        )
-
-                if private:
-                    result.private = _profile_private_payload(row)
-
-                if rights:
-                    result.rights = _profile_rights_payload(row)
-            else:
+            if not access_result.authenticated or access_result.owner_id < 0:
                 raise standarts.UnauthorizedError(instance=str(request.url))
+
+            if user_id != access_result.owner_id and not access_result.info.meta.value:
+                tools.raise_forbidden_from_right(
+                    access_result.info.meta,
+                    instance=str(request.url),
+                )
+
+            if private:
+                result.private = _profile_private_payload(row)
+
+            if rights:
+                result.rights = _profile_rights_payload(row)
 
         if general:
             result.general = _profile_general_payload(row, datetime.datetime.now())
@@ -236,10 +236,13 @@ async def init_avatar_upload(
     request: Request,
     user_id: int = Path(description="ID профиля."),
 ):
-    access_result = await account.check_access(request=request, response=response)
-    if not access_result or access_result.get("owner_id", -1) < 0:
+    access_result = await tools.access_profile(
+        response=response,
+        request=request,
+        profile_id=user_id,
+    )
+    if not access_result.authenticated or access_result.owner_id < 0:
         raise standarts.UnauthorizedError(instance=str(request.url))
-    owner_id = access_result.get("owner_id", -1)
 
     async with account.AsyncSessionLocal() as session:
         user = await session.get(account.Account, user_id)
@@ -249,31 +252,11 @@ async def init_avatar_upload(
                 instance=str(request.url),
             )
 
-        owner = await session.get(account.Account, owner_id)
-        if not owner:
-            raise standarts.ForbiddenError(
-                detail="Доступ запрещен!",
+        if not access_result.edit.avatar.value:
+            tools.raise_forbidden_from_right(
+                access_result.edit.avatar,
                 instance=str(request.url),
             )
-
-        now = datetime.datetime.now()
-        if owner_id != user_id:
-            if not owner.admin:
-                raise standarts.ForbiddenError(
-                    detail="Доступ запрещен!",
-                    instance=str(request.url),
-                )
-        elif not owner.admin:
-            if owner.mute_until and owner.mute_until > now:
-                raise standarts.TooEarlyError(
-                    detail="Вам выдано временное ограничение на социальную активность :(",
-                    instance=str(request.url),
-                )
-            if not owner.change_avatar:
-                raise standarts.ForbiddenError(
-                    detail="Вам по какой-то причине запрещено менять аватар!",
-                    instance=str(request.url),
-                )
 
     if not getattr(config, "TRANSFER_JWT_SECRET", None):
         raise standarts.InternalServerError(
@@ -389,13 +372,17 @@ async def edit_profile(
     """
     Редактирование пользователей *(самого себя или другого юзера)*.
     """
-    access_result = await account.check_access(request=request, response=response)
+    access_result = await tools.access_profile(
+        response=response,
+        request=request,
+        profile_id=user_id,
+    )
 
     # Смотрим действительна ли она (сессия)
-    if not access_result or access_result.get("owner_id", -1) < 0:
+    if not access_result.authenticated or access_result.owner_id < 0:
         raise standarts.UnauthorizedError(instance=str(request.url))
 
-    owner_id = access_result.get("owner_id", -1)  # id юзера запрашивающего данные
+    owner_id = access_result.owner_id  # id юзера запрашивающего данные
 
     today = datetime.datetime.now()
 
@@ -407,31 +394,36 @@ async def edit_profile(
                 instance=str(request.url),
             )
 
-        row = await session.get(account.Account, owner_id)
-        if row is None:
-            raise standarts.NotFoundError(
-                detail="Пользователь не найден!",
-                instance=str(request.url),
-            )
-
         if owner_id != user_id:
-            if not row.admin:
-                for value in [
-                    username,
-                    about,
-                    empty_avatar,
-                    grade,
-                    off_password,
-                    new_password,
-                ]:
-                    if value is not None:
-                        raise standarts.ForbiddenError(
-                            detail="Доступ запрещен!",
-                            instance=str(request.url),
-                        )
-                if not row.mute_users or mute is None:
+            if not access_result.admin:
+                if new_password is not None or off_password is not None:
                     raise standarts.ForbiddenError(
                         detail="Доступ запрещен!",
+                        instance=str(request.url),
+                    )
+                if username is not None and not access_result.edit.nickname.value:
+                    tools.raise_forbidden_from_right(
+                        access_result.edit.nickname,
+                        instance=str(request.url),
+                    )
+                if about is not None and not access_result.edit.description.value:
+                    tools.raise_forbidden_from_right(
+                        access_result.edit.description,
+                        instance=str(request.url),
+                    )
+                if empty_avatar is not None and not access_result.edit.avatar.value:
+                    tools.raise_forbidden_from_right(
+                        access_result.edit.avatar,
+                        instance=str(request.url),
+                    )
+                if grade is not None and not access_result.edit.grade.value:
+                    tools.raise_forbidden_from_right(
+                        access_result.edit.grade,
+                        instance=str(request.url),
+                    )
+                if mute is not None and not access_result.edit.mute.value:
+                    tools.raise_forbidden_from_right(
+                        access_result.edit.mute,
                         instance=str(request.url),
                     )
             elif new_password is not None or off_password is not None:
@@ -445,57 +437,57 @@ async def edit_profile(
                     detail="Нельзя замутить самого себя!",
                     instance=str(request.url),
                 )
-            elif not row.admin:
-                if row.mute_until and row.mute_until > today:
+            elif not access_result.admin:
+                if access_result.mute_until and access_result.mute_until > today:
                     raise standarts.TooEarlyError(
                         detail="Вам выдано временное ограничение на социальную активность :(",
                         instance=str(request.url),
                     )
 
                 if grade is not None:
-                    raise standarts.ForbiddenError(
-                        detail="Не админ не может менять грейды!",
+                    tools.raise_forbidden_from_right(
+                        access_result.edit.grade,
                         instance=str(request.url),
                     )
 
                 if (
                     new_password is not None
-                    and row.last_password_reset
-                    and row.last_password_reset + datetime.timedelta(minutes=5) > today
+                    and access_result.last_password_reset
+                    and access_result.last_password_reset + datetime.timedelta(minutes=5) > today
                 ):
                     raise standarts.TooEarlyError(
                         detail=(
-                            row.last_password_reset + datetime.timedelta(minutes=5)
+                            access_result.last_password_reset + datetime.timedelta(minutes=5)
                         ).strftime(account.STANDART_STR_TIME),
                         instance=str(request.url),
                     )
 
                 if username is not None:
-                    if not row.change_username:
-                        raise standarts.ForbiddenError(
-                            detail="Вам по какой-то причине запрещено менять никнейм!",
+                    if not access_result.edit.nickname.value:
+                        tools.raise_forbidden_from_right(
+                            access_result.edit.nickname,
                             instance=str(request.url),
                         )
                     elif (
-                        row.last_username_reset
-                        and (row.last_username_reset + datetime.timedelta(days=30)) > today
+                        access_result.last_username_reset
+                        and (access_result.last_username_reset + datetime.timedelta(days=30)) > today
                     ):
                         raise standarts.TooEarlyError(
                             detail=(
-                                row.last_username_reset + datetime.timedelta(days=30)
+                                access_result.last_username_reset + datetime.timedelta(days=30)
                             ).strftime(account.STANDART_STR_TIME),
                             instance=str(request.url),
                         )
 
-                if empty_avatar is not None and not row.change_avatar:
-                    raise standarts.ForbiddenError(
-                        detail="Вам по какой-то причине запрещено менять аватар!",
+                if empty_avatar is not None and not access_result.edit.avatar.value:
+                    tools.raise_forbidden_from_right(
+                        access_result.edit.avatar,
                         instance=str(request.url),
                     )
 
-                if about is not None and not row.change_about:
-                    raise standarts.ForbiddenError(
-                        detail='Вам по какой-то причине запрещено менять "обо мне"!',
+                if about is not None and not access_result.edit.description.value:
+                    tools.raise_forbidden_from_right(
+                        access_result.edit.description,
                         instance=str(request.url),
                     )
 
@@ -646,71 +638,65 @@ async def edit_profile_rights(
     """
     Изменять права может только администратор.
     """
-    access_result = await account.check_access(request=request, response=response)
+    access_result = await tools.access_profile(
+        response=response,
+        request=request,
+        profile_id=user_id,
+    )
 
-    if (
-        access_result and access_result.get("owner_id", -1) >= 0
-    ):  # авторизован ли юзер в системе
-        owner_id = access_result.get(
-            "owner_id", -1
-        )  # id юзера запрашивающего изменения
-
-        async with account.AsyncSessionLocal() as session:
-            user = await session.get(account.Account, user_id)
-            if not user:
-                raise standarts.NotFoundError(
-                    detail="Пользователь не найден!",
-                    instance=str(request.url),
-                )
-
-            row = await session.get(account.Account, owner_id)
-            if row is None:
-                raise standarts.NotFoundError(
-                    detail="Пользователь не найден!",
-                    instance=str(request.url),
-                )
-            if not row.admin:
-                raise standarts.ForbiddenError(
-                    detail="Только админ может менять права!",
-                    instance=str(request.url),
-                )
-
-            sample_query_update: dict[str, bool | None] = {
-                "write_comments": write_comments,
-                "set_reactions": set_reactions,
-                "create_reactions": create_reactions,
-                "mute_users": mute_users,
-                "publish_mods": publish_mods,
-                "change_authorship_mods": change_authorship_mods,
-                "change_self_mods": change_self_mods,
-                "change_mods": change_mods,
-                "delete_self_mods": delete_self_mods,
-                "delete_mods": delete_mods,
-                "create_forums": create_forums,
-                "change_authorship_forums": change_authorship_forums,
-                "change_self_forums": change_self_forums,
-                "change_forums": change_forums,
-                "delete_self_forums": delete_self_forums,
-                "delete_forums": delete_forums,
-                "change_username": change_username,
-                "change_about": change_about,
-                "change_avatar": change_avatar,
-                "vote_for_reputation": vote_for_reputation,
-            }
-
-            query_update: dict[str, bool] = {}
-            for key, value in sample_query_update.items():
-                if value is not None:
-                    query_update[key] = value
-
-            for key, value in query_update.items():
-                setattr(user, key, value)
-            await session.commit()
-
-        # Возвращаем успешный результат
-        return PlainTextResponse(status_code=202, content="Изменения приняты :)")
-    else:
+    if not access_result.authenticated or access_result.owner_id < 0:
         raise standarts.UnauthorizedError(instance=str(request.url))
+
+    owner_id = access_result.owner_id  # id юзера запрашивающего изменения
+
+    async with account.AsyncSessionLocal() as session:
+        user = await session.get(account.Account, user_id)
+        if not user:
+            raise standarts.NotFoundError(
+                detail="Пользователь не найден!",
+                instance=str(request.url),
+            )
+
+        if not access_result.edit.rights.value:
+            tools.raise_forbidden_from_right(
+                access_result.edit.rights,
+                instance=str(request.url),
+            )
+
+        sample_query_update: dict[str, bool | None] = {
+            "write_comments": write_comments,
+            "set_reactions": set_reactions,
+            "create_reactions": create_reactions,
+            "mute_users": mute_users,
+            "publish_mods": publish_mods,
+            "change_authorship_mods": change_authorship_mods,
+            "change_self_mods": change_self_mods,
+            "change_mods": change_mods,
+            "delete_self_mods": delete_self_mods,
+            "delete_mods": delete_mods,
+            "create_forums": create_forums,
+            "change_authorship_forums": change_authorship_forums,
+            "change_self_forums": change_self_forums,
+            "change_forums": change_forums,
+            "delete_self_forums": delete_self_forums,
+            "delete_forums": delete_forums,
+            "change_username": change_username,
+            "change_about": change_about,
+            "change_avatar": change_avatar,
+            "vote_for_reputation": vote_for_reputation,
+        }
+
+        query_update: dict[str, bool] = {}
+        for key, value in sample_query_update.items():
+            if value is not None:
+                query_update[key] = value
+
+        for key, value in query_update.items():
+            setattr(user, key, value)
+        await session.commit()
+
+    # Возвращаем успешный результат
+    return PlainTextResponse(status_code=202, content="Изменения приняты :)")
 
 
 @router.delete(
@@ -737,62 +723,66 @@ async def delete_account(
     Т.е. - аватар, никнейм, "обо мне", электронный адрес, ассоциация с сервисами авторизации, текста комментариев.
     "следы" такие, как история сессий, комментарии (сохраняется факт их наличия, содержимое удаляется) и т.п..
     """
-    access_result = await account.check_access(request=request, response=response)
+    access_result = await tools.access_profile(
+        response=response,
+        request=request,
+        profile_id=user_id,
+    )
 
-    if access_result and access_result.get("owner_id", -1) >= 0:
-        if user_id is not None and user_id != access_result.get("owner_id", -1):
-            raise standarts.ForbiddenError(
-                detail="Вы не можете удалить этот аккаунт!",
+    if not access_result.authenticated or access_result.owner_id < 0:
+        raise standarts.UnauthorizedError(instance=str(request.url))
+
+    if not access_result.delete.value:
+        tools.raise_forbidden_from_right(
+            access_result.delete,
+            instance=str(request.url),
+        )
+
+    user_id = access_result.owner_id
+
+    async with account.AsyncSessionLocal() as session:
+        row = await session.get(account.Account, user_id)
+        if row is None:
+            raise standarts.NotFoundError(
+                detail="Пользователь не найден!",
                 instance=str(request.url),
             )
+        insert_statement = insert(account.blocked_account_creation).values(
+            yandex_id=row.yandex_id,
+            google_id=row.google_id,
+            forget=datetime.datetime.now() + datetime.timedelta(days=5),
+        )
 
-        user_id = access_result.get("owner_id", -1)
-
-        async with account.AsyncSessionLocal() as session:
-            row = await session.get(account.Account, user_id)
-            if row is None:
-                raise standarts.NotFoundError(
-                    detail="Пользователь не найден!",
+        avatar_url = str(row.avatar_url)
+        if avatar_url.startswith("local"):
+            format_name = avatar_url.split(".")[1]
+            if not await tools.storage_file_delete(
+                type="avatar", path=f"{row.id}.{format_name}"
+            ):
+                raise standarts.AvatarDeletionFailedError(
+                    detail="Что-то пошло не так при удалении аватара из системы.",
                     instance=str(request.url),
                 )
-            insert_statement = insert(account.blocked_account_creation).values(
-                yandex_id=row.yandex_id,
-                google_id=row.google_id,
-                forget=datetime.datetime.now() + datetime.timedelta(days=5),
-            )
 
-            avatar_url = str(row.avatar_url)
-            if avatar_url.startswith("local"):
-                format_name = avatar_url.split(".")[1]
-                if not await tools.storage_file_delete(
-                    type="avatar", path=f"{row.id}.{format_name}"
-                ):
-                    raise standarts.AvatarDeletionFailedError(
-                        detail="Что-то пошло не так при удалении аватара из системы.",
-                        instance=str(request.url),
-                    )
+        await session.execute(insert_statement)
+        await session.commit()
 
-            await session.execute(insert_statement)
-            await session.commit()
+        for key in [
+            "yandex_id",
+            "google_id",
+            "username",
+            "about",
+            "avatar_url",
+            "grade",
+            "password_hash",
+        ]:
+            setattr(row, key, None)
+        await session.execute(
+            update(account.Session)
+            .where(account.Session.owner_id == user_id)
+            .values(broken="account deleted")
+        )
 
-            for key in [
-                "yandex_id",
-                "google_id",
-                "username",
-                "about",
-                "avatar_url",
-                "grade",
-                "password_hash",
-            ]:
-                setattr(row, key, None)
-            await session.execute(
-                update(account.Session)
-                .where(account.Session.owner_id == user_id)
-                .values(broken="account deleted")
-            )
+        await session.commit()
 
-            await session.commit()
-
-        return PlainTextResponse(status_code=200, content="Успешно!")
-    else:
-        raise standarts.UnauthorizedError(instance=str(request.url))
+    return PlainTextResponse(status_code=200, content="Успешно!")

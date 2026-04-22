@@ -101,189 +101,174 @@ async def add_mod_from_file(
     pack_format: str = Form("zip", description="Формат упаковки."),
     pack_level: int = Form(3, description="Степень сжатия (0-9)."),
 ):
-    access_result = await account.check_access(request=request, response=response)
-    if isinstance(access_result, bool):
-        raise standarts.ForbiddenError(
-            detail="Нет кук доступа!",
+    access_result = await tools.access_mod_add(
+        response=response,
+        request=request,
+        without_author=without_author,
+    )
+    if not access_result.authenticated:
+        raise standarts.UnauthorizedError(instance=str(request.url))
+    if not access_result.add.value:
+        tools.raise_forbidden_from_right(
+            access_result.add,
             instance=str(request.url),
         )
-    user_id = access_result.get("owner_id", -1)
 
-    if access_result and user_id >= 0:
-        logger.debug(
-            "Mod short description length=%s", len(mod_short_description or "")
+    user_id = access_result.owner_id
+
+    logger.debug(
+        "Mod short description length=%s", len(mod_short_description or "")
+    )
+    if len(re.sub(r"\s+", " ", mod_short_description)) > LIMITS.mod.short_desc_max:
+        raise standarts.PayloadTooLargeError(
+            detail="Короткое описание слишком длинное!",
+            instance=str(request.url),
         )
-        if len(re.sub(r"\s+", " ", mod_short_description)) > LIMITS.mod.short_desc_max:
-            raise standarts.PayloadTooLargeError(
-                detail="Короткое описание слишком длинное!",
-                instance=str(request.url),
-            )
-        elif len(re.sub(r"\s+", " ", mod_description)) > LIMITS.mod.desc_max:
-            raise standarts.PayloadTooLargeError(
-                detail="Описание слишком длинное!",
-                instance=str(request.url),
-            )
-        elif len(mod_name) > LIMITS.mod.name_max:
-            raise standarts.PayloadTooLargeError(
-                detail="Название слишком длинное!",
-                instance=str(request.url),
-            )
-        elif len(mod_name) < LIMITS.mod.name_min:
-            raise standarts.PreconditionRequiredError(
-                detail="Название слишком короткое!",
-                instance=str(request.url),
-            )
-        elif not await tools.check_game_exists(mod_game):
-            raise standarts.PreconditionFailedError(
-                detail="Такой игры не существует!",
-                instance=str(request.url),
-            )
+    elif len(re.sub(r"\s+", " ", mod_description)) > LIMITS.mod.desc_max:
+        raise standarts.PayloadTooLargeError(
+            detail="Описание слишком длинное!",
+            instance=str(request.url),
+        )
+    elif len(mod_name) > LIMITS.mod.name_max:
+        raise standarts.PayloadTooLargeError(
+            detail="Название слишком длинное!",
+            instance=str(request.url),
+        )
+    elif len(mod_name) < LIMITS.mod.name_min:
+        raise standarts.PreconditionRequiredError(
+            detail="Название слишком короткое!",
+            instance=str(request.url),
+        )
+    elif not await tools.check_game_exists(mod_game):
+        raise standarts.PreconditionFailedError(
+            detail="Такой игры не существует!",
+            instance=str(request.url),
+        )
 
-        if pack_format != "zip":
-            raise standarts.BadRequestError(
-                detail="Unsupported format",
-                instance=str(request.url),
-            )
+    if pack_format != "zip":
+        raise standarts.BadRequestError(
+            detail="Unsupported format",
+            instance=str(request.url),
+        )
 
-        if not getattr(config, "TRANSFER_JWT_SECRET", None):
-            raise standarts.InternalServerError(
-                detail="JWT secret missing",
-                instance=str(request.url),
-            )
+    if not getattr(config, "TRANSFER_JWT_SECRET", None):
+        raise standarts.InternalServerError(
+            detail="JWT secret missing",
+            instance=str(request.url),
+        )
 
-        can_publish = False
-        async with account.AsyncSessionLocal() as session:
-            user_req = await session.scalar(
-                select(account.Account).where(account.Account.id == user_id)
-            )
+    if mod_public not in [0, 1, 2]:
+        mod_public = 0
 
-            if user_req and user_req.admin:
-                can_publish = True
-            elif without_author:
-                can_publish = False
-            elif user_req and user_req.mute_until and user_req.mute_until > datetime.now():
-                can_publish = False
-            elif user_req:
-                can_publish = bool(user_req.publish_mods)
-
-        if can_publish:
-            if mod_public not in [0, 1, 2]:
-                mod_public = 0
-
-            async with catalog.AsyncSessionLocal() as session:
-                if mod_source_id > 0 and mod_source != "local":
-                    async with catalog.AsyncSessionLocal() as tsession:
-                        source_conflicts = (
-                            await tsession.execute(
-                                select(catalog.Mod).where(
-                                    catalog.Mod.source == mod_source,
-                                    catalog.Mod.source_id == mod_source_id,
-                                )
-                            )
-                        ).scalars().all()
-
-                    for conflict_mod in source_conflicts:
-                        # Игнорируем конфликт только для незавершенного мода того же автора.
-                        if conflict_mod.condition != 0:
-                            async with account.AsyncSessionLocal() as asession:
-                                same_author = await asession.scalar(
-                                    select(account.mod_and_author.c.user_id).where(
-                                        account.mod_and_author.c.mod_id
-                                        == conflict_mod.id,
-                                        account.mod_and_author.c.user_id == user_id,
-                                    )
-                                )
-                            if same_author is not None:
-                                continue
-
-                        raise standarts.PreconditionFailedError(
-                            detail="Такая source-связка уже существует!",
-                            instance=str(request.url),
-                        )
-
-                new_mod = catalog.Mod(
-                    name=mod_name,
-                    short_description=mod_short_description,
-                    description=mod_description,
-                    size=0,
-                    condition=1,
-                    public=mod_public,
-                    date_creation=datetime.now(),
-                    date_update_file=datetime.now(),
-                    date_edit=datetime.now(),
-                    source=mod_source,
-                    downloads=0,
-                    game=mod_game,
-                )
-                if mod_source_id > 0 and mod_source != "local":
-                    new_mod.source_id = mod_source_id
-
-                session.add(new_mod)
-                await session.flush()
-                rid = new_mod.id
-                await session.commit()
-
-            if not without_author:
-                async with account.AsyncSessionLocal() as session:
-                    await session.execute(
-                        account.mod_and_author.insert().values(
-                            mod_id=rid, user_id=user_id, owner=True
+    async with catalog.AsyncSessionLocal() as session:
+        if mod_source_id > 0 and mod_source != "local":
+            async with catalog.AsyncSessionLocal() as tsession:
+                source_conflicts = (
+                    await tsession.execute(
+                        select(catalog.Mod).where(
+                            catalog.Mod.source == mod_source,
+                            catalog.Mod.source_id == mod_source_id,
                         )
                     )
-                    await session.commit()
+                ).scalars().all()
 
-            try:
-                pack_level = int(pack_level)
-            except (TypeError, ValueError):
-                pack_level = 3
-            pack_level = max(0, min(pack_level, 9))
-            job_id = uuid.uuid4().hex
-            ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
-            try:
-                ttl_seconds = int(ttl_raw)
-            except (TypeError, ValueError):
-                ttl_seconds = 900
-            payload = {
-                "job_id": job_id,
-                "mod_id": rid,
-                "pack_format": pack_format,
-                "pack_level": pack_level,
-            }
-            token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
-            if not token:
-                raise standarts.InternalServerError(
-                    detail="JWT secret missing",
+            for conflict_mod in source_conflicts:
+                # Игнорируем конфликт только для незавершенного мода того же автора.
+                if conflict_mod.condition != 0:
+                    async with account.AsyncSessionLocal() as asession:
+                        same_author = await asession.scalar(
+                            select(account.mod_and_author.c.user_id).where(
+                                account.mod_and_author.c.mod_id == conflict_mod.id,
+                                account.mod_and_author.c.user_id == user_id,
+                            )
+                        )
+                    if same_author is not None:
+                        continue
+
+                raise standarts.PreconditionFailedError(
+                    detail="Такая source-связка уже существует!",
                     instance=str(request.url),
                 )
 
-            transfer_url = (
-                f"{config.STORAGE_URL}/transfer/upload?token={quote(token)}&job_id={job_id}"
-            )
+        new_mod = catalog.Mod(
+            name=mod_name,
+            short_description=mod_short_description,
+            description=mod_description,
+            size=0,
+            condition=1,
+            public=mod_public,
+            date_creation=datetime.now(),
+            date_update_file=datetime.now(),
+            date_edit=datetime.now(),
+            source=mod_source,
+            downloads=0,
+            game=mod_game,
+        )
+        if mod_source_id > 0 and mod_source != "local":
+            new_mod.source_id = mod_source_id
 
-            wants_json = (
-                request.headers.get("X-Requested-With") == "XMLHttpRequest"
-                or "application/json" in (request.headers.get("Accept", "") or "")
-            )
+        session.add(new_mod)
+        await session.flush()
+        rid = new_mod.id
+        await session.commit()
 
-            if wants_json:
-                return JSONResponse(
-                    status_code=200,
-                    content={
-                        "job_id": job_id,
-                        "mod_id": rid,
-                        "transfer_url": transfer_url,
-                        "ws_url": f"{config.STORAGE_URL}/transfer/ws/{job_id}?token={quote(token)}",
-                    },
+    if not without_author:
+        async with account.AsyncSessionLocal() as session:
+            await session.execute(
+                account.mod_and_author.insert().values(
+                    mod_id=rid, user_id=user_id, owner=True
                 )
+            )
+            await session.commit()
 
-            response = RedirectResponse(url=transfer_url, status_code=307)
-            response.headers["X-Upload-Job"] = job_id
-            response.headers["X-Progress-WS"] = f"{config.STORAGE_URL}/transfer/ws/{job_id}"
-            return response
-        else:
-            raise standarts.ForbiddenError(instance=str(request.url))
-    else:
-        raise standarts.UnauthorizedError(instance=str(request.url))
+    try:
+        pack_level = int(pack_level)
+    except (TypeError, ValueError):
+        pack_level = 3
+    pack_level = max(0, min(pack_level, 9))
+    job_id = uuid.uuid4().hex
+    ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
+    try:
+        ttl_seconds = int(ttl_raw)
+    except (TypeError, ValueError):
+        ttl_seconds = 900
+    payload = {
+        "job_id": job_id,
+        "mod_id": rid,
+        "pack_format": pack_format,
+        "pack_level": pack_level,
+    }
+    token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
+    if not token:
+        raise standarts.InternalServerError(
+            detail="JWT secret missing",
+            instance=str(request.url),
+        )
+
+    transfer_url = (
+        f"{config.STORAGE_URL}/transfer/upload?token={quote(token)}&job_id={job_id}"
+    )
+
+    wants_json = (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or "application/json" in (request.headers.get("Accept", "") or "")
+    )
+
+    if wants_json:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "job_id": job_id,
+                "mod_id": rid,
+                "transfer_url": transfer_url,
+                "ws_url": f"{config.STORAGE_URL}/transfer/ws/{job_id}?token={quote(token)}",
+            },
+        )
+
+    response = RedirectResponse(url=transfer_url, status_code=307)
+    response.headers["X-Upload-Job"] = job_id
+    response.headers["X-Progress-WS"] = f"{config.STORAGE_URL}/transfer/ws/{job_id}"
+    return response
 
 
 @router.post(
@@ -428,181 +413,167 @@ async def add_mod_from_url(
     pack_format: str = Form("zip", description="Формат упаковки."),
     pack_level: int = Form(3, description="Степень сжатия (0-9)."),
 ):
-    access_result = await account.check_access(request=request, response=response)
-    if isinstance(access_result, bool):
-        raise standarts.ForbiddenError(
-            detail="Нет кук доступа!",
+    access_result = await tools.access_mod_add(
+        response=response,
+        request=request,
+        without_author=without_author,
+    )
+    if not access_result.authenticated:
+        raise standarts.UnauthorizedError(instance=str(request.url))
+    if not access_result.add.value:
+        tools.raise_forbidden_from_right(
+            access_result.add,
             instance=str(request.url),
         )
-    user_id = access_result.get("owner_id", -1)
 
-    if access_result and user_id >= 0:
-        logger.debug(
-            "Mod short description length=%s", len(mod_short_description or "")
+    user_id = access_result.owner_id
+
+    logger.debug(
+        "Mod short description length=%s", len(mod_short_description or "")
+    )
+    if len(re.sub(r"\s+", " ", mod_short_description)) > LIMITS.mod.short_desc_max:
+        raise standarts.PayloadTooLargeError(
+            detail="Короткое описание слишком длинное!",
+            instance=str(request.url),
         )
-        if len(re.sub(r"\s+", " ", mod_short_description)) > LIMITS.mod.short_desc_max:
-            raise standarts.PayloadTooLargeError(
-                detail="Короткое описание слишком длинное!",
-                instance=str(request.url),
-            )
-        elif len(re.sub(r"\s+", " ", mod_description)) > LIMITS.mod.desc_max:
-            raise standarts.PayloadTooLargeError(
-                detail="Описание слишком длинное!",
-                instance=str(request.url),
-            )
-        elif len(mod_name) > LIMITS.mod.name_max:
-            raise standarts.PayloadTooLargeError(
-                detail="Название слишком длинное!",
-                instance=str(request.url),
-            )
-        elif len(mod_name) < LIMITS.mod.name_min:
-            raise standarts.PreconditionRequiredError(
-                detail="Название слишком короткое!",
-                instance=str(request.url),
-            )
-        elif not await tools.check_game_exists(mod_game):
-            raise standarts.PreconditionFailedError(
-                detail="Такой игры не существует!",
-                instance=str(request.url),
-            )
+    elif len(re.sub(r"\s+", " ", mod_description)) > LIMITS.mod.desc_max:
+        raise standarts.PayloadTooLargeError(
+            detail="Описание слишком длинное!",
+            instance=str(request.url),
+        )
+    elif len(mod_name) > LIMITS.mod.name_max:
+        raise standarts.PayloadTooLargeError(
+            detail="Название слишком длинное!",
+            instance=str(request.url),
+        )
+    elif len(mod_name) < LIMITS.mod.name_min:
+        raise standarts.PreconditionRequiredError(
+            detail="Название слишком короткое!",
+            instance=str(request.url),
+        )
+    elif not await tools.check_game_exists(mod_game):
+        raise standarts.PreconditionFailedError(
+            detail="Такой игры не существует!",
+            instance=str(request.url),
+        )
 
-        parsed = urlparse(mod_url)
-        if parsed.scheme not in {"http", "https"}:
-            raise standarts.PreconditionRequiredError(
-                detail="Некорректная ссылка!",
-                instance=str(request.url),
-            )
+    parsed = urlparse(mod_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise standarts.PreconditionRequiredError(
+            detail="Некорректная ссылка!",
+            instance=str(request.url),
+        )
 
-        if pack_format != "zip":
-            raise standarts.BadRequestError(
-                detail="Unsupported format",
-                instance=str(request.url),
-            )
+    if pack_format != "zip":
+        raise standarts.BadRequestError(
+            detail="Unsupported format",
+            instance=str(request.url),
+        )
 
-        if not getattr(config, "TRANSFER_JWT_SECRET", None):
-            raise standarts.InternalServerError(
-                detail="JWT secret missing",
-                instance=str(request.url),
-            )
+    if not getattr(config, "TRANSFER_JWT_SECRET", None):
+        raise standarts.InternalServerError(
+            detail="JWT secret missing",
+            instance=str(request.url),
+        )
 
-        can_publish = False
-        async with account.AsyncSessionLocal() as session:
-            user_req = await session.scalar(
-                select(account.Account).where(account.Account.id == user_id)
-            )
+    if mod_public not in [0, 1, 2]:
+        mod_public = 0
 
-            if user_req and user_req.admin:
-                can_publish = True
-            elif without_author:
-                can_publish = False
-            elif user_req and user_req.mute_until and user_req.mute_until > datetime.now():
-                can_publish = False
-            elif user_req:
-                can_publish = bool(user_req.publish_mods)
-
-        if can_publish:
-            if mod_public not in [0, 1, 2]:
-                mod_public = 0
-
-            async with catalog.AsyncSessionLocal() as session:
-                if mod_source_id > 0 and mod_source != "local":
-                    async with catalog.AsyncSessionLocal() as tsession:
-                        source_conflict = await tsession.scalar(
-                            select(catalog.Mod).where(
-                                catalog.Mod.source == mod_source,
-                                catalog.Mod.source_id == mod_source_id,
-                            )
-                        )
-                    if source_conflict:
-                        raise standarts.PreconditionFailedError(
-                            detail="Такая source-связка уже существует!",
-                            instance=str(request.url),
-                        )
-
-                new_mod = catalog.Mod(
-                    name=mod_name,
-                    short_description=mod_short_description,
-                    description=mod_description,
-                    size=0,
-                    condition=1,
-                    public=mod_public,
-                    date_creation=datetime.now(),
-                    date_update_file=datetime.now(),
-                    date_edit=datetime.now(),
-                    source=mod_source,
-                    downloads=0,
-                    game=mod_game,
-                )
-                if mod_source_id > 0 and mod_source != "local":
-                    new_mod.source_id = mod_source_id
-
-                session.add(new_mod)
-                await session.flush()
-                rid = new_mod.id
-                await session.commit()
-
-            if not without_author:
-                async with account.AsyncSessionLocal() as session:
-                    await session.execute(
-                        account.mod_and_author.insert().values(
-                            mod_id=rid, user_id=user_id, owner=True
-                        )
+    async with catalog.AsyncSessionLocal() as session:
+        if mod_source_id > 0 and mod_source != "local":
+            async with catalog.AsyncSessionLocal() as tsession:
+                source_conflict = await tsession.scalar(
+                    select(catalog.Mod).where(
+                        catalog.Mod.source == mod_source,
+                        catalog.Mod.source_id == mod_source_id,
                     )
-                    await session.commit()
-
-            try:
-                pack_level = int(pack_level)
-            except (TypeError, ValueError):
-                pack_level = 3
-            pack_level = max(0, min(pack_level, 9))
-            job_id = uuid.uuid4().hex
-            ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
-            try:
-                ttl_seconds = int(ttl_raw)
-            except (TypeError, ValueError):
-                ttl_seconds = 900
-            payload = {
-                "job_id": job_id,
-                "mod_id": rid,
-                "download_url": mod_url,
-                "pack_format": pack_format,
-                "pack_level": pack_level,
-            }
-            token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
-            if not token:
-                raise standarts.InternalServerError(
-                    detail="JWT secret missing",
+                )
+            if source_conflict:
+                raise standarts.PreconditionFailedError(
+                    detail="Такая source-связка уже существует!",
                     instance=str(request.url),
                 )
 
-            redirect_url = (
-                f"{config.STORAGE_URL}/transfer/start?token={quote(token)}&job_id={job_id}"
-            )
+        new_mod = catalog.Mod(
+            name=mod_name,
+            short_description=mod_short_description,
+            description=mod_description,
+            size=0,
+            condition=1,
+            public=mod_public,
+            date_creation=datetime.now(),
+            date_update_file=datetime.now(),
+            date_edit=datetime.now(),
+            source=mod_source,
+            downloads=0,
+            game=mod_game,
+        )
+        if mod_source_id > 0 and mod_source != "local":
+            new_mod.source_id = mod_source_id
 
-            wants_json = (
-                request.headers.get("X-Requested-With") == "XMLHttpRequest"
-                or "application/json" in (request.headers.get("Accept", "") or "")
-            )
+        session.add(new_mod)
+        await session.flush()
+        rid = new_mod.id
+        await session.commit()
 
-            if wants_json:
-                return JSONResponse(
-                    status_code=200,
-                    content={
-                        "job_id": job_id,
-                        "mod_id": rid,
-                        "transfer_url": redirect_url,
-                        "ws_url": f"{config.STORAGE_URL}/transfer/ws/{job_id}?token={quote(token)}",
-                    },
+    if not without_author:
+        async with account.AsyncSessionLocal() as session:
+            await session.execute(
+                account.mod_and_author.insert().values(
+                    mod_id=rid, user_id=user_id, owner=True
                 )
+            )
+            await session.commit()
 
-            response = RedirectResponse(url=redirect_url, status_code=307)
-            response.headers["X-Upload-Job"] = job_id
-            response.headers["X-Progress-WS"] = f"{config.STORAGE_URL}/transfer/ws/{job_id}"
-            return response
-        else:
-            raise standarts.ForbiddenError(instance=str(request.url))
-    else:
-        raise standarts.UnauthorizedError(instance=str(request.url))
+    try:
+        pack_level = int(pack_level)
+    except (TypeError, ValueError):
+        pack_level = 3
+    pack_level = max(0, min(pack_level, 9))
+    job_id = uuid.uuid4().hex
+    ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
+    try:
+        ttl_seconds = int(ttl_raw)
+    except (TypeError, ValueError):
+        ttl_seconds = 900
+    payload = {
+        "job_id": job_id,
+        "mod_id": rid,
+        "download_url": mod_url,
+        "pack_format": pack_format,
+        "pack_level": pack_level,
+    }
+    token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
+    if not token:
+        raise standarts.InternalServerError(
+            detail="JWT secret missing",
+            instance=str(request.url),
+        )
+
+    redirect_url = (
+        f"{config.STORAGE_URL}/transfer/start?token={quote(token)}&job_id={job_id}"
+    )
+
+    wants_json = (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or "application/json" in (request.headers.get("Accept", "") or "")
+    )
+
+    if wants_json:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "job_id": job_id,
+                "mod_id": rid,
+                "transfer_url": redirect_url,
+                "ws_url": f"{config.STORAGE_URL}/transfer/ws/{job_id}?token={quote(token)}",
+            },
+        )
+
+    response = RedirectResponse(url=redirect_url, status_code=307)
+    response.headers["X-Upload-Job"] = job_id
+    response.headers["X-Progress-WS"] = f"{config.STORAGE_URL}/transfer/ws/{job_id}"
+    return response
 
 
 async def _storage_transfer_complete_img(
@@ -1399,10 +1370,7 @@ async def mod_list(
             raise standarts.UnauthorizedError(instance=str(request.url))
 
         if req_user_id != user:
-            async with account.AsyncSessionLocal() as session_account:
-                user_req = await session_account.get(account.Account, req_user_id)
-
-            if not user_req or not user_req.admin:
+            if not access_result.admin:
                 raise standarts.ForbiddenError(instance=str(request.url))
 
     async with catalog.AsyncSessionLocal() as session:
@@ -2041,96 +2009,76 @@ async def edit_authors_mod(
         description="Владелец ли? Текущий владелец если он есть станет участником.",
     ),
 ):
-    access_result = await account.check_access(request=request, response=response)
+    mod_access = await tools.access_mod_action(
+        response=response,
+        request=request,
+        mod_id=mod_id,
+        author_id=author,
+        mode=mode,
+    )
+    if not mod_access.authenticated:
+        raise standarts.UnauthorizedError(instance=str(request.url))
+    if not mod_access.edit.authors.value:
+        tools.raise_forbidden_from_right(
+            mod_access.edit.authors,
+            instance=str(request.url),
+        )
 
-    if access_result and access_result.get("owner_id", -1) >= 0:
-        req_user_id = access_result.get("owner_id", -1)
+    async with account.AsyncSessionLocal() as session:
+        user_add = await session.get(account.Account, author)
+        if not user_add:
+            raise standarts.ForbiddenError(instance=str(request.url))
 
-        async with account.AsyncSessionLocal() as session:
-            user_req = await session.get(account.Account, req_user_id)
-            user_add = await session.get(account.Account, author)
-
-            async def mini():
-                if not user_add:
-                    return False
-                if user_req.admin:
-                    return True
-                if user_req.mute_until and user_req.mute_until > datetime.now():
-                    return False
-
-                in_mod = await session.scalar(
-                    select(account.mod_and_author.c.owner).where(
+        if mode:
+            has_owner = await session.scalar(
+                select(account.mod_and_author.c.owner).where(
+                    account.mod_and_author.c.mod_id == mod_id,
+                    account.mod_and_author.c.owner.is_(True),
+                )
+            )
+            if owner and has_owner:
+                await session.execute(
+                    update(account.mod_and_author)
+                    .where(
                         account.mod_and_author.c.mod_id == mod_id,
-                        account.mod_and_author.c.user_id == req_user_id,
+                        account.mod_and_author.c.owner.is_(True),
+                    )
+                    .values(owner=False)
+                )
+                await session.commit()
+
+            has_target = await session.scalar(
+                select(account.mod_and_author.c.owner).where(
+                    account.mod_and_author.c.mod_id == mod_id,
+                    account.mod_and_author.c.user_id == author,
+                )
+            )
+            if has_target is not None:
+                await session.execute(
+                    update(account.mod_and_author)
+                    .where(
+                        account.mod_and_author.c.mod_id == mod_id,
+                        account.mod_and_author.c.user_id == author,
+                    )
+                    .values(owner=owner)
+                )
+            else:
+                await session.execute(
+                    insert(account.mod_and_author).values(
+                        user_id=author, owner=owner, mod_id=mod_id
                     )
                 )
+            await session.commit()
+        else:
+            await session.execute(
+                delete(account.mod_and_author).where(
+                    account.mod_and_author.c.mod_id == mod_id,
+                    account.mod_and_author.c.user_id == author,
+                )
+            )
+            await session.commit()
 
-                if in_mod is not None:
-                    if in_mod:
-                        if req_user_id == author and not mode:
-                            return False
-                        return True
-                    if req_user_id == author and not mode:
-                        return True
-                elif user_req.change_authorship_mods:
-                    return True
-                return False
-
-            if await mini():
-                if mode:
-                    has_owner = await session.scalar(
-                        select(account.mod_and_author.c.owner).where(
-                            account.mod_and_author.c.mod_id == mod_id,
-                            account.mod_and_author.c.owner.is_(True),
-                        )
-                    )
-                    if owner and has_owner:
-                        await session.execute(
-                            update(account.mod_and_author)
-                            .where(
-                                account.mod_and_author.c.mod_id == mod_id,
-                                account.mod_and_author.c.owner.is_(True),
-                            )
-                            .values(owner=False)
-                        )
-                        await session.commit()
-
-                    has_target = await session.scalar(
-                        select(account.mod_and_author.c.owner).where(
-                            account.mod_and_author.c.mod_id == mod_id,
-                            account.mod_and_author.c.user_id == author,
-                        )
-                    )
-                    if has_target is not None:
-                        await session.execute(
-                            update(account.mod_and_author)
-                            .where(
-                                account.mod_and_author.c.mod_id == mod_id,
-                                account.mod_and_author.c.user_id == author,
-                            )
-                            .values(owner=owner)
-                        )
-                    else:
-                        await session.execute(
-                            insert(account.mod_and_author).values(
-                                user_id=author, owner=owner, mod_id=mod_id
-                            )
-                        )
-                    await session.commit()
-                else:
-                    await session.execute(
-                        delete(account.mod_and_author).where(
-                            account.mod_and_author.c.mod_id == mod_id,
-                            account.mod_and_author.c.user_id == author,
-                        )
-                    )
-                    await session.commit()
-
-                return JSONResponse(status_code=200, content="Выполнено")
-
-        raise standarts.ForbiddenError(instance=str(request.url))
-    else:
-        raise standarts.UnauthorizedError(instance=str(request.url))
+        return JSONResponse(status_code=200, content="Выполнено")
 
 
 @router.delete(
@@ -2153,50 +2101,29 @@ async def delete_mod(
     request: Request,
     mod_id: int = Path(description="ID мода для удаления."),
 ):
-    access_result = await account.check_access(request=request, response=response)
+    mod_access = await tools.access_mod_action(
+        response=response,
+        request=request,
+        mod_id=mod_id,
+    )
     logger.info("Delete mod request received mod_id=%s", mod_id)
 
-    if not access_result or access_result.get("owner_id", -1) < 0:
+    if not mod_access.authenticated or mod_access.owner_id < 0:
         logger.info("Delete mod denied: invalid session mod_id=%s", mod_id)
         raise standarts.UnauthorizedError(instance=str(request.url))
-    user_id = access_result.get("owner_id", -1)
+    user_id = mod_access.owner_id
     logger.info("Delete mod auth ok mod_id=%s user_id=%s", mod_id, user_id)
 
-    async with account.AsyncSessionLocal() as session:
-        user_req = await session.get(account.Account, access_result.get("owner_id"))
-        if not user_req:
-            raise standarts.NotFoundError(
-                detail="Пользователь не найден!",
-                instance=str(request.url),
-            )
-
-        async def mini():
-            if user_req.admin:
-                return True
-            if user_req.mute_until and user_req.mute_until > datetime.now():
-                return False
-
-            in_mod = await session.scalar(
-                select(account.mod_and_author.c.owner).where(
-                    account.mod_and_author.c.mod_id == mod_id,
-                    account.mod_and_author.c.user_id == user_id,
-                )
-            )
-
-            if in_mod and user_req.delete_self_mods and in_mod:
-                return True
-            if user_req.delete_mods:
-                return True
-
-            return False
-
-        if not await mini():
-            logger.info(
-                "Delete mod denied by permissions mod_id=%s user_id=%s",
-                mod_id,
-                user_id,
-            )
-            raise standarts.ForbiddenError(instance=str(request.url))
+    if not mod_access.delete.value:
+        logger.info(
+            "Delete mod denied by permissions mod_id=%s user_id=%s",
+            mod_id,
+            user_id,
+        )
+        tools.raise_forbidden_from_right(
+            mod_access.delete,
+            instance=str(request.url),
+        )
 
     # Удаление ресурсов
     logger.info("Delete mod removing resources mod_id=%s", mod_id)

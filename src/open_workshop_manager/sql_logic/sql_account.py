@@ -25,7 +25,9 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from open_workshop_manager import access_client
 from open_workshop_manager import settings as config
+from open_workshop_manager import standarts
 
 async_engine: AsyncEngine = create_async_engine(
     config.mysql_url("catalog"),
@@ -296,26 +298,27 @@ async def check_access(response: Response, request: Request):
     if not access_token or not refresh_token:
         return False
 
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Session).where(
-                Session.access_token == access_token,
-                Session.refresh_token == refresh_token,
-                Session.broken.is_(None),
-            )
+    try:
+        context = await access_client.resolve_context(
+            request=request,
+            response=response,
         )
-        row = result.scalar_one_or_none()
+    except access_client.AccessServiceError as exc:
+        status_code = getattr(exc, "status_code", None)
+        if status_code in {408, 504}:
+            raise standarts.GatewayTimeoutError(
+                detail="Access service timeout",
+                instance=str(request.url),
+            ) from exc
+        raise standarts.InternalServerError(
+            detail="Access service unavailable",
+            instance=str(request.url),
+        ) from exc
 
-        if row is None:
-            return False
+    if not context.authenticated or context.owner_id < 0:
+        return False
 
-        row.last_request_date = datetime.datetime.now()
-        await session.commit()
-
-        return {
-            "owner_id": row.owner_id,
-            "login_method": row.login_method,
-        }
+    return context
 
 
 async def update_session(response: Response, request: Request) -> bool:

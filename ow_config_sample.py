@@ -4,6 +4,10 @@ yandex_client_secret = "..."
 STORAGE_URL = "http://127.0.0.1:7070"
 MAIN_URL = "/api/accounts"
 API_BASE_URL = "https://api.openworkshop.miskler.ru"
+ACCESS_SERVICE_URL = "http://127.0.0.1:7777"
+ACCESS_SERVICE_TOKEN = ""
+ACCESS_CALLBACK_TOKEN = ""
+ACCESS_TIMEOUT_SECONDS = 30
 TRANSFER_JWT_SECRET = ""
 TRANSFER_JWT_TTL_SECONDS = 900
 STORAGE_TIMEOUT_SECONDS = 1800
@@ -18,6 +22,13 @@ port_sql = 3306
 
 
 # Хеши токенов
+
+
+# Access service
+
+
+# Trusted callback from access service to manager.
+# Can be a plain secret or a bcrypt hash, the runtime accepts both.
 
 
 # Доступ к не публичным модам
