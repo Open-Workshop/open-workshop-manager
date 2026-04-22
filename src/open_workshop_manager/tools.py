@@ -106,6 +106,28 @@ def _raise_access_service_error(
     ) from exc
 
 
+def _mod_status_allowed(status: access_client.ModResponse, *, edit: bool) -> bool:
+    if edit:
+        return bool(status.edit.title.value)
+    return bool(status.download.value)
+
+
+def _allowed_mod_ids(
+    access_result: dict[int, access_client.ModResponse],
+    normalized_mod_ids: list[int],
+    *,
+    edit: bool,
+) -> list[int]:
+    allowed_ids: list[int] = []
+    for mod_id in normalized_mod_ids:
+        status = access_result.get(mod_id)
+        if status is None:
+            continue
+        if _mod_status_allowed(status, edit=edit):
+            allowed_ids.append(mod_id)
+    return allowed_ids
+
+
 async def access_admin(request: Request) -> bool:
     """
     Asynchronously checks if the user has admin access.
@@ -229,15 +251,16 @@ async def anonymous_access_mods(
     try:
         access_result = await access_client.resolve_mods(
             mods_ids=normalized_mod_ids,
-            edit=edit,
         )
     except access_client.AccessServiceError as exc:
         _raise_access_service_error("anonymous_access_mods", exc)
 
-    if check_mode:
-        return access_result.allowed_ids
+    allowed_ids = _allowed_mod_ids(access_result, normalized_mod_ids, edit=edit)
 
-    return len(access_result.allowed_ids) == len(normalized_mod_ids)
+    if check_mode:
+        return allowed_ids
+
+    return len(allowed_ids) == len(normalized_mod_ids)
 
 
 @overload
@@ -287,22 +310,29 @@ async def access_mods(
     """
     normalized_mod_ids = _normalize_mod_ids(mods_ids)
 
+    if edit:
+        access_context = await account.check_access(request=request)
+        if (
+            not access_context
+            or not access_context.authenticated
+            or access_context.owner_id < 0
+        ):
+            raise standarts.UnauthorizedError(instance=str(request.url))
+
     try:
         access_result = await access_client.resolve_mods(
             request=request,
             mods_ids=normalized_mod_ids,
-            edit=edit,
         )
     except access_client.AccessServiceError as exc:
         _raise_access_service_error(str(request.url), exc)
 
-    if edit and not access_result.authenticated:
-        raise standarts.UnauthorizedError(instance=str(request.url))
+    allowed_ids = _allowed_mod_ids(access_result, normalized_mod_ids, edit=edit)
 
     if check_mode:
-        return access_result.allowed_ids
+        return allowed_ids
 
-    if len(access_result.allowed_ids) == len(normalized_mod_ids):
+    if len(allowed_ids) == len(normalized_mod_ids):
         return True
 
     raise standarts.ForbiddenError(instance=str(request.url))

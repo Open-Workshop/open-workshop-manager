@@ -5,7 +5,7 @@ from typing import Any, TypeVar
 
 import aiohttp
 from fastapi import Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from open_workshop_manager import settings as config
 
@@ -95,10 +95,6 @@ class ModAddResponse(AccessState):
     anonymous_add: BaseRight
 
 
-class ModsResponse(AccessState):
-    allowed_ids: list[int] = Field(default_factory=list)
-
-
 class SimpleCrudResponse(AccessState):
     add: BaseRight
     edit: BaseRight
@@ -184,6 +180,16 @@ async def _post_model(
     *,
     cookies: dict[str, str] | None = None,
 ) -> T:
+    data = await _post_json(path, payload, cookies=cookies)
+    return model_cls.model_validate(data)
+
+
+async def _post_json(
+    path: str,
+    payload: dict[str, Any] | None,
+    *,
+    cookies: dict[str, str] | None = None,
+) -> Any:
     url = config.ACCESS_SERVICE_URL.rstrip("/") + path
     headers = {"Authorization": f"Bearer {config.ACCESS_SERVICE_TOKEN}"}
     timeout = aiohttp.ClientTimeout(total=float(config.ACCESS_TIMEOUT_SECONDS))
@@ -204,25 +210,11 @@ async def _post_model(
                         status_code=response.status,
                     )
                 try:
-                    data = await response.json()
+                    return await response.json()
                 except (aiohttp.ContentTypeError, ValueError) as exc:
                     raise AccessServiceError("Access service returned invalid JSON") from exc
     except aiohttp.ClientError as exc:  # pragma: no cover - network failure
         raise AccessServiceError(f"Access service call failed: {exc}") from exc
-
-    return model_cls.model_validate(data)
-
-
-async def resolve_context(
-    *,
-    request: Request | None = None,
-) -> AccessState:
-    return await _post_model(
-        "/context",
-        None,
-        AccessState,
-        cookies=_session_cookies(request),
-    )
 
 
 async def resolve_mod_add(
@@ -262,18 +254,22 @@ async def resolve_mods(
     *,
     request: Request | None = None,
     mods_ids: list[int] | int,
-    edit: bool = False,
-) -> ModsResponse:
+) -> dict[int, ModResponse]:
     payload = {
         "mods_ids": _normalize_mod_ids(mods_ids),
-        "edit": edit,
     }
-    return await _post_model(
+    data = await _post_json(
         "/mods",
         payload,
-        ModsResponse,
         cookies=_session_cookies(request),
     )
+    if not isinstance(data, dict):
+        raise AccessServiceError("Access service returned unexpected batch response")
+
+    return {
+        int(mod_id): ModResponse.model_validate(mod_payload)
+        for mod_id, mod_payload in data.items()
+    }
 
 
 async def resolve_profile(

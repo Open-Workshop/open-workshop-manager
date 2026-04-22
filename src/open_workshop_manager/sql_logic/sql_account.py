@@ -291,54 +291,84 @@ async def no_from_russia(request: Request) -> str | None:
     return None
 
 
-async def check_access(request: Request):
+def _access_context_from_rows(
+    account_row: Account,
+    session_row: Session,
+) -> access_client.AccessState:
+    password_change_available_at = (
+        account_row.last_password_reset + datetime.timedelta(minutes=5)
+        if account_row.last_password_reset
+        else None
+    )
+    username_change_available_at = (
+        account_row.last_username_reset + datetime.timedelta(days=30)
+        if account_row.last_username_reset
+        else None
+    )
+    return access_client.AccessState(
+        authenticated=True,
+        owner_id=account_row.id,
+        login_method=session_row.login_method,
+        admin=bool(account_row.admin),
+        write_comments=bool(account_row.write_comments),
+        set_reactions=bool(account_row.set_reactions),
+        create_reactions=bool(account_row.create_reactions),
+        mute_until=account_row.mute_until,
+        mute_users=bool(account_row.mute_users),
+        publish_mods=bool(account_row.publish_mods),
+        change_authorship_mods=bool(account_row.change_authorship_mods),
+        change_self_mods=bool(account_row.change_self_mods),
+        change_mods=bool(account_row.change_mods),
+        delete_self_mods=bool(account_row.delete_self_mods),
+        delete_mods=bool(account_row.delete_mods),
+        create_forums=bool(account_row.create_forums),
+        change_authorship_forums=bool(account_row.change_authorship_forums),
+        change_self_forums=bool(account_row.change_self_forums),
+        change_forums=bool(account_row.change_forums),
+        delete_self_forums=bool(account_row.delete_self_forums),
+        delete_forums=bool(account_row.delete_forums),
+        change_username=bool(account_row.change_username),
+        change_about=bool(account_row.change_about),
+        change_avatar=bool(account_row.change_avatar),
+        vote_for_reputation=bool(account_row.vote_for_reputation),
+        last_username_reset=account_row.last_username_reset,
+        last_password_reset=account_row.last_password_reset,
+        password_change_available_at=password_change_available_at,
+        username_change_available_at=username_change_available_at,
+    )
+
+
+async def check_access(request: Request) -> access_client.AccessState | bool:
     access_token = request.cookies.get("accessToken", "")
     refresh_token = request.cookies.get("refreshToken", "")
 
     if not access_token or not refresh_token:
         return False
 
-    try:
-        context = await access_client.resolve_context(
-            request=request,
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Session).where(
+                Session.access_token == access_token,
+                Session.refresh_token == refresh_token,
+                Session.broken.is_(None),
+            )
         )
-    except access_client.AccessServiceError as exc:
-        status_code = getattr(exc, "status_code", None)
-        if status_code in {408, 504}:
-            raise standarts.GatewayTimeoutError(
-                detail="Access service timeout",
-                instance=str(request.url),
-            ) from exc
-        raise standarts.InternalServerError(
-            detail="Access service unavailable",
-            instance=str(request.url),
-        ) from exc
+        session_row = result.scalar_one_or_none()
+        if session_row is None or session_row.owner_id is None:
+            return False
 
-    if not context.authenticated or context.owner_id < 0:
-        return False
+        account_row = await session.get(Account, session_row.owner_id)
+        if account_row is None:
+            return False
 
-    return context
+        session_row.last_request_date = datetime.datetime.now()
+        await session.commit()
+        return _access_context_from_rows(account_row, session_row)
 
 
 async def update_session(request: Request) -> bool:
     access_result = await check_access(request=request)
-    if not access_result or access_result.get("owner_id", -1) < 0:
-        return False
-
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Session).where(
-                Session.access_token == request.cookies.get("accessToken", "")
-            )
-        )
-
-        row = result.scalar_one_or_none()
-        if row is None:
-            return False
-
-        row.last_request_date = datetime.datetime.now()
-        await session.commit()
-        return True
+    return bool(access_result and access_result.get("owner_id", -1) >= 0)
 
 
 async def init_models() -> None:
