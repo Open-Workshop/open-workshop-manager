@@ -1,0 +1,144 @@
+from __future__ import annotations
+
+import pathlib
+import sys
+import types
+import unittest
+from importlib import import_module
+from unittest.mock import patch
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+if "aiomysql" not in sys.modules:
+    aiomysql_stub = types.ModuleType("aiomysql")
+    aiomysql_stub.__version__ = "0"
+    aiomysql_stub.paramstyle = "pyformat"
+    aiomysql_stub.connect = lambda *args, **kwargs: None  # pragma: no cover
+    aiomysql_stub.Warning = type("Warning", (Exception,), {})
+    aiomysql_stub.Error = type("Error", (Exception,), {})
+    aiomysql_stub.InterfaceError = type("InterfaceError", (Exception,), {})
+    aiomysql_stub.DataError = type("DataError", (Exception,), {})
+    aiomysql_stub.DatabaseError = type("DatabaseError", (Exception,), {})
+    aiomysql_stub.OperationalError = type("OperationalError", (Exception,), {})
+    aiomysql_stub.IntegrityError = type("IntegrityError", (Exception,), {})
+    aiomysql_stub.ProgrammingError = type("ProgrammingError", (Exception,), {})
+    aiomysql_stub.InternalError = type("InternalError", (Exception,), {})
+    aiomysql_stub.NotSupportedError = type("NotSupportedError", (Exception,), {})
+    aiomysql_stub.Cursor = type("Cursor", (), {})
+    aiomysql_stub.SSCursor = type("SSCursor", (), {})
+    aiomysql_cursors_stub = types.ModuleType("aiomysql.cursors")
+    aiomysql_cursors_stub.SSCursor = aiomysql_stub.SSCursor
+    sys.modules["aiomysql.cursors"] = aiomysql_cursors_stub
+    sys.modules["aiomysql"] = aiomysql_stub
+
+
+class _DummyResult:
+    def __init__(self, rows: list[object]) -> None:
+        self._rows = rows
+
+    def scalars(self) -> "_DummyResult":
+        return self
+
+    def all(self) -> list[object]:
+        return self._rows
+
+
+class _DummySession:
+    def __init__(self, rows: list[object]) -> None:
+        self.rows = rows
+        self.executed_sql: list[str] = []
+
+    async def __aenter__(self) -> "_DummySession":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    async def scalar(self, stmt) -> int:  # pragma: no cover - simple stub
+        return 1
+
+    async def execute(self, stmt) -> _DummyResult:
+        self.executed_sql.append(str(stmt))
+        return _DummyResult(self.rows)
+
+
+class ModListSizeFilterTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        standarts = import_module("open_workshop_manager.standarts")
+        api_mod = import_module("open_workshop_manager.mods.api_mod")
+        main_url = import_module("open_workshop_manager.settings").MAIN_URL
+
+        cls.api_mod = api_mod
+        cls.main_url = main_url
+        cls.standarts = standarts
+
+        app = FastAPI()
+        standarts.install_exception_handlers(app)
+        app.include_router(cls.api_mod.router)
+        cls.client = TestClient(app)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+
+    def test_mod_list_rejects_reversed_size_range(self) -> None:
+        response = self.client.get(
+            f"{self.main_url}/mods",
+            params={"size_min": 200, "size_max": 100},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["detail"],
+            "Минимальный размер мода не может быть больше максимального!",
+        )
+
+    def test_mod_list_applies_size_range_filter(self) -> None:
+        mod = types.SimpleNamespace(
+            id=7,
+            name="Sized Mod",
+            description="",
+            short_description="",
+            date_creation=None,
+            date_update_file=None,
+            date_edit=None,
+            size=150,
+            size_unpacked=320,
+            source="local",
+            source_id=11,
+            downloads=42,
+        )
+        dummy_session = _DummySession([mod])
+
+        with patch.object(
+            self.api_mod.catalog,
+            "AsyncSessionLocal",
+            return_value=dummy_session,
+        ):
+            response = self.client.get(
+                f"{self.main_url}/mods",
+                params={"size_min": 100, "size_max": 200},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["database_size"], 1)
+        self.assertEqual(body["results"][0]["size"], 150)
+        self.assertTrue(
+            any(
+                "mods.size >= " in sql and "mods.size <= " in sql
+                for sql in dummy_session.executed_sql
+            ),
+            msg=f"Captured SQL did not include size bounds: {dummy_session.executed_sql}",
+        )
+
+
+if __name__ == "__main__":  # pragma: no cover
+    unittest.main()

@@ -1234,6 +1234,9 @@ async def public_mods(
         413: {
             "description": "Слишком сложный запрос ИЛИ page_size вне диапазона.",
         },
+        400: {
+            "description": "Некорректный диапазон размера мода.",
+        },
     },
 )
 async def mod_list(
@@ -1270,6 +1273,16 @@ async def mod_list(
         [],
         description="Массив ID модов в разрешенных источниках. Обязательно передать `primary_sources`.",
         examples=["[1, 2, 3]"],
+    ),
+    size_min: int | None = Query(
+        None,
+        ge=0,
+        description="Минимальный размер мода в байтах.",
+    ),
+    size_max: int | None = Query(
+        None,
+        ge=0,
+        description="Максимальный размер мода в байтах.",
     ),
     name: str = Query("", description="Поиск по названию."),
     user: int = Query(
@@ -1321,6 +1334,10 @@ async def mod_list(
     О фильтрации по зависимостям:
     `dependencies` принимает массив ID модов и применяет логику `И`.
     Одновременное использование `dependencies` и `independents=true` запрещено.
+
+    О фильтрации по размеру:
+    `size_min` и `size_max` задают диапазон в байтах для поля `size`.
+    Можно передать только одну границу или обе сразу.
     """
     tags = tools.str_to_list(tags)
     dependencies = tools.str_to_list(dependencies)
@@ -1362,6 +1379,12 @@ async def mod_list(
             detail="independents filter conflicts with dependencies filter",
             instance=str(request.url),
             context={"error_id": 4},
+        )
+    elif size_min is not None and size_max is not None and size_min > size_max:
+        raise standarts.BadRequestError(
+            detail="Минимальный размер мода не может быть больше максимального!",
+            instance=str(request.url),
+            context={"error_id": 5},
         )
 
     want_not_public = show_not_public and user > 0
@@ -1420,6 +1443,11 @@ async def mod_list(
         if len(name) > 0:
             logger.debug("Filtering mods by name length=%s", len(name))
             stmt = stmt.where(catalog.Mod.name.ilike(f"%{name}%"))
+
+        if size_min is not None:
+            stmt = stmt.where(catalog.Mod.size >= size_min)
+        if size_max is not None:
+            stmt = stmt.where(catalog.Mod.size <= size_max)
 
         if len(tags) > 0:
             for tag in tags:
