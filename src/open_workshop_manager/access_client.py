@@ -92,6 +92,7 @@ class ModResponse(AccessState):
 
 class ModAddResponse(AccessState):
     add: BaseRight
+    anonymous_add: BaseRight
 
 
 class ModsResponse(AccessState):
@@ -178,23 +179,24 @@ def _session_cookies(request: Request | None) -> dict[str, str]:
 
 async def _post_model(
     path: str,
-    payload: dict[str, Any],
+    payload: dict[str, Any] | None,
     model_cls: type[T],
     *,
     cookies: dict[str, str] | None = None,
 ) -> T:
     url = config.ACCESS_SERVICE_URL.rstrip("/") + path
-    headers = {"x-token": config.ACCESS_SERVICE_TOKEN}
+    headers = {"Authorization": f"Bearer {config.ACCESS_SERVICE_TOKEN}"}
     timeout = aiohttp.ClientTimeout(total=float(config.ACCESS_TIMEOUT_SECONDS))
 
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(
-                url,
-                json=payload,
-                headers=headers,
-                cookies=cookies or None,
-            ) as response:
+            post_kwargs: dict[str, Any] = {
+                "headers": headers,
+                "cookies": cookies or None,
+            }
+            if payload is not None:
+                post_kwargs["json"] = payload
+            async with session.post(url, **post_kwargs) as response:
                 if response.status >= 400:
                     text = await response.text()
                     raise AccessServiceError(
@@ -214,15 +216,10 @@ async def _post_model(
 async def resolve_context(
     *,
     request: Request | None = None,
-    user_id: int | None = None,
 ) -> AccessState:
-    payload: dict[str, Any] = {}
-    if user_id is not None:
-        payload["user_id"] = user_id
-
     return await _post_model(
         "/context",
-        payload,
+        None,
         AccessState,
         cookies=_session_cookies(request),
     )
@@ -231,15 +228,10 @@ async def resolve_context(
 async def resolve_mod_add(
     *,
     request: Request | None = None,
-    without_author: bool | None = None,
 ) -> ModAddResponse:
-    payload: dict[str, Any] = {}
-    if without_author is not None:
-        payload["without_author"] = without_author
-
     return await _post_model(
         "/mod",
-        payload,
+        None,
         ModAddResponse,
         cookies=_session_cookies(request),
     )
@@ -269,7 +261,6 @@ async def resolve_mod(
 async def resolve_mods(
     *,
     request: Request | None = None,
-    user_id: int | None = None,
     mods_ids: list[int] | int,
     edit: bool = False,
 ) -> ModsResponse:
@@ -277,8 +268,6 @@ async def resolve_mods(
         "mods_ids": _normalize_mod_ids(mods_ids),
         "edit": edit,
     }
-    if user_id is not None:
-        payload["user_id"] = user_id
     return await _post_model(
         "/mods",
         payload,

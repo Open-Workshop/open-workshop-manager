@@ -56,6 +56,13 @@ routers_edit_mod_response = {
 router = APIRouter()
 
 
+def _bearer_token(authorization: str) -> str:
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer":
+        return ""
+    return token.strip()
+
+
 @router.post(
     MAIN_URL + "/mods/from-file",
     tags=["Mod"],
@@ -103,15 +110,15 @@ async def add_mod_from_file(
 ):
     access_result = await tools.access_mod_add(
         request=request,
-        without_author=without_author,
     )
     if not access_result.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
-    if not access_result.add.value:
+    required_right = access_result.anonymous_add if without_author else access_result.add
+    if not required_right.value:
         raise standarts.ForbiddenError(
-            detail=access_result.add.reason,
+            detail=required_right.reason,
             instance=str(request.url),
-            context={"reason_code": access_result.add.reason_code},
+            context={"reason_code": required_right.reason_code},
         )
 
     user_id = access_result.owner_id
@@ -413,15 +420,15 @@ async def add_mod_from_url(
 ):
     access_result = await tools.access_mod_add(
         request=request,
-        without_author=without_author,
     )
     if not access_result.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
-    if not access_result.add.value:
+    required_right = access_result.anonymous_add if without_author else access_result.add
+    if not required_right.value:
         raise standarts.ForbiddenError(
-            detail=access_result.add.reason,
+            detail=required_right.reason,
             instance=str(request.url),
-            context={"reason_code": access_result.add.reason_code},
+            context={"reason_code": required_right.reason_code},
         )
 
     user_id = access_result.owner_id
@@ -1096,10 +1103,10 @@ async def access_to_mods(
     ids_array=Path(description="Массив ID модов"),
     edit: bool = Query(False, description="Фильтр на edit доступ"),
     user: int = Query(-1, description="ID пользователя"),
-    token: str = Header(
-        "none",
-        alias="x-token",
-        description="Токен для проверки прав других пользователей, аналог токена - админские права просящего",
+    authorization: str = Header(
+        "",
+        alias="Authorization",
+        description="Bearer token для проверки прав других пользователей, аналог токена - админские права просящего",
     ),
 ):
     """
@@ -1124,7 +1131,8 @@ async def access_to_mods(
                 mods_ids = result.scalars().all()
             return mods_ids
         elif await tools.check_token(
-            token_name="access_mods_check_anonymous", token=token
+            token_name="access_mods_check_anonymous",
+            token=_bearer_token(authorization),
         ) or await tools.access_admin(request=request):
             return await tools.anonymous_access_mods(
                 user_id=user, mods_ids=ids_array, edit=edit, check_mode=True

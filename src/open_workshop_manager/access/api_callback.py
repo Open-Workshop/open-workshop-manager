@@ -31,7 +31,6 @@ class AccessModEntry(BaseModel):
 class AccessCallbackRequest(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra="ignore")
 
-    user_id: int | None = None
     mods_ids: list[int] = Field(default_factory=list)
 
 
@@ -77,6 +76,13 @@ class AccessCallbackContext(BaseModel):
 
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
+
+
+def _bearer_token(authorization: str) -> str:
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer":
+        return ""
+    return token.strip()
 
 
 def _context_from_account(
@@ -136,7 +142,7 @@ def _context_from_account(
 
 
 async def _load_mods(
-    user_id: int,
+    owner_id: int,
     mod_ids: list[int],
 ) -> list[AccessModEntry]:
     if not mod_ids:
@@ -155,14 +161,14 @@ async def _load_mods(
         mod_rows = {int(row.id): row for row in result.all()}
 
     relation_map: dict[int, bool] = {}
-    if user_id > 0:
+    if owner_id > 0:
         async with account.AsyncSessionLocal() as account_session:
             result = await account_session.execute(
                 select(
                     account.mod_and_author.c.mod_id,
                     account.mod_and_author.c.owner,
                 ).where(
-                    account.mod_and_author.c.user_id == user_id,
+                    account.mod_and_author.c.user_id == owner_id,
                     account.mod_and_author.c.mod_id.in_(unique_ids),
                 )
             )
@@ -201,13 +207,15 @@ async def callback_context(
     payload: AccessCallbackRequest,
     access_token: str | None = Cookie(None, alias="accessToken"),
     refresh_token: str | None = Cookie(None, alias="refreshToken"),
-    token: str = Header("", alias="x-token"),
+    authorization: str = Header("", alias="Authorization"),
 ):
-    if not await tools.check_token("ACCESS_CALLBACK_TOKEN", token):
+    if not await tools.check_token(
+        "ACCESS_CALLBACK_TOKEN", _bearer_token(authorization)
+    ):
         raise standarts.ForbiddenError(instance=str(request.url))
 
     session_context = AccessCallbackContext(authenticated=False)
-    subject_user_id = -1
+    session_owner_id = -1
 
     async with account.AsyncSessionLocal() as session:
         session_row = None
@@ -224,7 +232,7 @@ async def callback_context(
             if session_row is not None and session_row.owner_id is not None:
                 account_row = await session.get(account.Account, session_row.owner_id)
                 if account_row is not None:
-                    subject_user_id = account_row.id
+                    session_owner_id = account_row.id
                     session_context = _context_from_account(
                         account_row,
                         authenticated=True,
@@ -233,18 +241,9 @@ async def callback_context(
                     session_row.last_request_date = datetime.datetime.now()
                     await session.commit()
 
-        if account_row is None and payload.user_id is not None and payload.user_id > 0:
-            account_row = await session.get(account.Account, payload.user_id)
-            if account_row is not None:
-                subject_user_id = account_row.id
-                session_context = _context_from_account(
-                    account_row,
-                    authenticated=False,
-                )
-
-    if account_row is None and subject_user_id < 0:
+    if account_row is None and session_owner_id < 0:
         session_context = AccessCallbackContext(authenticated=False, owner_id=-1)
 
     mods_ids = list(payload.mods_ids)
-    session_context.mods = await _load_mods(subject_user_id, mods_ids) if mods_ids else None
+    session_context.mods = await _load_mods(session_owner_id, mods_ids) if mods_ids else None
     return session_context

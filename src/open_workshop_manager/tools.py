@@ -230,7 +230,6 @@ async def anonymous_access_mods(
         access_result = await access_client.resolve_mods(
             mods_ids=normalized_mod_ids,
             edit=edit,
-            user_id=user_id if user_id > 0 else None,
         )
     except access_client.AccessServiceError as exc:
         _raise_access_service_error("anonymous_access_mods", exc)
@@ -311,12 +310,10 @@ async def access_mods(
 
 async def access_mod_add(
     request: Request,
-    without_author: bool | None = None,
 ) -> access_client.ModAddResponse:
     try:
         return await access_client.resolve_mod_add(
             request=request,
-            without_author=without_author,
         )
     except access_client.AccessServiceError as exc:
         _raise_access_service_error(str(request.url), exc)
