@@ -204,7 +204,7 @@ async def _load_mods(
 )
 async def callback_context(
     request: Request,
-    payload: AccessCallbackRequest,
+    payload: AccessCallbackRequest | None = None,
     access_token: str | None = Cookie(None, alias="accessToken"),
     refresh_token: str | None = Cookie(None, alias="refreshToken"),
     authorization: str = Header("", alias="Authorization"),
@@ -244,6 +244,6 @@ async def callback_context(
     if account_row is None and session_owner_id < 0:
         session_context = AccessCallbackContext(authenticated=False, owner_id=-1)
 
-    mods_ids = list(payload.mods_ids)
+    mods_ids = list(payload.mods_ids) if payload is not None else []
     session_context.mods = await _load_mods(session_owner_id, mods_ids) if mods_ids else None
     return session_context
