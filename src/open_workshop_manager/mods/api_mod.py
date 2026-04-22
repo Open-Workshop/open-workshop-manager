@@ -18,6 +18,7 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy.orm import aliased
 
 from open_workshop_manager import settings as config
 from open_workshop_manager import standarts, tools
@@ -1552,10 +1553,21 @@ async def mod_list(
                 .exists()
             )
 
+        dependent_mod = aliased(catalog.Mod)
+        dependent_filters = [
+            catalog.mods_dependencies.c.dependence == catalog.Mod.id,
+            dependent_mod.condition == 0,
+        ]
+        if only_publics:
+            dependent_filters.append(dependent_mod.public == 0)
         dependents_count_stmt = (
             select(func.count(func.distinct(catalog.mods_dependencies.c.mod_id)))
-            .select_from(catalog.mods_dependencies)
-            .where(catalog.mods_dependencies.c.dependence == catalog.Mod.id)
+            .select_from(
+                catalog.mods_dependencies.join(
+                    dependent_mod, dependent_mod.id == catalog.mods_dependencies.c.mod_id
+                )
+            )
+            .where(*dependent_filters)
             .correlate(catalog.Mod)
             .scalar_subquery()
         )
