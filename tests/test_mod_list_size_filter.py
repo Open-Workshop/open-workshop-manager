@@ -139,6 +139,85 @@ class ModListSizeFilterTests(unittest.TestCase):
             msg=f"Captured SQL did not include size bounds: {dummy_session.executed_sql}",
         )
 
+    def test_mod_list_applies_excluded_tags_filter(self) -> None:
+        mod = types.SimpleNamespace(
+            id=7,
+            name="Tagged Mod",
+            description="",
+            short_description="",
+            date_creation=None,
+            date_update_file=None,
+            date_edit=None,
+            size=150,
+            size_unpacked=320,
+            source="local",
+            source_id=11,
+            downloads=42,
+        )
+        dummy_session = _DummySession([mod])
+
+        with patch.object(
+            self.api_mod.catalog,
+            "AsyncSessionLocal",
+            return_value=dummy_session,
+        ):
+            response = self.client.get(
+                f"{self.main_url}/mods",
+                params={"excluded_tags": "[5, 6]"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["database_size"], 1)
+        self.assertTrue(
+            any(
+                "unity_mods_tags" in sql and "NOT (EXISTS" in sql
+                for sql in dummy_session.executed_sql
+            ),
+            msg=f"Captured SQL did not include excluded tags: {dummy_session.executed_sql}",
+        )
+
+    def test_mod_list_applies_excluded_dependencies_filter(self) -> None:
+        mod = types.SimpleNamespace(
+            id=7,
+            name="Dependent Mod",
+            description="",
+            short_description="",
+            date_creation=None,
+            date_update_file=None,
+            date_edit=None,
+            size=150,
+            size_unpacked=320,
+            source="local",
+            source_id=11,
+            downloads=42,
+        )
+        dummy_session = _DummySession([mod])
+
+        with patch.object(
+            self.api_mod.catalog,
+            "AsyncSessionLocal",
+            return_value=dummy_session,
+        ):
+            response = self.client.get(
+                f"{self.main_url}/mods",
+                params={"excluded_dependencies": "[7, 8]"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["database_size"], 1)
+        self.assertTrue(
+            any(
+                "unity_mods_dependencies" in sql and "NOT (EXISTS" in sql
+                for sql in dummy_session.executed_sql
+            ),
+            msg=(
+                "Captured SQL did not include excluded dependencies: "
+                f"{dummy_session.executed_sql}"
+            ),
+        )
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

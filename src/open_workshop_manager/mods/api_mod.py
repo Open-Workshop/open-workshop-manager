@@ -1251,6 +1251,11 @@ async def mod_list(
         "DOWNLOADS", description="Сортировка. Подробнее в полном описании функции."
     ),
     tags=Query([], description="Массив ID тегов", examples=["[1, 2, 3]"]),
+    excluded_tags=Query(
+        [],
+        description="Массив ID тегов, которых не должно быть у результата.",
+        examples=["[1, 2, 3]"],
+    ),
     game: int = Query(-1, description="ID игры."),
     allowed_ids=Query([], description="Массив ID разрешенных модов.", examples=["[1, 2, 3]"]),
     independents: bool = Query(
@@ -1262,6 +1267,11 @@ async def mod_list(
             "Массив ID модов, которые должны быть в зависимостях у результата."
             " Применяется по логике И."
         ),
+        examples=["[1, 2, 3]"],
+    ),
+    excluded_dependencies=Query(
+        [],
+        description="Массив ID модов, которых не должно быть в зависимостях результата.",
         examples=["[1, 2, 3]"],
     ),
     primary_sources=Query(
@@ -1331,8 +1341,10 @@ async def mod_list(
     6. SOURCE - сортировка по источнику.
     7. MOD_DOWNLOADS *(по умолчанию)* - сортировка по количеству загрузок.
 
-    О фильтрации по зависимостям:
-    `dependencies` принимает массив ID модов и применяет логику `И`.
+    О фильтрации по тегам и зависимостям:
+    `tags` и `dependencies` принимают массивы ID и применяют логику `И`.
+    `excluded_tags` и `excluded_dependencies` исключают моды, у которых
+    встречаются указанные значения.
     Одновременное использование `dependencies` и `independents=true` запрещено.
 
     О фильтрации по размеру:
@@ -1340,7 +1352,9 @@ async def mod_list(
     Можно передать только одну границу или обе сразу.
     """
     tags = tools.str_to_list(tags)
+    excluded_tags = tools.str_to_list(excluded_tags)
     dependencies = tools.str_to_list(dependencies)
+    excluded_dependencies = tools.str_to_list(excluded_dependencies)
     primary_sources = tools.str_to_list(primary_sources)
     allowed_ids = tools.str_to_list(allowed_ids)
     allowed_sources_ids = tools.str_to_list(allowed_sources_ids)
@@ -1364,7 +1378,9 @@ async def mod_list(
         )
     elif (
         len(tags)
+        + len(excluded_tags)
         + len(dependencies)
+        + len(excluded_dependencies)
         + len(primary_sources)
         + len(allowed_ids)
         + len(allowed_sources_ids)
@@ -1453,6 +1469,16 @@ async def mod_list(
             for tag in tags:
                 stmt = stmt.where(catalog.Mod.tags.any(catalog.Tag.id == tag))
 
+        if len(excluded_tags) > 0:
+            stmt = stmt.where(
+                ~select(1)
+                .where(
+                    catalog.mods_tags.c.mod_id == catalog.Mod.id,
+                    catalog.mods_tags.c.tag_id.in_(excluded_tags),
+                )
+                .exists()
+            )
+
         if user > 0:
             stmt = stmt.join(
                 account.mod_and_author, account.mod_and_author.c.mod_id == catalog.Mod.id
@@ -1461,6 +1487,16 @@ async def mod_list(
 
             if user_owner in [0, 1]:
                 stmt = stmt.where(account.mod_and_author.c.owner == (user_owner == 0))
+
+        if len(excluded_dependencies) > 0:
+            stmt = stmt.where(
+                ~select(1)
+                .where(
+                    catalog.mods_dependencies.c.mod_id == catalog.Mod.id,
+                    catalog.mods_dependencies.c.dependence.in_(excluded_dependencies),
+                )
+                .exists()
+            )
 
         mods_count = await session.scalar(
             select(func.count()).select_from(stmt.order_by(None).subquery())
