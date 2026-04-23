@@ -57,13 +57,6 @@ routers_edit_mod_response = {
 router = APIRouter()
 
 
-def _bearer_token(authorization: str) -> str:
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer":
-        return ""
-    return token.strip()
-
-
 @router.post(
     MAIN_URL + "/mods/from-file",
     tags=["Mod"],
@@ -1080,76 +1073,6 @@ async def download_mod(
     )
 
     return RedirectResponse(url=redirect_url)
-
-
-@router.get(
-    MAIN_URL + "/mods/access/{ids_array}",
-    tags=["Mod"],
-    summary="Проверка прав доступа к модам",
-    status_code=200,
-    responses={
-        200: {
-            "description": "Массив ID модов",
-            "content": {"application/json": {"example": [1, 2, 3]}},
-        },
-        403: {
-            "description": "Нет доступа (не админ И не передан правильный токен)",
-            "content": {"text/plain": {"example": "Access denied"}},
-        },
-    },
-)
-async def access_to_mods(
-    response: Response,
-    request: Request,
-    ids_array=Path(description="Массив ID модов"),
-    edit: bool = Query(False, description="Фильтр на edit доступ"),
-    user: int = Query(-1, description="ID пользователя"),
-    authorization: str = Header(
-        "",
-        alias="Authorization",
-        description="Bearer token для проверки прав других пользователей, аналог токена - админские права просящего",
-    ),
-):
-    """
-    Принимает массив ID модов, возвращает этот же массив в котором ID модов к которым есть read (или выше) доступ.
-
-    Используется в Storage для проверки правомерности доступа к архиву мода.
-    """
-    ids_array = tools.str_to_list(ids_array)
-    if user >= 0:
-        if user <= 0:  # Проверка неавторизованного доступа
-            if edit:
-                return (
-                    []
-                )  # Неавторизованные пользователи не имеют edit прав, нет нужды обращаться к базе
-
-            async with catalog.AsyncSessionLocal() as session:
-                result = await session.execute(
-                    select(catalog.Mod.id).where(
-                        catalog.Mod.id.in_(ids_array), catalog.Mod.public <= 1
-                    )
-                )
-                mods_ids = result.scalars().all()
-            return mods_ids
-        elif await tools.check_token(
-            token_name="access_mods_check_anonymous",
-            token=_bearer_token(authorization),
-        ) or await tools.access_admin(request=request):
-            return await tools.anonymous_access_mods(
-                user_id=user, mods_ids=ids_array, edit=edit, check_mode=True
-            )
-        else:
-            raise standarts.ForbiddenError(
-                detail="Access denied",
-                instance=str(request.url),
-            )
-    else:
-        return await tools.access_mods(
-            request=request,
-            mods_ids=ids_array,
-            edit=edit,
-            check_mode=True,
-        )
 
 
 @router.get(
