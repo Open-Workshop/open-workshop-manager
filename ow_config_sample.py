@@ -12,8 +12,7 @@ TRANSFER_JWT_TTL_SECONDS = 900
 STORAGE_TIMEOUT_SECONDS = 1800
 
 # NATS JetStream events for mod add/change/delete.
-# Disabled by default; set NATS_URL or NATS_MOD_EVENTS_ENABLED = True.
-NATS_URL = ""
+# Disabled by default; set NATS_URLS or NATS_MOD_EVENTS_ENABLED = True.
 NATS_URLS = []
 NATS_MOD_EVENTS_ENABLED = False
 NATS_MOD_EVENTS_REQUIRED = False

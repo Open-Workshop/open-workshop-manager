@@ -27,6 +27,7 @@ Backend сервиса OpenWorkshop.Manager.
 - MySQL / MariaDB
 - Доступ к сервису хранения файлов
 - При необходимости:
+  - NATS Server с JetStream для событий модов
   - Google OAuth credentials
   - Yandex OAuth credentials
   - Uptrace для трассировки
@@ -141,6 +142,54 @@ start.bat
 `ACCESS_CALLBACK_TOKEN` используется доверенным callback-роутом между
 access-сервисом и manager. Его можно хранить как обычный секрет или как
 bcrypt-хэш.
+
+### NATS JetStream events
+
+Manager умеет публиковать события жизненного цикла модов в NATS JetStream,
+чтобы зависимые сервисы, например `open-workshop-website`, могли вести свой
+локальный индекс без обходного чтения таблиц manager.
+
+Публикуемые subjects:
+
+- `mods.added`
+- `mods.changed`
+- `mods.deleted`
+
+Stream по умолчанию: `MOD_EVENTS`. Если stream отсутствует, manager создаёт
+его при старте с перечисленными subjects.
+
+Payload каждого события:
+
+```json
+{
+  "event": "mod.changed",
+  "id": 123,
+  "title": "Mod title",
+  "full_description": "Full mod description",
+  "occurred_at": "2026-04-25T12:30:00+00:00"
+}
+```
+
+Поля `id`, `title`, `full_description` передаются всегда. Для удаления
+используется тот же payload, но `event` будет `mod.deleted`.
+
+Настройки:
+
+- `NATS_URLS` - список адресов NATS, например `["nats://127.0.0.1:4222"]`
+- `NATS_MOD_EVENTS_ENABLED` - включает публикацию событий; по умолчанию
+  включается автоматически, если задан `NATS_URLS`
+- `NATS_MOD_EVENTS_REQUIRED` - если `True`, ошибки подключения или публикации
+  считаются критичными и пробрасываются наружу
+- `NATS_MOD_EVENTS_STREAM` - имя JetStream stream, по умолчанию `MOD_EVENTS`
+- `NATS_MOD_EVENTS_SUBJECT_PREFIX` - prefix subjects, по умолчанию `mods`
+- `NATS_CONNECT_TIMEOUT_SECONDS` - таймаут подключения, по умолчанию `2`
+- `NATS_PUBLISH_TIMEOUT_SECONDS` - таймаут публикации, по умолчанию `2`
+
+Минимальная конфигурация:
+
+```bash
+export NATS_URLS='["nats://127.0.0.1:4222"]'
+```
 
 ### CORS
 

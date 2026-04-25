@@ -35,10 +35,6 @@ def _stream_subjects() -> list[str]:
 
 def _nats_servers() -> list[str]:
     servers: list[str] = []
-    url = str(getattr(config, "NATS_URL", "") or "").strip()
-    if url:
-        servers.append(url)
-
     configured_urls = getattr(config, "NATS_URLS", []) or []
     for item in configured_urls:
         server = str(item or "").strip()
@@ -84,7 +80,7 @@ async def start() -> None:
 
     servers = _nats_servers()
     if not servers:
-        message = "NATS mod events enabled but no NATS_URL or NATS_URLS configured"
+        message = "NATS mod events enabled but no NATS_URLS configured"
         if _required():
             raise RuntimeError(message)
         logger.warning(message)
