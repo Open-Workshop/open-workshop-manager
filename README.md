@@ -23,7 +23,7 @@ Backend сервиса OpenWorkshop.Manager.
 
 ## Требования
 
-- Python 3.11 или новее
+- Python 3.10 или новее
 - MySQL / MariaDB
 - Доступ к сервису хранения файлов
 - При необходимости:

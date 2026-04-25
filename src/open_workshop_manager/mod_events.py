@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from open_workshop_manager import settings as config
@@ -66,7 +66,7 @@ def _build_payload(
         "id": int(mod_id),
         "title": title or "",
         "full_description": full_description or "",
-        "occurred_at": datetime.now(UTC).isoformat(),
+        "occurred_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
