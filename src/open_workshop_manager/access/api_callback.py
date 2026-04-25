@@ -5,7 +5,8 @@ from typing import Any
 
 from fastapi import APIRouter, Cookie, Header, Request
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import and_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from open_workshop_manager import standarts, tools
 from open_workshop_manager.settings import MAIN_URL
@@ -142,6 +143,7 @@ def _context_from_account(
 
 
 async def _load_mods(
+    session: AsyncSession,
     owner_id: int,
     mod_ids: list[int],
 ) -> list[AccessModEntry]:
@@ -152,37 +154,36 @@ async def _load_mods(
     if not unique_ids:
         return []
 
-    async with catalog.AsyncSessionLocal() as catalog_session:
-        result = await catalog_session.execute(
-            select(catalog.Mod.id, catalog.Mod.public, catalog.Mod.condition).where(
-                catalog.Mod.id.in_(unique_ids)
-            )
-        )
-        mod_rows = {int(row.id): row for row in result.all()}
-
-    relation_map: dict[int, bool] = {}
+    columns = (
+        catalog.Mod.id.label("mod_id"),
+        catalog.Mod.public,
+        catalog.Mod.condition,
+    )
     if owner_id > 0:
-        async with account.AsyncSessionLocal() as account_session:
-            result = await account_session.execute(
-                select(
-                    account.mod_and_author.c.mod_id,
-                    account.mod_and_author.c.owner,
-                ).where(
+        stmt = (
+            select(*columns, account.mod_and_author.c.owner)
+            .select_from(catalog.Mod)
+            .outerjoin(
+                account.mod_and_author,
+                and_(
+                    account.mod_and_author.c.mod_id == catalog.Mod.id,
                     account.mod_and_author.c.user_id == owner_id,
-                    account.mod_and_author.c.mod_id.in_(unique_ids),
-                )
+                ),
             )
-            relation_map = {
-                int(row.mod_id): bool(row.owner)
-                for row in result.all()
-            }
+            .where(catalog.Mod.id.in_(unique_ids))
+        )
+    else:
+        stmt = select(*columns).where(catalog.Mod.id.in_(unique_ids))
+
+    result = await session.execute(stmt)
+    mod_rows = {int(row.mod_id): row for row in result.all()}
 
     output: list[AccessModEntry] = []
     for mod_id in unique_ids:
         row = mod_rows.get(mod_id)
         if row is None:
             continue
-        relation = relation_map.get(mod_id)
+        relation = getattr(row, "owner", None)
         output.append(
             AccessModEntry(
                 mod_id=mod_id,
@@ -214,6 +215,10 @@ async def callback_context(
     ):
         raise standarts.ForbiddenError(instance=str(request.url))
 
+    mods_ids = list(payload.mods_ids) if payload is not None else []
+    if not (access_token and refresh_token) and not mods_ids:
+        return AccessCallbackContext(authenticated=False, owner_id=-1)
+
     session_context = AccessCallbackContext(authenticated=False)
     session_owner_id = -1
 
@@ -222,28 +227,32 @@ async def callback_context(
         account_row = None
         if access_token and refresh_token:
             result = await session.execute(
-                select(account.Session).where(
+                select(account.Session, account.Account)
+                .join(account.Account, account.Account.id == account.Session.owner_id)
+                .where(
                     account.Session.access_token == access_token,
                     account.Session.refresh_token == refresh_token,
                     account.Session.broken.is_(None),
                 )
             )
-            session_row = result.scalar_one_or_none()
-            if session_row is not None and session_row.owner_id is not None:
-                account_row = await session.get(account.Account, session_row.owner_id)
-                if account_row is not None:
-                    session_owner_id = account_row.id
-                    session_context = _context_from_account(
-                        account_row,
-                        authenticated=True,
-                        login_method=session_row.login_method,
-                    )
-                    session_row.last_request_date = datetime.datetime.now()
+            row = result.first()
+            if row is not None:
+                session_row, account_row = row
+                session_owner_id = account_row.id
+                session_context = _context_from_account(
+                    account_row,
+                    authenticated=True,
+                    login_method=session_row.login_method,
+                )
+                now = datetime.datetime.now()
+                if account.should_touch_session(session_row.last_request_date, now):
+                    session_row.last_request_date = now
                     await session.commit()
 
-    if account_row is None and session_owner_id < 0:
-        session_context = AccessCallbackContext(authenticated=False, owner_id=-1)
+        if account_row is None and session_owner_id < 0:
+            session_context = AccessCallbackContext(authenticated=False, owner_id=-1)
 
-    mods_ids = list(payload.mods_ids) if payload is not None else []
-    session_context.mods = await _load_mods(session_owner_id, mods_ids) if mods_ids else None
+        session_context.mods = (
+            await _load_mods(session, session_owner_id, mods_ids) if mods_ids else None
+        )
     return session_context

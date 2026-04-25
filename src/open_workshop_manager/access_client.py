@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import datetime
 import json
 from typing import Any, TypeVar
@@ -270,6 +271,11 @@ async def _request_json(
                     return await response.json()
                 except (aiohttp.ContentTypeError, ValueError) as exc:
                     raise AccessServiceError("Access service returned invalid JSON") from exc
+    except asyncio.TimeoutError as exc:
+        raise AccessServiceError(
+            f"Access service timed out: {method} {url}",
+            status_code=504,
+        ) from exc
     except aiohttp.ClientError as exc:  # pragma: no cover - network failure
         raise AccessServiceError(f"Access service call failed: {exc}") from exc
 

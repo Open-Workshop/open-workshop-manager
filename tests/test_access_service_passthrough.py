@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import json
 import pathlib
 import sys
@@ -39,7 +40,30 @@ if "aiomysql" not in sys.modules:
     sys.modules["aiomysql"] = aiomysql_stub
 
 from open_workshop_manager import access_client, standarts, tools
+from open_workshop_manager.sql_logic import sql_account
 from open_workshop_manager.standarts.schemas import ProblemDetails
+
+
+class _TimeoutRequest:
+    async def __aenter__(self):
+        raise asyncio.TimeoutError
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
+class _TimeoutSession:
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    async def __aenter__(self) -> "_TimeoutSession":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    def request(self, *args, **kwargs) -> _TimeoutRequest:
+        return _TimeoutRequest()
 
 
 class AccessServicePassThroughTests(unittest.TestCase):
@@ -71,6 +95,54 @@ class AccessServicePassThroughTests(unittest.TestCase):
         )
         self.assertTrue(result.add.value)
         self.assertFalse(result.anonymous_add.value)
+
+    def test_access_service_timeout_becomes_gateway_timeout_error(self) -> None:
+        with patch.object(access_client.aiohttp, "ClientSession", _TimeoutSession):
+            with self.assertRaises(access_client.AccessServiceError) as raised:
+                asyncio.run(access_client._request_json("POST", "/mods", {}))
+
+        self.assertEqual(raised.exception.status_code, 504)
+
+    def test_session_touch_is_throttled(self) -> None:
+        now = datetime.datetime(2026, 4, 25, 12, 21, 24)
+
+        with patch.object(
+            sql_account.config,
+            "SESSION_TOUCH_INTERVAL_SECONDS",
+            60,
+            create=True,
+        ):
+            self.assertFalse(
+                sql_account.should_touch_session(
+                    now - datetime.timedelta(seconds=30),
+                    now,
+                )
+            )
+            self.assertTrue(
+                sql_account.should_touch_session(
+                    now - datetime.timedelta(seconds=61),
+                    now,
+                )
+            )
+
+    def test_successful_bcrypt_token_check_is_cached(self) -> None:
+        tools._TOKEN_CHECK_CACHE.clear()
+
+        with patch.object(
+            tools.config,
+            "ACCESS_CALLBACK_TOKEN",
+            "$2b$cached-token-hash",
+            create=True,
+        ), patch.object(tools.bcrypt, "checkpw", return_value=True) as checkpw:
+            self.assertTrue(
+                asyncio.run(tools.check_token("ACCESS_CALLBACK_TOKEN", "secret"))
+            )
+            self.assertTrue(
+                asyncio.run(tools.check_token("ACCESS_CALLBACK_TOKEN", "secret"))
+            )
+
+        self.assertEqual(checkpw.call_count, 1)
+        tools._TOKEN_CHECK_CACHE.clear()
 
     def test_problem_details_are_parsed_from_access_error_body(self) -> None:
         payload = {

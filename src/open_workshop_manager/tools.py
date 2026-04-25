@@ -1,6 +1,9 @@
+import asyncio
 import datetime
+import hashlib
 import json
 import logging
+import secrets
 from io import BytesIO
 from typing import Literal, Sequence, overload
 
@@ -19,6 +22,7 @@ from open_workshop_manager.sql_logic import sql_catalog as catalog
 logger = logging.getLogger(__name__)
 
 TRANSFER_JWT_ALG = "HS256"
+_TOKEN_CHECK_CACHE: set[tuple[str, str, bytes]] = set()
 
 
 async def check_token(token_name: str, token: str) -> bool:
@@ -44,12 +48,27 @@ async def check_token(token_name: str, token: str) -> bool:
         return False
 
     if stored_token.startswith("$2"):
+        cache_key = (
+            token_name,
+            stored_token,
+            hashlib.sha256(token.encode()).digest(),
+        )
+        if cache_key in _TOKEN_CHECK_CACHE:
+            return True
+
         try:
-            return bcrypt.checkpw(token.encode(), stored_token.encode())
+            is_valid = await asyncio.to_thread(
+                bcrypt.checkpw,
+                token.encode(),
+                stored_token.encode(),
+            )
         except ValueError:
             return False
+        if is_valid:
+            _TOKEN_CHECK_CACHE.add(cache_key)
+        return is_valid
 
-    return token == stored_token
+    return secrets.compare_digest(token, stored_token)
 
 
 def create_transfer_jwt(

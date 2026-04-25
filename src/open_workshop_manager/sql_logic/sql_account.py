@@ -338,6 +338,26 @@ def _access_context_from_rows(
     )
 
 
+def should_touch_session(
+    last_request_date: datetime.datetime | None,
+    now: datetime.datetime | None = None,
+) -> bool:
+    now = now or datetime.datetime.now()
+    interval_raw = getattr(config, "SESSION_TOUCH_INTERVAL_SECONDS", 60)
+    try:
+        interval_seconds = int(interval_raw)
+    except (TypeError, ValueError):
+        interval_seconds = 60
+
+    if interval_seconds <= 0 or last_request_date is None:
+        return True
+
+    try:
+        return now - last_request_date >= datetime.timedelta(seconds=interval_seconds)
+    except TypeError:
+        return True
+
+
 async def check_access(request: Request) -> access_client.AccessState | bool:
     access_token = request.cookies.get("accessToken", "")
     refresh_token = request.cookies.get("refreshToken", "")
@@ -361,8 +381,10 @@ async def check_access(request: Request) -> access_client.AccessState | bool:
         if account_row is None:
             return False
 
-        session_row.last_request_date = datetime.datetime.now()
-        await session.commit()
+        now = datetime.datetime.now()
+        if should_touch_session(session_row.last_request_date, now):
+            session_row.last_request_date = now
+            await session.commit()
         return _access_context_from_rows(account_row, session_row)
 
 

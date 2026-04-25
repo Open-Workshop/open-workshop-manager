@@ -5,7 +5,7 @@ import sys
 import types
 import unittest
 from importlib import import_module
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -71,6 +71,15 @@ class _DummySession:
     async def execute(self, stmt) -> _DummyResult:
         self.executed_sql.append(str(stmt))
         return _DummyResult(self.rows)
+
+
+class _ModDetailSession(_DummySession):
+    def __init__(self, *, public: int, rows: list[object]) -> None:
+        super().__init__(rows)
+        self.public = public
+
+    async def get(self, *args, **kwargs) -> object:
+        return types.SimpleNamespace(public=self.public)
 
 
 class ModListSizeFilterTests(unittest.TestCase):
@@ -181,6 +190,36 @@ class ModListSizeFilterTests(unittest.TestCase):
             ),
             msg=f"Captured SQL did not include excluded tags: {dummy_session.executed_sql}",
         )
+
+    def test_public_mod_dependencies_use_access_service(self) -> None:
+        dummy_session = _ModDetailSession(public=0, rows=[3, 5])
+        access_mods = AsyncMock(return_value=True)
+
+        with patch.object(
+            self.api_mod.catalog,
+            "AsyncSessionLocal",
+            return_value=dummy_session,
+        ), patch.object(self.api_mod.tools, "access_mods", access_mods):
+            response = self.client.get(f"{self.main_url}/mods/7/dependencies")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"count": 2, "results": [3, 5]})
+        access_mods.assert_awaited_once()
+
+    def test_private_mod_dependencies_use_access_service(self) -> None:
+        dummy_session = _ModDetailSession(public=2, rows=[3])
+        access_mods = AsyncMock(return_value=True)
+
+        with patch.object(
+            self.api_mod.catalog,
+            "AsyncSessionLocal",
+            return_value=dummy_session,
+        ), patch.object(self.api_mod.tools, "access_mods", access_mods):
+            response = self.client.get(f"{self.main_url}/mods/7/dependencies")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"count": 1, "results": [3]})
+        access_mods.assert_awaited_once()
 
     def test_mod_list_applies_excluded_dependencies_filter(self) -> None:
         mod = types.SimpleNamespace(

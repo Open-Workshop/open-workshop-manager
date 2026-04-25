@@ -1401,7 +1401,7 @@ async def mod_list(
         and dependents_count_min > dependents_count_max
     ):
         raise standarts.BadRequestError(
-            detail="Минимальное количество плагинов не может быть больше максимального!",
+            detail="Минимальное количество зависимых модов не может быть больше максимального!",
             instance=str(request.url),
             context={"error_id": 7},
         )
