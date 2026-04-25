@@ -7,6 +7,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Table,
@@ -57,6 +58,17 @@ mods_dependencies = Table(
     Column("mod_id", Integer, ForeignKey("mods.id")),
     Column("dependence", Integer, ForeignKey("mods.id")),
     extend_existing=True,
+)
+
+Index(
+    "ix_unity_mods_dependencies_mod_dependence",
+    mods_dependencies.c.mod_id,
+    mods_dependencies.c.dependence,
+)
+Index(
+    "ix_unity_mods_dependencies_dependence_mod",
+    mods_dependencies.c.dependence,
+    mods_dependencies.c.mod_id,
 )
 
 
@@ -143,6 +155,13 @@ class Resource(Base):  # Ресурсы (скриншоты и лого)
 
     owner_type: Mapped[str] = mapped_column(String(64))  # games, mods, etc...
     owner_id: Mapped[int] = mapped_column(Integer)
+
+
+Index(
+    "ix_resources_owner_type_owner_id",
+    Resource.owner_type,
+    Resource.owner_id,
+)
 
 
 # Теги

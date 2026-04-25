@@ -10,6 +10,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Table,
@@ -138,6 +139,15 @@ class Session(Base):  # Теги для модов
     end_date_refresh: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+Index(
+    "ix_sessions_access_refresh_broken",
+    Session.access_token,
+    Session.refresh_token,
+    Session.broken,
+    mysql_length={"access_token": 72, "refresh_token": 72, "broken": 16},
+)
+
+
 black_list = Table(
     "black_list",
     Base.metadata,
@@ -154,6 +164,17 @@ mod_and_author = Table(
         "owner", Boolean
     ),  # только овнеры могут удалять свои моды, передавать овнерство другим, приглашать других на правах члена (не может удалить мод и не может приглашать новых членов)
     Column("mod_id", Integer),
+)
+
+Index(
+    "ix_mods_and_authors_user_mod",
+    mod_and_author.c.user_id,
+    mod_and_author.c.mod_id,
+)
+Index(
+    "ix_mods_and_authors_mod_user",
+    mod_and_author.c.mod_id,
+    mod_and_author.c.user_id,
 )
 
 
