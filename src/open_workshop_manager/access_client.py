@@ -215,11 +215,32 @@ async def _post_model(
     *,
     cookies: dict[str, str] | None = None,
 ) -> T:
-    data = await _post_json(path, payload, cookies=cookies)
+    data = await _request_json("POST", path, payload, cookies=cookies)
+    return model_cls.model_validate(data)
+
+
+async def _put_model(
+    path: str,
+    payload: dict[str, Any] | None,
+    model_cls: type[T],
+    *,
+    cookies: dict[str, str] | None = None,
+) -> T:
+    data = await _request_json("PUT", path, payload, cookies=cookies)
     return model_cls.model_validate(data)
 
 
 async def _post_json(
+    path: str,
+    payload: dict[str, Any] | None,
+    *,
+    cookies: dict[str, str] | None = None,
+) -> Any:
+    return await _request_json("POST", path, payload, cookies=cookies)
+
+
+async def _request_json(
+    method: str,
     path: str,
     payload: dict[str, Any] | None,
     *,
@@ -230,12 +251,12 @@ async def _post_json(
 
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            post_kwargs: dict[str, Any] = {
+            request_kwargs: dict[str, Any] = {
                 "cookies": cookies or None,
             }
             if payload is not None:
-                post_kwargs["json"] = payload
-            async with session.post(url, **post_kwargs) as response:
+                request_kwargs["json"] = payload
+            async with session.request(method, url, **request_kwargs) as response:
                 if response.status >= 400:
                     text = await response.text()
                     problem = _parse_problem_details(response.status, text)
@@ -257,7 +278,7 @@ async def resolve_mod_add(
     *,
     request: Request | None = None,
 ) -> ModAddResponse:
-    return await _post_model(
+    return await _put_model(
         "/mod",
         None,
         ModAddResponse,

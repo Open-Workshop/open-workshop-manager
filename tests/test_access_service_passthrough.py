@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import pathlib
 import sys
 import types
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 
@@ -41,6 +43,35 @@ from open_workshop_manager.standarts.schemas import ProblemDetails
 
 
 class AccessServicePassThroughTests(unittest.TestCase):
+    def test_resolve_mod_add_uses_access_put_endpoint(self) -> None:
+        access_payload = {
+            "authenticated": True,
+            "owner_id": 42,
+            "add": {
+                "value": True,
+                "reason": "ok",
+                "reason_code": "allowed",
+            },
+            "anonymous_add": {
+                "value": False,
+                "reason": "admin only",
+                "reason_code": "admin_required",
+            },
+        }
+
+        request_json = AsyncMock(return_value=access_payload)
+        with patch.object(access_client, "_request_json", request_json):
+            result = asyncio.run(access_client.resolve_mod_add())
+
+        request_json.assert_awaited_once_with(
+            "PUT",
+            "/mod",
+            None,
+            cookies={},
+        )
+        self.assertTrue(result.add.value)
+        self.assertFalse(result.anonymous_add.value)
+
     def test_problem_details_are_parsed_from_access_error_body(self) -> None:
         payload = {
             "type": "about:blank",
