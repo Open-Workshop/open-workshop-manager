@@ -166,12 +166,15 @@ Payload каждого события:
   "id": 123,
   "title": "Mod title",
   "full_description": "Full mod description",
+  "public": 0,
   "occurred_at": "2026-04-25T12:30:00+00:00"
 }
 ```
 
-Поля `id`, `title`, `full_description` передаются всегда. Для удаления
-используется тот же payload, но `event` будет `mod.deleted`.
+Поля `id`, `title`, `full_description`, `public` передаются всегда. Значение
+`public` совпадает с полем мода в catalog: `0` - публичный и индексируемый,
+`1` - доступен по ссылке, `2` - непубличный. Для удаления используется тот же
+payload, но `event` будет `mod.deleted`.
 
 Настройки:
 

@@ -57,6 +57,7 @@ def _build_payload(
     mod_id: int,
     title: str | None,
     full_description: str | None,
+    public: int,
 ) -> dict[str, object]:
     if event_type not in MOD_EVENT_TYPES:
         raise ValueError(f"Unsupported mod event type: {event_type}")
@@ -66,6 +67,7 @@ def _build_payload(
         "id": int(mod_id),
         "title": title or "",
         "full_description": full_description or "",
+        "public": int(public),
         "occurred_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -153,6 +155,7 @@ async def publish_mod_event(
     mod_id: int,
     title: str | None,
     full_description: str | None,
+    public: int,
 ) -> None:
     """Publish a mod lifecycle event to JetStream."""
     if not _enabled():
@@ -170,6 +173,7 @@ async def publish_mod_event(
         mod_id=mod_id,
         title=title,
         full_description=full_description,
+        public=public,
     )
     encoded_payload = json.dumps(
         payload,

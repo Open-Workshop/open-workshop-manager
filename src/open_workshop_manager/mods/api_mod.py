@@ -931,6 +931,7 @@ async def storage_transfer_complete(
         if update_only:
             event_title = mod.name
             event_description = mod.description
+            event_public = mod.public
             update_values = {
                 "size": final_size,
                 "date_update_file": datetime.now(),
@@ -946,6 +947,7 @@ async def storage_transfer_complete(
                 mod_id,
                 event_title,
                 event_description,
+                event_public,
             )
             return PlainTextResponse(status_code=200, content="OK")
 
@@ -1002,6 +1004,7 @@ async def storage_transfer_complete(
         }
         event_title = mod.name
         event_description = mod.description
+        event_public = mod.public
         if unpacked_size is not None:
             update_values["size_unpacked"] = unpacked_size
         await session.execute(
@@ -1026,6 +1029,7 @@ async def storage_transfer_complete(
         mod_id,
         event_title,
         event_description,
+        event_public,
     )
     return PlainTextResponse(status_code=200, content="OK")
 
@@ -2091,6 +2095,7 @@ async def edit_mod(
                     updated_mod.id,
                     updated_mod.name,
                     updated_mod.description,
+                    updated_mod.public,
                 )
             await session.commit()
         if event_payload is not None:
@@ -2099,6 +2104,7 @@ async def edit_mod(
                 event_payload[0],
                 event_payload[1],
                 event_payload[2],
+                event_payload[3],
             )
         return PlainTextResponse(status_code=201, content="OK")
     else:
@@ -2339,7 +2345,7 @@ async def delete_mod(
             )
 
         game_id = mod_obj.game
-        event_payload = (mod_obj.id, mod_obj.name, mod_obj.description)
+        event_payload = (mod_obj.id, mod_obj.name, mod_obj.description, mod_obj.public)
 
         await session.execute(delete(catalog.Mod).where(catalog.Mod.id == mod_id))
         await session.execute(
@@ -2362,5 +2368,6 @@ async def delete_mod(
         event_payload[0],
         event_payload[1],
         event_payload[2],
+        event_payload[3],
     )
     return PlainTextResponse(status_code=200, content="Удалено")

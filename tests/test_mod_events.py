@@ -68,6 +68,7 @@ class ModEventsTests(unittest.TestCase):
                     17,
                     "Demo Mod",
                     "Full text",
+                    0,
                 )
             )
 
@@ -82,6 +83,7 @@ class ModEventsTests(unittest.TestCase):
         self.assertEqual(payload["id"], 17)
         self.assertEqual(payload["title"], "Demo Mod")
         self.assertEqual(payload["full_description"], "Full text")
+        self.assertEqual(payload["public"], 0)
         self.assertIn("occurred_at", payload)
 
 
