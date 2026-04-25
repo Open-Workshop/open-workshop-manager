@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.orm import aliased
 
+from open_workshop_manager import mod_events
 from open_workshop_manager import settings as config
 from open_workshop_manager import standarts, tools
 from open_workshop_manager.limits import LIMITS
@@ -928,6 +929,8 @@ async def storage_transfer_complete(
                 instance=str(request.url),
             )
         if update_only:
+            event_title = mod.name
+            event_description = mod.description
             update_values = {
                 "size": final_size,
                 "date_update_file": datetime.now(),
@@ -938,6 +941,12 @@ async def storage_transfer_complete(
                 update(catalog.Mod).where(catalog.Mod.id == mod_id).values(**update_values)
             )
             await session.commit()
+            await mod_events.publish_mod_event(
+                mod_events.MOD_EVENT_CHANGED,
+                mod_id,
+                event_title,
+                event_description,
+            )
             return PlainTextResponse(status_code=200, content="OK")
 
         if mod.condition == 0:
@@ -991,6 +1000,8 @@ async def storage_transfer_complete(
             "condition": 0,
             "size": final_size,
         }
+        event_title = mod.name
+        event_description = mod.description
         if unpacked_size is not None:
             update_values["size_unpacked"] = unpacked_size
         await session.execute(
@@ -1010,6 +1021,12 @@ async def storage_transfer_complete(
         )
         await session.commit()
 
+    await mod_events.publish_mod_event(
+        mod_events.MOD_EVENT_ADDED,
+        mod_id,
+        event_title,
+        event_description,
+    )
     return PlainTextResponse(status_code=200, content="OK")
 
 
@@ -2067,7 +2084,22 @@ async def edit_mod(
             await session.execute(
                 update(catalog.Mod).where(catalog.Mod.id == mod_id).values(**body)
             )
+            updated_mod = await session.get(catalog.Mod, mod_id)
+            event_payload = None
+            if updated_mod is not None:
+                event_payload = (
+                    updated_mod.id,
+                    updated_mod.name,
+                    updated_mod.description,
+                )
             await session.commit()
+        if event_payload is not None:
+            await mod_events.publish_mod_event(
+                mod_events.MOD_EVENT_CHANGED,
+                event_payload[0],
+                event_payload[1],
+                event_payload[2],
+            )
         return PlainTextResponse(status_code=201, content="OK")
     else:
         return access_result
@@ -2307,6 +2339,7 @@ async def delete_mod(
             )
 
         game_id = mod_obj.game
+        event_payload = (mod_obj.id, mod_obj.name, mod_obj.description)
 
         await session.execute(delete(catalog.Mod).where(catalog.Mod.id == mod_id))
         await session.execute(
@@ -2324,4 +2357,10 @@ async def delete_mod(
         )
         await session.commit()
 
+    await mod_events.publish_mod_event(
+        mod_events.MOD_EVENT_DELETED,
+        event_payload[0],
+        event_payload[1],
+        event_payload[2],
+    )
     return PlainTextResponse(status_code=200, content="Удалено")

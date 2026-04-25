@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import delete, select
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from open_workshop_manager import mod_events
 from open_workshop_manager import settings as config
 from open_workshop_manager import standarts
 from open_workshop_manager.app.api_catalog_statistics import (
@@ -235,6 +236,7 @@ async def _start_cleanup_task() -> None:
             account.init_models(),
             catalog.init_models(),
             statistics.init_models(),
+            mod_events.start(),
         )
         _cleanup_task = asyncio.create_task(_cleanup_stale_mods_loop())
 
@@ -249,6 +251,7 @@ async def _stop_cleanup_task() -> None:
         except asyncio.CancelledError:
             pass
         _cleanup_task = None
+    await mod_events.stop()
 
 app.include_router(game_router)
 app.include_router(mod_router)

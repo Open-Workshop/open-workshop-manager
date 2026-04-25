@@ -93,6 +93,21 @@ TRANSFER_JWT_SECRET = _read_str("TRANSFER_JWT_SECRET", "")
 TRANSFER_JWT_TTL_SECONDS = _read_int("TRANSFER_JWT_TTL_SECONDS", 900)
 STORAGE_TIMEOUT_SECONDS = _read_int("STORAGE_TIMEOUT_SECONDS", 1800)
 
+NATS_URL = _read_str("NATS_URL", "")
+NATS_URLS = _read_list("NATS_URLS", [])
+NATS_MOD_EVENTS_ENABLED = _read_bool(
+    "NATS_MOD_EVENTS_ENABLED",
+    bool(NATS_URL or NATS_URLS),
+)
+NATS_MOD_EVENTS_REQUIRED = _read_bool("NATS_MOD_EVENTS_REQUIRED", False)
+NATS_MOD_EVENTS_STREAM = _read_str("NATS_MOD_EVENTS_STREAM", "MOD_EVENTS")
+NATS_MOD_EVENTS_SUBJECT_PREFIX = _read_str(
+    "NATS_MOD_EVENTS_SUBJECT_PREFIX",
+    "mods",
+)
+NATS_CONNECT_TIMEOUT_SECONDS = _read_int("NATS_CONNECT_TIMEOUT_SECONDS", 2)
+NATS_PUBLISH_TIMEOUT_SECONDS = _read_int("NATS_PUBLISH_TIMEOUT_SECONDS", 2)
+
 password_sql = _read_str("PASSWORD_SQL", "password", "password_sql")
 user_sql = _read_str("USER_SQL", "user", "user_sql")
 url_sql = _read_str("URL_SQL", "localhost", "url_sql")

@@ -10,6 +10,7 @@ granian
 aiomysql
 greenlet
 PyJWT
+nats-py
 opentelemetry-sdk
 opentelemetry-exporter-otlp-proto-http
 opentelemetry-exporter-otlp-proto-grpc
