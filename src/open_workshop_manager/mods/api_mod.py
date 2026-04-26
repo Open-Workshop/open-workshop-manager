@@ -100,6 +100,7 @@ async def add_mod_from_file(
     mod_public: int = Form(
         ..., description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."
     ),
+    mod_adult: bool = Form(False, description="Возрастное ограничение 18+?"),
     pack_format: str = Form("zip", description="Формат упаковки."),
     pack_level: int = Form(3, description="Степень сжатия (0-9)."),
 ):
@@ -205,6 +206,7 @@ async def add_mod_from_file(
             source=mod_source,
             downloads=0,
             game=mod_game,
+            adult=mod_adult,
         )
         if mod_source_id > 0 and mod_source != "local":
             new_mod.source_id = mod_source_id
@@ -409,6 +411,7 @@ async def add_mod_from_url(
     mod_public: int = Form(
         ..., description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."
     ),
+    mod_adult: bool = Form(False, description="Возрастное ограничение 18+?"),
     mod_url: str = Form(..., description="Прямая ссылка на файл мода."),
     pack_format: str = Form("zip", description="Формат упаковки."),
     pack_level: int = Form(3, description="Степень сжатия (0-9)."),
@@ -507,6 +510,7 @@ async def add_mod_from_url(
             source=mod_source,
             downloads=0,
             game=mod_game,
+            adult=mod_adult,
         )
         if mod_source_id > 0 and mod_source != "local":
             new_mod.source_id = mod_source_id
@@ -2019,6 +2023,7 @@ async def edit_mod(
     mod_public: int = Form(
         None, description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."
     ),
+    mod_adult: bool = Form(None, description="Возрастное ограничение 18+?"),
 ):
     access_result = await tools.access_mods(request=request, mods_ids=mod_id, edit=True)
     if access_result is True:
@@ -2085,6 +2090,8 @@ async def edit_mod(
         if mod_public is not None:
             if mod_public in [0, 1, 2]:
                 body["public"] = mod_public
+        if mod_adult is not None:
+            body["adult"] = mod_adult
 
         if len(body) <= 0:
             raise standarts.PreconditionRequiredError(
