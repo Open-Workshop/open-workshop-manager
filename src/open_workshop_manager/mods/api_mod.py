@@ -2169,6 +2169,7 @@ async def edit_mod_rest(
     mod_public: int = Form(
         None, description="Публичный ли мод? 0-да, 1-только по ссылке, 2-нет."
     ),
+    mod_adult: bool = Form(None, description="Возрастное ограничение 18+?")
 ):
     return await edit_mod(
         response=response,
@@ -2181,6 +2182,7 @@ async def edit_mod_rest(
         mod_source_id=mod_source_id,
         mod_game=mod_game,
         mod_public=mod_public,
+        mod_adult=mod_adult,
     )
 
 
