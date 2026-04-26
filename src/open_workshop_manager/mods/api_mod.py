@@ -1205,6 +1205,12 @@ async def mod_list(
         examples=["[1, 2, 3]"],
     ),
     game: int = Query(-1, description="ID игры."),
+    adult: int = Query(
+        -1,
+        ge=-1,
+        le=1,
+        description="Фильтр по возрастному контенту: -1 - без ограничений, 0 - без 18+, 1 - только 18+.",
+    ),
     allowed_ids=Query([], description="Массив ID разрешенных модов.", examples=["[1, 2, 3]"]),
     independents: bool = Query(
         False, description="Не передавать моды с зависимостями."
@@ -1454,6 +1460,11 @@ async def mod_list(
 
         if game > 0:
             stmt = stmt.where(catalog.Mod.game == game)
+
+        if adult == 1:
+            stmt = stmt.where(catalog.Mod.adult == True)
+        elif adult == 0:
+            stmt = stmt.where(catalog.Mod.adult == False)
 
         if len(primary_sources) > 0:
             stmt = stmt.where(catalog.Mod.source.in_(primary_sources))
