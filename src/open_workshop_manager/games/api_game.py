@@ -3,8 +3,9 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Form, Path, Query, Request, Response
+from fastapi import APIRouter, Path, Query, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, func, select
 
 from open_workshop_manager import standarts, tools
@@ -17,39 +18,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+class GameCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., max_length=LIMITS.game.name_max)
+    short_description: str = Field(..., max_length=LIMITS.game.short_desc_max)
+    description: str = Field(..., max_length=LIMITS.game.desc_max)
+    type: str = Field("game", max_length=LIMITS.game.type_max)
+
+
+class GameUpdatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(None, max_length=LIMITS.game.name_max)
+    short_description: str | None = Field(None, max_length=LIMITS.game.short_desc_max)
+    description: str | None = Field(None, max_length=LIMITS.game.desc_max)
+    type: str | None = Field(None, max_length=LIMITS.game.type_max)
+    source: str | None = Field(None, max_length=LIMITS.game.source_max)
+    source_id: int | None = None
+
+
 @router.get(
     MAIN_URL + "/games",
-    tags=["Game"],
-    summary="Список игр.",
-    status_code=200,
-    responses={
-        200: {
-            "description": "OK",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "database_size": 123,
-                        "offset": 123,
-                        "results": [
-                            {"id": 1, "name": "?", "type": "app", "source": "local"},
-                            {"id": 2, "name": "!?", "type": "game", "source": "steam"},
-                        ],
-                    }
-                }
-            },
-        },
-        413: {
-            "description": "Неккоректный диапазон параметров(размеров).",
-            "content": {
-                "application/json": {
-                    "example": {"message": "incorrect page size", "error_id": 1}
-                }
-            },
-        },
-    },
-)
-@router.get(
-    MAIN_URL + "/list/games/",
     tags=["Game"],
     summary="Список игр.",
     status_code=200,
@@ -265,7 +255,7 @@ async def game_info(
 
 
 @router.post(
-    MAIN_URL + "/add/game",
+    MAIN_URL + "/games",
     tags=["Game"],
     summary="Добавление игры",
     status_code=202,
@@ -281,14 +271,7 @@ async def game_info(
 async def add_game(
     response: Response,
     request: Request,
-    game_name: str = Form(..., description="Название игры", max_length=LIMITS.game.name_max),
-    game_short_desc: str = Form(
-        ..., description="Краткое описание игры", max_length=LIMITS.game.short_desc_max
-    ),
-    game_desc: str = Form(
-        ..., description="Полное описание игры", max_length=LIMITS.game.desc_max
-    ),
-    game_type: str = Form("game", description="Тип игры", max_length=LIMITS.game.type_max),
+    payload: GameCreatePayload,
 ):
     access_result = await tools.access_admin(request=request)
     if access_result is not True:
@@ -296,10 +279,10 @@ async def add_game(
 
     async with catalog.AsyncSessionLocal() as session:
         new_game = catalog.Game(
-            name=game_name,
-            type=game_type,
-            short_description=game_short_desc,
-            description=game_desc,
+            name=payload.name,
+            type=payload.type,
+            short_description=payload.short_description,
+            description=payload.description,
             mods_downloads=0,
             mods_count=0,
             creation_date=datetime.now(),
@@ -313,8 +296,8 @@ async def add_game(
     return JSONResponse(status_code=202, content=game_id)
 
 
-@router.post(
-    MAIN_URL + "/edit/game",
+@router.patch(
+    MAIN_URL + "/games/{game_id}",
     tags=["Game"],
     summary="Редактирование игры",
     status_code=202,
@@ -330,19 +313,8 @@ async def add_game(
 async def edit_game(
     response: Response,
     request: Request,
-    game_id: int = Form(..., description="ID игры для редактирования"),
-    game_name: str = Form(None, description="Название игры", max_length=LIMITS.game.name_max),
-    game_short_desc: str = Form(
-        None, description="Краткое описание игры", max_length=LIMITS.game.short_desc_max
-    ),
-    game_desc: str = Form(None, description="Полное описание игры", max_length=LIMITS.game.desc_max),
-    game_type: str = Form(None, description="Тип игры", max_length=LIMITS.game.type_max),
-    game_source: str = Form(
-        None,
-        description="Источник игры. Так же обязательно передавать и `game_source_id`!",
-        max_length=LIMITS.game.source_max,
-    ),
-    game_source_id: int = Form(None, description="ID игры в первоисточнике"),
+    payload: GameUpdatePayload,
+    game_id: int = Path(description="ID игры для редактирования"),
 ) -> Response:
     await tools.access_admin(request=request)
 
@@ -355,23 +327,23 @@ async def edit_game(
             )
 
         data_edit: dict[str, object] = {}
-        if game_name:
-            data_edit["name"] = game_name
-        if game_short_desc:
-            data_edit["short_description"] = game_short_desc
-        if game_desc:
-            data_edit["description"] = game_desc
-        if game_type:
-            data_edit["type"] = game_type
-        if game_source:
-            data_edit["source"] = game_source
-            data_edit["source_id"] = game_source_id
+        if payload.name:
+            data_edit["name"] = payload.name
+        if payload.short_description:
+            data_edit["short_description"] = payload.short_description
+        if payload.description:
+            data_edit["description"] = payload.description
+        if payload.type:
+            data_edit["type"] = payload.type
+        if payload.source:
+            data_edit["source"] = payload.source
+            data_edit["source_id"] = payload.source_id
 
             exists = (
                 await session.execute(
                     select(catalog.Game).where(
-                        catalog.Game.source == game_source,
-                        catalog.Game.source_id == game_source_id,
+                        catalog.Game.source == payload.source,
+                        catalog.Game.source_id == payload.source_id,
                     )
                 )
             ).scalar_one_or_none()
@@ -385,7 +357,7 @@ async def edit_game(
             raise standarts.RequestRejectedError(
                 detail="The request is empty",
                 instance=str(request.url),
-                )
+            )
 
         for key, value in data_edit.items():
             setattr(game, key, value)
@@ -395,7 +367,7 @@ async def edit_game(
 
 
 @router.delete(
-    MAIN_URL + "/delete/game",
+    MAIN_URL + "/games/{game_id}",
     tags=["Game"],
     summary="Удаление игры",
     status_code=202,
@@ -408,7 +380,7 @@ async def edit_game(
 async def delete_game(
     response: Response,
     request: Request,
-    game_id: int = Form(..., description="ID игры для удаления"),
+    game_id: int = Path(description="ID игры для удаления"),
 ):
     access_result = await tools.access_admin(request=request)
     if access_result is not True:

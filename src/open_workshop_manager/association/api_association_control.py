@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Form, Path, Request, Response
+from fastapi import APIRouter, Path, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import insert, select
 
@@ -26,26 +26,12 @@ ASSOCIATION_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
-@router.post(
-    MAIN_URL + "/association/game/genre",
-    tags=["Association", "Game", "Genre"],
-    summary="Создание ассоциации между игрой и жанром",
-    status_code=202,
-    responses=ASSOCIATION_RESPONSES
-    | {
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
-    },
-)
 async def association_game_with_genre(
     response: Response,
     request: Request,
-    game_id: int = Form(..., description="ID игры"),
-    mode: bool = Form(
-        ...,
-        description="Режим работы функции. True - добавление ассоциации. False - удаление ассоциации.",
-    ),
-    genre_id: int = Form(..., description="ID жанра"),
+    game_id: int,
+    mode: bool,
+    genre_id: int,
 ):
     access_result = await tools.access_admin(request=request)
 
@@ -85,7 +71,59 @@ async def association_game_with_genre(
         return access_result
 
 
-@router.post(
+@router.put(
+    MAIN_URL + "/games/{game_id}/genres/{genre_id}",
+    tags=["Association", "Game", "Genre"],
+    summary="Добавление жанра игре",
+    status_code=202,
+    responses=ASSOCIATION_RESPONSES
+    | {
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
+    },
+)
+async def game_add_genre(
+    response: Response,
+    request: Request,
+    game_id: int = Path(description="ID игры"),
+    genre_id: int = Path(description="ID жанра"),
+):
+    return await association_game_with_genre(
+        response=response,
+        request=request,
+        game_id=game_id,
+        mode=True,
+        genre_id=genre_id,
+    )
+
+
+@router.delete(
+    MAIN_URL + "/games/{game_id}/genres/{genre_id}",
+    tags=["Association", "Game", "Genre"],
+    summary="Удаление жанра у игры",
+    status_code=202,
+    responses=ASSOCIATION_RESPONSES
+    | {
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
+    },
+)
+async def game_delete_genre(
+    response: Response,
+    request: Request,
+    game_id: int = Path(description="ID игры"),
+    genre_id: int = Path(description="ID жанра"),
+):
+    return await association_game_with_genre(
+        response=response,
+        request=request,
+        game_id=game_id,
+        mode=False,
+        genre_id=genre_id,
+    )
+
+
+@router.put(
     MAIN_URL + "/mods/{mod_id}/dependencies/{dependencie_id}",
     tags=["Association", "Mod"],
     summary="Добавление зависимости мода",
@@ -137,26 +175,12 @@ async def mod_delete_dependency(
     )
 
 
-@router.post(
-    MAIN_URL + "/association/game/tag",
-    tags=["Association", "Game", "Tag"],
-    summary="Создание ассоциации между игрой и тегом",
-    status_code=202,
-    responses=ASSOCIATION_RESPONSES
-    | {
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
-    },
-)
 async def association_game_with_tag(
     response: Response,
     request: Request,
-    game_id: int = Form(..., description="ID игры"),
-    mode: bool = Form(
-        ...,
-        description="Режим работы функции. True - добавление ассоциации. False - удаление ассоциации.",
-    ),
-    tag_id: int = Form(..., description="ID тега"),
+    game_id: int,
+    mode: bool,
+    tag_id: int,
 ):
     access_result = await tools.access_admin(request=request)
 
@@ -196,26 +220,12 @@ async def association_game_with_tag(
         return access_result
 
 
-@router.post(
-    MAIN_URL + "/association/mod/tag",
-    tags=["Association", "Mod", "Tag"],
-    summary="Создание ассоциации между модом и тегом",
-    status_code=202,
-    responses=ASSOCIATION_RESPONSES
-    | {
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.FORBIDDEN_RESPONSE_SPEC,
-    },
-)
 async def association_mod_with_tag(
     response: Response,
     request: Request,
-    mod_id: int = Form(..., description="ID мода"),
-    mode: bool = Form(
-        ...,
-        description="Режим работы функции. True - добавление ассоциации. False - удаление ассоциации.",
-    ),
-    tag_id: int = Form(..., description="ID тега"),
+    mod_id: int,
+    mode: bool,
+    tag_id: int,
 ):
     access_result = await tools.access_mods(
         request=request, mods_ids=mod_id
@@ -257,7 +267,59 @@ async def association_mod_with_tag(
         return access_result
 
 
-@router.post(
+@router.put(
+    MAIN_URL + "/games/{game_id}/tags/{tag_id}",
+    tags=["Association", "Game", "Tag"],
+    summary="Добавление тега игре",
+    status_code=202,
+    responses=ASSOCIATION_RESPONSES
+    | {
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
+    },
+)
+async def game_add_tag(
+    response: Response,
+    request: Request,
+    game_id: int = Path(description="ID игры"),
+    tag_id: int = Path(description="ID тега"),
+):
+    return await association_game_with_tag(
+        response=response,
+        request=request,
+        game_id=game_id,
+        mode=True,
+        tag_id=tag_id,
+    )
+
+
+@router.delete(
+    MAIN_URL + "/games/{game_id}/tags/{tag_id}",
+    tags=["Association", "Game", "Tag"],
+    summary="Удаление тега у игры",
+    status_code=202,
+    responses=ASSOCIATION_RESPONSES
+    | {
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
+    },
+)
+async def game_delete_tag(
+    response: Response,
+    request: Request,
+    game_id: int = Path(description="ID игры"),
+    tag_id: int = Path(description="ID тега"),
+):
+    return await association_game_with_tag(
+        response=response,
+        request=request,
+        game_id=game_id,
+        mode=False,
+        tag_id=tag_id,
+    )
+
+
+@router.put(
     MAIN_URL + "/mods/{mod_id}/tags/{tag_id}",
     tags=["Association", "Mod", "Tag"],
     summary="Добавление тега модификации",
@@ -309,26 +371,12 @@ async def mod_delete_tag(
     )
 
 
-@router.post(
-    MAIN_URL + "/association/mod/dependencie",
-    tags=["Association", "Mod"],
-    summary="Создание ассоциации между модом и зависимостью",
-    status_code=202,
-    responses=ASSOCIATION_RESPONSES
-    | {
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.FORBIDDEN_RESPONSE_SPEC,
-    },
-)
 async def association_mod_with_dependencie(
     response: Response,
     request: Request,
-    mod_id: int = Form(..., description="ID мода"),
-    mode: bool = Form(
-        ...,
-        description="Режим работы функции. True - добавление ассоциации. False - удаление ассоциации.",
-    ),
-    dependencie: int = Form(..., description="ID зависимости (мода)"),
+    mod_id: int,
+    mode: bool,
+    dependencie: int,
 ):
     """
     Создание ассоциативной зависимости между модом и другим модом в качестве зависимости.

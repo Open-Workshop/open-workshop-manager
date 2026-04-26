@@ -12,38 +12,7 @@ router = APIRouter()
 
 
 @router.get(
-    MAIN_URL + "/tags",
-    tags=["Tag", "Game", "Association"],
-    summary="Ассоциации тегов с играми",
-    status_code=200,
-    responses={
-        200: {
-            "description": "OK",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "database_size": 123,
-                        "offset": 123,
-                        "results": [
-                            {"id": 1, "name": "?"},
-                            {"id": 2, "name": "!"},
-                        ],
-                    }
-                }
-            },
-        },
-        413: {
-            "description": "Неккоректный диапазон параметров(размеров).",
-            "content": {
-                "application/json": {
-                    "example": {"message": "incorrect page size", "error_id": 1}
-                }
-            },
-        },
-    },
-)
-@router.get(
-    MAIN_URL + "/list/tags",
+    MAIN_URL + "/games/{game_id}/tags",
     tags=["Tag", "Game", "Association"],
     summary="Ассоциации тегов с играми",
     status_code=200,
@@ -75,9 +44,7 @@ router = APIRouter()
 )
 async def list_tags(
     request: Request,
-    game_id: int = Query(
-        -1, description="ID игры *(для активации фильтра значение `>0`)*."
-    ),
+    game_id: int = Path(description="ID игры."),
     page_size: int = Query(
         LIMITS.page.default,
         description="Размер 1 страницы. Диапазон - 1...50 элементов.",
@@ -128,7 +95,7 @@ async def list_tags(
 
 
 @router.get(
-    MAIN_URL + "/list/tags/mods/{mods_ids_list}",
+    MAIN_URL + "/mods/tags/batch/{mods_ids_list}",
     tags=["Mod", "Tag", "Association"],
     summary="Ассоциации модов с тегами",
     status_code=200,
@@ -215,7 +182,7 @@ async def list_tags_for_mods(
 
 
 @router.get(
-    MAIN_URL + "/list/genres/games/{games_ids_list}",
+    MAIN_URL + "/games/genres/batch/{games_ids_list}",
     tags=["Game", "Genre", "Association"],
     summary="Ассоциации игр с жанрами",
     status_code=200,

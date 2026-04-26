@@ -1,7 +1,8 @@
 """Tag management routes."""
 
-from fastapi import APIRouter, Form, Request, Response
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete
 
 from open_workshop_manager import standarts, tools
@@ -12,8 +13,20 @@ from open_workshop_manager.sql_logic import sql_catalog as catalog
 router = APIRouter()
 
 
+class TagCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., max_length=LIMITS.tag.name_max)
+
+
+class TagUpdatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(None, max_length=LIMITS.tag.name_max)
+
+
 @router.post(
-    MAIN_URL + "/add/tag",
+    MAIN_URL + "/tags",
     tags=["Tag"],
     summary="Добавление тега",
     status_code=202,
@@ -29,15 +42,13 @@ router = APIRouter()
 async def add_tag(
     response: Response,
     request: Request,
-    tag_name: str = Form(
-        ..., description="Название тега", max_length=LIMITS.tag.name_max
-    ),
+    payload: TagCreatePayload,
 ):
     access_result = await tools.access_admin(request=request)
 
     if access_result is True:
         async with catalog.AsyncSessionLocal() as session:
-            new_tag = catalog.Tag(name=tag_name)
+            new_tag = catalog.Tag(name=payload.name)
             session.add(new_tag)
             await session.flush()
             tag_id = int(new_tag.id)  # Получаем ID последней вставленной строки
@@ -49,8 +60,8 @@ async def add_tag(
         return access_result
 
 
-@router.post(
-    MAIN_URL + "/edit/tag",
+@router.patch(
+    MAIN_URL + "/tags/{tag_id}",
     tags=["Tag"],
     summary="Редактирование тега",
     status_code=202,
@@ -74,10 +85,8 @@ async def add_tag(
 async def edit_tag(
     response: Response,
     request: Request,
-    tag_id: int = Form(..., description="ID тега для редактирования"),
-    tag_name: str = Form(
-        ..., description="Название тега", max_length=LIMITS.tag.name_max
-    ),
+    tag_id: int,
+    payload: TagUpdatePayload,
 ):
     access_result = await tools.access_admin(request=request)
 
@@ -90,10 +99,9 @@ async def edit_tag(
                     instance=str(request.url),
                 )
 
-            # Подготавливаем данные
             data_edit = {}
-            if tag_name:
-                data_edit["name"] = tag_name
+            if payload.name:
+                data_edit["name"] = payload.name
 
             if len(data_edit) <= 0:
                 raise standarts.RequestRejectedError(
@@ -110,7 +118,7 @@ async def edit_tag(
 
 
 @router.delete(
-    MAIN_URL + "/delete/tag",
+    MAIN_URL + "/tags/{tag_id}",
     tags=["Tag"],
     summary="Удаление тега",
     status_code=202,
@@ -126,7 +134,7 @@ async def edit_tag(
 async def delete_tag(
     response: Response,
     request: Request,
-    tag_id: int = Form(..., description="ID тега для удаления"),
+    tag_id: int,
 ):
     access_result = await tools.access_admin(request=request)
 

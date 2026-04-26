@@ -1,7 +1,8 @@
 """Genre management routes."""
 
-from fastapi import APIRouter, Form, Query, Request, Response
+from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, func, select
 
 from open_workshop_manager import standarts, tools
@@ -12,8 +13,20 @@ from open_workshop_manager.sql_logic import sql_catalog as catalog
 router = APIRouter()
 
 
+class GenreCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., max_length=LIMITS.genre.name_max)
+
+
+class GenreUpdatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(None, max_length=LIMITS.genre.name_max)
+
+
 @router.get(
-    MAIN_URL + "/list/genres",
+    MAIN_URL + "/genres",
     tags=["Genre"],
     summary="Список жанров игр",
     status_code=200,
@@ -79,7 +92,7 @@ async def list_genres(
 
 
 @router.post(
-    MAIN_URL + "/add/genre",
+    MAIN_URL + "/genres",
     tags=["Genre"],
     summary="Добавляет жанр",
     status_code=202,
@@ -94,15 +107,13 @@ async def list_genres(
 async def add_genre(
     response: Response,
     request: Request,
-    genre_name: str = Form(
-        ..., description="Название добавляемого жанра", max_length=LIMITS.genre.name_max
-    ),
+    payload: GenreCreatePayload,
 ):
     access_result = await tools.access_admin(request=request)
 
     if access_result is True:
         async with catalog.AsyncSessionLocal() as session:
-            new_genre = catalog.Genre(name=genre_name)
+            new_genre = catalog.Genre(name=payload.name)
             session.add(new_genre)
             await session.flush()
             genre_id = int(new_genre.id)  # Получаем ID последней вставленной строки
@@ -114,8 +125,8 @@ async def add_genre(
         return access_result
 
 
-@router.post(
-    MAIN_URL + "/edit/genre",
+@router.patch(
+    MAIN_URL + "/genres/{genre_id}",
     tags=["Genre"],
     summary="Редактирует жанр",
     status_code=202,
@@ -132,10 +143,8 @@ async def add_genre(
 async def edit_genre(
     response: Response,
     request: Request,
-    genre_id: int = Form(..., description="ID жанра для редактирования"),
-    genre_name: str = Form(
-        None, description="Название жанра", max_length=LIMITS.genre.name_max
-    ),
+    genre_id: int,
+    payload: GenreUpdatePayload,
 ):
     access_result = await tools.access_admin(request=request)
 
@@ -148,10 +157,9 @@ async def edit_genre(
                     instance=str(request.url),
                 )
 
-            # Подготавливаем данные
             data_edit = {}
-            if genre_name:
-                data_edit["name"] = genre_name
+            if payload.name:
+                data_edit["name"] = payload.name
 
             if len(data_edit) <= 0:
                 raise standarts.RequestRejectedError(
@@ -168,7 +176,7 @@ async def edit_genre(
 
 
 @router.delete(
-    MAIN_URL + "/delete/genre",
+    MAIN_URL + "/genres/{genre_id}",
     tags=["Genre"],
     summary="Удаляет жанр",
     status_code=202,
@@ -181,7 +189,7 @@ async def edit_genre(
 async def delete_genre(
     response: Response,
     request: Request,
-    genre_id: int = Form(..., description="ID жанра для удаления"),
+    genre_id: int,
 ):
     access_result = await tools.access_admin(request=request)
 
