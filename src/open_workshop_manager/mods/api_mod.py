@@ -1371,6 +1371,7 @@ async def mod_list(
                 out["source"] = mod.source
                 out["source_id"] = mod.source_id
                 out["downloads"] = mod.downloads
+                out["adult"] = mod.adult
 
             output_mods.append(out)
 
@@ -1579,6 +1580,7 @@ async def info_mod(
             result_payload["source_id"] = pre_result.source_id
             result_payload["downloads"] = pre_result.downloads
             result_payload["public"] = pre_result.public
+            result_payload["adult"] = pre_result.adult
         if game and game_payload is not None:
             result_payload["game"] = game_payload
 
