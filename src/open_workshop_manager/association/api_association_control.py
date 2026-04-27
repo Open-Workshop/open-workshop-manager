@@ -71,7 +71,7 @@ async def association_game_with_genre(
         return access_result
 
 
-@router.put(
+@router.post(
     MAIN_URL + "/games/{game_id}/genres/{genre_id}",
     tags=["Association", "Game", "Genre"],
     summary="Добавление жанра игре",
@@ -123,7 +123,7 @@ async def game_delete_genre(
     )
 
 
-@router.put(
+@router.post(
     MAIN_URL + "/mods/{mod_id}/dependencies/{dependencie_id}",
     tags=["Association", "Mod"],
     summary="Добавление зависимости мода",
@@ -267,7 +267,7 @@ async def association_mod_with_tag(
         return access_result
 
 
-@router.put(
+@router.post(
     MAIN_URL + "/games/{game_id}/tags/{tag_id}",
     tags=["Association", "Game", "Tag"],
     summary="Добавление тега игре",
@@ -319,7 +319,7 @@ async def game_delete_tag(
     )
 
 
-@router.put(
+@router.post(
     MAIN_URL + "/mods/{mod_id}/tags/{tag_id}",
     tags=["Association", "Mod", "Tag"],
     summary="Добавление тега модификации",
