@@ -237,6 +237,28 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(session.commit_count, 0)
         self.assertEqual(session.flush_count, 0)
 
+    def test_mod_list_filters_by_author_alias(self) -> None:
+        session = _RecordingSession(rows=[_mod(mod_id=11)], scalar_values=[1])
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(
+                f"{self.main_url}/mods",
+                params={"page": 0, "page_size": 20, "sort": "-created_at", "user": 3},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(session.commit_count, 0)
+        self.assertEqual(session.flush_count, 0)
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 1)
+
+        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        self.assertIn("mods_and_authors", count_sql)
+        self.assertIn("user_id = 3", count_sql)
+        self.assertIn("mods_and_authors", list_sql)
+        self.assertIn("user_id = 3", list_sql)
+
     def test_mod_list_rejects_invalid_size_range(self) -> None:
         response = self.client.get(
             f"{self.main_url}/mods",

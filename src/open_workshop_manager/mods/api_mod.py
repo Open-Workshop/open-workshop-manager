@@ -347,6 +347,8 @@ async def list_mods(
     adult: int = Query(default=-1, ge=-1, le=1, description="Adult content filter: -1 any, 0 false, 1 true."),
     sources: list[str] = Query(default_factory=list, description="Source names to filter by."),
     source_ids: list[int] = Query(default_factory=list, description="Source-specific IDs to filter by."),
+    author_id: int | None = Query(default=None, ge=1, description="Filter by author user ID."),
+    user: int | None = Query(default=None, ge=1, description="Backward-compatible alias for `author_id`."),
     size_min: int | None = Query(default=None, ge=0, description="Minimum archive size in bytes."),
     size_max: int | None = Query(default=None, ge=0, description="Maximum archive size in bytes."),
     size_unpacked_min: int | None = Query(default=None, ge=0, description="Minimum unpacked size in bytes."),
@@ -374,6 +376,8 @@ async def list_mods(
             instance=str(request.url),
             code="INVALID_SIZE_RANGE",
         )
+    if author_id is None:
+        author_id = user
 
     dependent_mod = aliased(catalog.Mod)
     dependents_count_stmt = (
@@ -411,6 +415,14 @@ async def list_mods(
             stmt = stmt.where(catalog.Mod.source.in_(sources))
         if source_ids:
             stmt = stmt.where(catalog.Mod.source_id.in_(source_ids))
+        if author_id is not None:
+            stmt = stmt.where(
+                catalog.Mod.id.in_(
+                    select(account.mod_and_author.c.mod_id).where(
+                        account.mod_and_author.c.user_id == author_id
+                    )
+                )
+            )
         if name:
             stmt = stmt.where(catalog.Mod.name.ilike(f"%{name}%"))
         if size_min is not None:
