@@ -257,6 +257,21 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(body["code"], "UNSUPPORTED_SORT_FIELD")
         self.assertEqual(body["context"]["field"], "unknown")
 
+    def test_mod_feed_returns_range_bounds(self) -> None:
+        session = _RecordingSession(scalar_values=[17, 1024, 4096, 2048, 8192])
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(f"{self.main_url}/mods/feed", params={"game": 7})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["count"], 17)
+        self.assertEqual(body["size"], {"min": 1024, "max": 4096})
+        self.assertEqual(body["size_unpacked"], {"min": 2048, "max": 8192})
+        self.assertEqual(len(session.scalar_statements), 5)
+        self.assertEqual(session.commit_count, 0)
+        self.assertEqual(session.flush_count, 0)
+
     def test_mod_download_url_is_get_safe(self) -> None:
         session = _RecordingSession(get_value=_mod(name="Downloadable Mod"))
         access_mods = AsyncMock(return_value=True)

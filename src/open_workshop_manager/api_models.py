@@ -190,6 +190,17 @@ class ModListResponse(ListResponse[ModRead]):
     pass
 
 
+class IntRangeRead(ReadModel):
+    min: int | None = None
+    max: int | None = None
+
+
+class ModFeedRead(ReadModel):
+    count: int
+    size: IntRangeRead
+    size_unpacked: IntRangeRead
+
+
 class IntListResponse(ListResponse[int]):
     pass
 

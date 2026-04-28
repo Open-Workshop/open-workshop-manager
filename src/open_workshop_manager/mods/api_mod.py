@@ -22,6 +22,7 @@ from open_workshop_manager.api_models import (
     GameRead,
     IntListResponse,
     ModCreate,
+    ModFeedRead,
     ModDownloadRead,
     ModDownloadUrlRead,
     ModListResponse,
@@ -401,6 +402,56 @@ async def list_mods(
                 items.append(payload)
 
     return make_list_response(items, page=page, page_size=page_size, total=total)
+
+
+@router.get(
+    "/mods/feed",
+    tags=["Mod"],
+    summary="Contextual size hints for the mod catalog",
+    status_code=200,
+    response_model=ModFeedRead,
+    response_model_exclude_none=True,
+)
+async def get_mod_feed(
+    game: int = Query(-1, description="ID игры."),
+):
+    """
+    Возвращает диапазоны размеров публичных модов и их распакованных версий
+    для настройки фильтров и слайдеров. Если модов в каталоге нет, все min/max
+    поля будут `null`.
+    """
+    async with catalog.AsyncSessionLocal() as session:
+        visibility_clause = (catalog.Mod.condition == 0) & (catalog.Mod.public == 0)
+        count_stmt = select(func.count()).select_from(catalog.Mod).where(visibility_clause)
+        min_stmt = select(func.min(catalog.Mod.size)).where(visibility_clause)
+        max_stmt = select(func.max(catalog.Mod.size)).where(visibility_clause)
+        unpacked_min_stmt = select(func.min(catalog.Mod.size_unpacked)).where(visibility_clause)
+        unpacked_max_stmt = select(func.max(catalog.Mod.size_unpacked)).where(visibility_clause)
+
+        if game > 0:
+            count_stmt = count_stmt.where(catalog.Mod.game == game)
+            min_stmt = min_stmt.where(catalog.Mod.game == game)
+            max_stmt = max_stmt.where(catalog.Mod.game == game)
+            unpacked_min_stmt = unpacked_min_stmt.where(catalog.Mod.game == game)
+            unpacked_max_stmt = unpacked_max_stmt.where(catalog.Mod.game == game)
+
+        mods_count = int((await session.scalar(count_stmt)) or 0)
+        size_min = await session.scalar(min_stmt)
+        size_max = await session.scalar(max_stmt)
+        size_unpacked_min = await session.scalar(unpacked_min_stmt)
+        size_unpacked_max = await session.scalar(unpacked_max_stmt)
+
+    return {
+        "count": mods_count,
+        "size": {
+            "min": int(size_min) if size_min is not None else None,
+            "max": int(size_max) if size_max is not None else None,
+        },
+        "size_unpacked": {
+            "min": int(size_unpacked_min) if size_unpacked_min is not None else None,
+            "max": int(size_unpacked_max) if size_unpacked_max is not None else None,
+        },
+    }
 
 
 @router.get(
