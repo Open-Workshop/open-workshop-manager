@@ -333,9 +333,27 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["pagination"]["total"], 1)
+        self.assertEqual(body["items"][0]["short_description"], "Short")
+        self.assertNotIn("description", body["items"][0])
         self.assertEqual(body["items"][0]["mods_downloads"], 4567)
         self.assertEqual(body["items"][0]["source"], "steam")
         self.assertEqual(session.commit_count, 0)
+
+    def test_game_info_returns_description_on_demand(self) -> None:
+        session = _RecordingSession(get_value=_game())
+
+        with patch.object(self.api_game.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(
+                f"{self.main_url}/games/1",
+                params={"include": ["description"]},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["short_description"], "Short")
+        self.assertEqual(body["description"], "Long")
+        self.assertNotIn("mods_count", body)
+        self.assertNotIn("mods_downloads", body)
 
     def test_resources_list_is_get_safe(self) -> None:
         session = _RecordingSession(rows=[_resource()], scalar_values=[1])

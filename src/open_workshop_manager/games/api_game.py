@@ -28,7 +28,6 @@ from open_workshop_manager.sql_logic import sql_catalog as catalog
 router = APIRouter()
 
 GAME_INCLUDE_FIELDS = {
-    "short_description",
     "description",
     "dates",
     "statistics",
@@ -107,9 +106,6 @@ async def _serialize_game_with_includes(
     if "statistics" not in include:
         payload.pop("mods_count", None)
         payload.pop("mods_downloads", None)
-
-    if "short_description" not in include:
-        payload.pop("short_description", None)
     if "description" not in include:
         payload.pop("description", None)
     if "dates" not in include:
@@ -225,8 +221,6 @@ async def list_games(
             if "statistics" not in include_set:
                 payload.pop("mods_count", None)
                 payload.pop("mods_downloads", None)
-            if "short_description" not in include_set:
-                payload.pop("short_description", None)
             if "description" not in include_set:
                 payload.pop("description", None)
             if "dates" not in include_set:
@@ -261,7 +255,9 @@ async def get_game(
 
         if include_set:
             return await _serialize_game_with_includes(session, request, row, include_set)
-        return GameRead.model_validate(_serialize_game_base(row))
+        payload = _serialize_game_base(row)
+        payload.pop("description", None)
+        return GameRead.model_validate(payload)
 
 
 @router.post(
