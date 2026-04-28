@@ -317,8 +317,11 @@ class ModListSizeFilterTests(unittest.TestCase):
         body = response.json()
         self.assertNotIn("id", body)
         self.assertEqual(body["mod_id"], 7)
-        self.assertTrue(body["filename"].endswith(".zip"))
-        self.assertTrue(body["download_url"].startswith(f"{self.storage_url}/download/archive/mods/7/main.zip"))
+        self.assertEqual(body["filename"], "Downloadable_Mod")
+        self.assertEqual(
+            body["download_url"],
+            f"{self.storage_url}/download/archive/mods/7/main.zip?filename=Downloadable_Mod",
+        )
         self.assertEqual(session.commit_count, 0)
         self.assertEqual(session.flush_count, 0)
         access_mods.assert_awaited_once()
@@ -338,7 +341,11 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         body = response.json()
         self.assertEqual(body["mod_id"], 7)
-        self.assertTrue(body["download_url"].startswith(f"{self.storage_url}/download/archive/mods/7/main.zip"))
+        self.assertEqual(body["filename"], "Downloadable_Mod")
+        self.assertEqual(
+            body["download_url"],
+            f"{self.storage_url}/download/archive/mods/7/main.zip?filename=Downloadable_Mod",
+        )
         self.assertEqual(session.commit_count, 1)
         self.assertTrue(any(isinstance(stmt, Update) for stmt in session.execute_statements))
         publish_event.assert_awaited_once()

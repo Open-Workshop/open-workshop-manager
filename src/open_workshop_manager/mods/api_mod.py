@@ -904,7 +904,7 @@ async def create_download(request: Request, mod_id: int) -> ModDownloadRead:
         getattr(mod, "public", 0),
     )
 
-    filename = _sanitize_filename(getattr(mod, "name", "") or "", mod_id) + ".zip"
+    filename = _sanitize_filename(getattr(mod, "name", "") or "", mod_id)
     return ModDownloadRead(
         id=uuid.uuid4().hex,
         mod_id=mod_id,
@@ -949,7 +949,7 @@ async def get_download_url(request: Request, mod_id: int) -> ModDownloadUrlRead:
         if mod is None:
             _raise_mod_not_found(request)
 
-    filename = _sanitize_filename(getattr(mod, "name", "") or "", mod_id) + ".zip"
+    filename = _sanitize_filename(getattr(mod, "name", "") or "", mod_id)
     return ModDownloadUrlRead(
         mod_id=mod_id,
         download_url=f"{_download_url(mod_id)}?filename={quote(filename)}",
