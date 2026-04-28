@@ -1,12 +1,36 @@
 from __future__ import annotations
 
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .constants import STANDARD_PROBLEM_TYPE
 
 T = TypeVar("T")
+
+
+class ProblemDetails(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: str | None = Field(
+        default=None,
+        description="URI that identifies the problem type.",
+    )
+    title: str = Field(description="Short human-readable summary.")
+    status: int = Field(
+        ge=100,
+        le=599,
+        description="HTTP status code for the problem response.",
+    )
+    detail: str = Field(description="Human-readable explanation.")
+    instance: str = Field(description="URI that identifies this specific occurrence.")
+    code: str = Field(description="Stable machine-readable error code.")
+    context: dict[str, object] | None = Field(
+        default=None,
+        description="Extra structured context for troubleshooting.",
+    )
+    trace_id: str | None = Field(default=None, description="Tracing identifier.")
+    request_id: str | None = Field(default=None, description="Request identifier.")
 
 
 class ValidationIssue(BaseModel):
@@ -25,41 +49,6 @@ class ValidationIssue(BaseModel):
     ctx: dict[str, object] | None = Field(
         default=None,
         description="Additional validation context returned by Pydantic.",
-    )
-
-
-class ProblemDetails(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: str = Field(
-        default=STANDARD_PROBLEM_TYPE,
-        description="URI that identifies the problem type.",
-    )
-    title: str = Field(description="Short human-readable summary.")
-    status: int = Field(
-        ge=100,
-        le=599,
-        description="HTTP status code for the problem response.",
-    )
-    detail: str | None = Field(
-        default=None,
-        description="Optional human-readable explanation.",
-    )
-    instance: str | None = Field(
-        default=None,
-        description="URI that identifies this specific occurrence.",
-    )
-    code: str | None = Field(
-        default=None,
-        description="Stable machine-readable error code.",
-    )
-    errors: list[ValidationIssue] | None = Field(
-        default=None,
-        description="Structured validation errors, if any.",
-    )
-    context: dict[str, object] | None = Field(
-        default=None,
-        description="Extra structured context for troubleshooting.",
     )
 
 

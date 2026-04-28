@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import pathlib
 import sys
 import types
@@ -9,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import literal_column
+from sqlalchemy.sql.dml import Delete, Insert, Update
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -49,428 +50,309 @@ class _DummyResult:
     def all(self) -> list[object]:
         return self._rows
 
+    def first(self) -> object | None:
+        return self._rows[0] if self._rows else None
 
-class _DummySession:
-    def __init__(self, rows: list[object], scalar_values: list[object] | None = None) -> None:
-        self.rows = rows
-        self.executed_sql: list[str] = []
-        self.scalar_values = list(scalar_values) if scalar_values is not None else [1]
+    def scalar_one_or_none(self) -> object | None:
+        return self._rows[0] if self._rows else None
 
-    async def __aenter__(self) -> "_DummySession":
+
+class _RecordingSession:
+    def __init__(
+        self,
+        *,
+        rows: list[object] | None = None,
+        scalar_values: list[object] | None = None,
+        get_value: object | None = None,
+        allow_writes: bool = False,
+    ) -> None:
+        self.rows = rows or []
+        self.scalar_values = list(scalar_values or [])
+        self.get_value = get_value
+        self.allow_writes = allow_writes
+        self.execute_statements: list[object] = []
+        self.scalar_statements: list[object] = []
+        self.commit_count = 0
+        self.flush_count = 0
+
+    async def __aenter__(self) -> "_RecordingSession":
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> bool:
         return False
 
-    async def scalar(self, stmt) -> object:  # pragma: no cover - simple stub
-        self.executed_sql.append(str(stmt))
+    async def scalar(self, stmt) -> object:
+        self.scalar_statements.append(stmt)
         if self.scalar_values:
             return self.scalar_values.pop(0)
         return 0
 
     async def execute(self, stmt) -> _DummyResult:
-        self.executed_sql.append(str(stmt))
+        if isinstance(stmt, (Insert, Update, Delete)) and not self.allow_writes:
+            raise AssertionError(f"Unexpected write statement: {stmt!r}")
+        self.execute_statements.append(stmt)
         return _DummyResult(self.rows)
 
+    async def get(self, *args, **kwargs) -> object | None:
+        return self.get_value
 
-class _ModDetailSession(_DummySession):
-    def __init__(self, *, public: int, rows: list[object]) -> None:
-        super().__init__(rows)
-        self.public = public
+    async def commit(self) -> None:
+        if not self.allow_writes:
+            raise AssertionError("Unexpected commit")
+        self.commit_count += 1
 
-    async def get(self, *args, **kwargs) -> object:
-        return types.SimpleNamespace(public=self.public)
+    async def flush(self) -> None:
+        if not self.allow_writes:
+            raise AssertionError("Unexpected flush")
+        self.flush_count += 1
+
+
+def _mod(
+    *,
+    mod_id: int = 7,
+    name: str = "Sized Mod",
+    short_description: str = "Short",
+    description: str = "Long",
+    source: str = "local",
+    source_id: int = 11,
+    game: int | None = None,
+    public: int = 0,
+    adult: bool = False,
+    condition: int = 0,
+    downloads: int = 42,
+    size: int = 150,
+    size_unpacked: int | None = 320,
+) -> types.SimpleNamespace:
+    return types.SimpleNamespace(
+        id=mod_id,
+        name=name,
+        short_description=short_description,
+        description=description,
+        source=source,
+        source_id=source_id,
+        game=game,
+        public=public,
+        adult=adult,
+        condition=condition,
+        downloads=downloads,
+        size=size,
+        size_unpacked=size_unpacked,
+        date_creation=datetime.datetime(2026, 4, 27, 12, 0, 0),
+        date_update_file=datetime.datetime(2026, 4, 27, 12, 5, 0),
+        date_edit=datetime.datetime(2026, 4, 27, 12, 10, 0),
+    )
+
+
+def _game(
+    *,
+    game_id: int = 1,
+    name: str = "Project Zomboid",
+    type_: str = "game",
+    source: str = "steam",
+    source_id: int = 108600,
+    mods_count: int = 123,
+    mods_downloads: int = 4567,
+) -> types.SimpleNamespace:
+    return types.SimpleNamespace(
+        id=game_id,
+        name=name,
+        short_description="Short",
+        description="Long",
+        type=type_,
+        source=source,
+        source_id=source_id,
+        mods_count=mods_count,
+        mods_downloads=mods_downloads,
+        creation_date=datetime.datetime(2026, 4, 27, 12, 0, 0),
+    )
+
+
+def _resource(
+    *,
+    resource_id: int = 55,
+    owner_type: str = "games",
+    owner_id: int = 1,
+    type_: str = "screenshot",
+    url: str = "https://example.com/image.webp",
+    size: int | None = None,
+) -> types.SimpleNamespace:
+    return types.SimpleNamespace(
+        id=resource_id,
+        owner_type=owner_type,
+        owner_id=owner_id,
+        type=type_,
+        url=url,
+        size=size,
+        date_event=datetime.datetime(2026, 4, 27, 12, 0, 0),
+        real_url=url,
+    )
 
 
 class ModListSizeFilterTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         standarts = import_module("open_workshop_manager.standarts")
-        api_mod = import_module("open_workshop_manager.mods.api_mod")
-        main_url = import_module("open_workshop_manager.settings").MAIN_URL
+        cls.api_mod = import_module("open_workshop_manager.mods.api_mod")
+        cls.api_game = import_module("open_workshop_manager.games.api_game")
+        cls.api_resource = import_module("open_workshop_manager.mods.api_resource")
+        cls.api_profile = import_module("open_workshop_manager.social.api_profile")
+        settings = import_module("open_workshop_manager.settings")
+        cls.main_url = settings.MAIN_URL
+        cls.storage_url = settings.STORAGE_URL
 
-        cls.api_mod = api_mod
-        cls.main_url = main_url
         cls.standarts = standarts
-
         app = FastAPI()
         standarts.install_exception_handlers(app)
         app.include_router(cls.api_mod.router)
+        app.include_router(cls.api_game.router)
+        app.include_router(cls.api_resource.router)
+        app.include_router(cls.api_profile.router)
         cls.client = TestClient(app)
 
     @classmethod
     def tearDownClass(cls) -> None:
         cls.client.close()
 
-    def test_mod_list_rejects_reversed_size_range(self) -> None:
+    def test_mod_list_returns_items_and_pagination(self) -> None:
+        session = _RecordingSession(rows=[_mod()], scalar_values=[1])
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(
+                f"{self.main_url}/mods",
+                params={"page": 0, "page_size": 20, "sort": "-downloads"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["pagination"], {
+            "page": 0,
+            "page_size": 20,
+            "offset": 0,
+            "total": 1,
+            "has_next": False,
+            "has_previous": False,
+        })
+        self.assertEqual(body["items"][0]["id"], 7)
+        self.assertEqual(body["items"][0]["size"], 150)
+        self.assertEqual(session.commit_count, 0)
+        self.assertEqual(session.flush_count, 0)
+
+    def test_mod_list_rejects_invalid_size_range(self) -> None:
         response = self.client.get(
             f"{self.main_url}/mods",
             params={"size_min": 200, "size_max": 100},
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(
-            response.json()["detail"],
-            "Минимальный размер мода не может быть больше максимального!",
-        )
-
-    def test_mod_list_applies_size_range_filter(self) -> None:
-        mod = types.SimpleNamespace(
-            id=7,
-            name="Sized Mod",
-            description="",
-            short_description="",
-            date_creation=None,
-            date_update_file=None,
-            date_edit=None,
-            size=150,
-            size_unpacked=320,
-            source="local",
-            source_id=11,
-            downloads=42,
-        )
-        dummy_session = _DummySession([mod])
-
-        with patch.object(
-            self.api_mod.catalog,
-            "AsyncSessionLocal",
-            return_value=dummy_session,
-        ):
-            response = self.client.get(
-                f"{self.main_url}/mods",
-                params={"size_min": 100, "size_max": 200},
-            )
-
-        self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(body["database_size"], 1)
-        self.assertEqual(body["results"][0]["size"], 150)
-        self.assertTrue(
-            any(
-                "mods.size >= " in sql and "mods.size <= " in sql
-                for sql in dummy_session.executed_sql
-            ),
-            msg=f"Captured SQL did not include size bounds: {dummy_session.executed_sql}",
-        )
+        self.assertEqual(body["code"], "INVALID_SIZE_RANGE")
+        self.assertEqual(body["status"], 400)
+        self.assertTrue(body["instance"].endswith("/mods?size_min=200&size_max=100"))
 
-    def test_mod_list_applies_excluded_tags_filter(self) -> None:
-        mod = types.SimpleNamespace(
-            id=7,
-            name="Tagged Mod",
-            description="",
-            short_description="",
-            date_creation=None,
-            date_update_file=None,
-            date_edit=None,
-            size=150,
-            size_unpacked=320,
-            source="local",
-            source_id=11,
-            downloads=42,
-        )
-        dummy_session = _DummySession([mod])
-
-        with patch.object(
-            self.api_mod.catalog,
-            "AsyncSessionLocal",
-            return_value=dummy_session,
-        ):
-            response = self.client.get(
-                f"{self.main_url}/mods",
-                params={"excluded_tags": "[5, 6]"},
-            )
-
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertEqual(body["database_size"], 1)
-        self.assertTrue(
-            any(
-                "unity_mods_tags" in sql and "NOT (EXISTS" in sql
-                for sql in dummy_session.executed_sql
-            ),
-            msg=f"Captured SQL did not include excluded tags: {dummy_session.executed_sql}",
-        )
-
-    def test_public_mod_dependencies_use_access_service(self) -> None:
-        dummy_session = _ModDetailSession(public=0, rows=[3, 5])
-        access_mods = AsyncMock(return_value=True)
-
-        with patch.object(
-            self.api_mod.catalog,
-            "AsyncSessionLocal",
-            return_value=dummy_session,
-        ), patch.object(self.api_mod.tools, "access_mods", access_mods):
-            response = self.client.get(f"{self.main_url}/mods/7/dependencies")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"count": 2, "results": [3, 5]})
-        access_mods.assert_awaited_once()
-
-    def test_private_mod_dependencies_use_access_service(self) -> None:
-        dummy_session = _ModDetailSession(public=2, rows=[3])
-        access_mods = AsyncMock(return_value=True)
-
-        with patch.object(
-            self.api_mod.catalog,
-            "AsyncSessionLocal",
-            return_value=dummy_session,
-        ), patch.object(self.api_mod.tools, "access_mods", access_mods):
-            response = self.client.get(f"{self.main_url}/mods/7/dependencies")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"count": 1, "results": [3]})
-        access_mods.assert_awaited_once()
-
-    def test_mod_list_applies_excluded_dependencies_filter(self) -> None:
-        mod = types.SimpleNamespace(
-            id=7,
-            name="Dependent Mod",
-            description="",
-            short_description="",
-            date_creation=None,
-            date_update_file=None,
-            date_edit=None,
-            size=150,
-            size_unpacked=320,
-            source="local",
-            source_id=11,
-            downloads=42,
-        )
-        dummy_session = _DummySession([mod])
-
-        with patch.object(
-            self.api_mod.catalog,
-            "AsyncSessionLocal",
-            return_value=dummy_session,
-        ):
-            response = self.client.get(
-                f"{self.main_url}/mods",
-                params={"excluded_dependencies": "[7, 8]"},
-            )
-
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertEqual(body["database_size"], 1)
-        self.assertTrue(
-            any(
-                "unity_mods_dependencies" in sql and "NOT (EXISTS" in sql
-                for sql in dummy_session.executed_sql
-            ),
-            msg=(
-                "Captured SQL did not include excluded dependencies: "
-                f"{dummy_session.executed_sql}"
-            ),
-        )
-
-    def test_mod_list_rejects_reversed_dependents_count_range(self) -> None:
-        response = self.client.get(
-            f"{self.main_url}/mods",
-            params={"dependents_count_min": 5, "dependents_count_max": 1},
-        )
+    def test_mod_list_rejects_unknown_sort_field(self) -> None:
+        response = self.client.get(f"{self.main_url}/mods", params={"sort": "unknown"})
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(
-            response.json()["detail"],
-            "Минимальное количество зависимых модов не может быть больше максимального!",
-        )
+        body = response.json()
+        self.assertEqual(body["code"], "UNSUPPORTED_SORT_FIELD")
+        self.assertEqual(body["context"]["field"], "unknown")
 
-    def test_mod_list_applies_dependents_count_range_filter(self) -> None:
-        mod = types.SimpleNamespace(
-            id=9,
-            name="Framework Mod",
-            description="",
-            short_description="",
-            date_creation=None,
-            date_update_file=None,
-            date_edit=None,
-            size=150,
-            size_unpacked=320,
-            source="local",
-            source_id=11,
-            downloads=42,
-        )
-        dummy_session = _DummySession([mod])
+    def test_mod_download_url_is_get_safe(self) -> None:
+        session = _RecordingSession(get_value=_mod(name="Downloadable Mod"))
+        access_mods = AsyncMock(return_value=True)
 
-        with patch.object(
-            self.api_mod.catalog,
-            "AsyncSessionLocal",
-            return_value=dummy_session,
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_mod.tools,
+            "access_mods",
+            access_mods,
         ):
+            response = self.client.get(f"{self.main_url}/mods/7/download-url")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["mod_id"], 7)
+        self.assertTrue(body["filename"].endswith(".zip"))
+        self.assertTrue(body["download_url"].startswith(f"{self.storage_url}/download/archive/mods/7/main.zip"))
+        self.assertEqual(session.commit_count, 0)
+        self.assertEqual(session.flush_count, 0)
+        access_mods.assert_awaited_once()
+
+    def test_mod_download_command_returns_created_resource(self) -> None:
+        session = _RecordingSession(rows=[], get_value=_mod(name="Downloadable Mod"), allow_writes=True)
+        access_mods = AsyncMock(return_value=True)
+        publish_event = AsyncMock(return_value=None)
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_mod.tools,
+            "access_mods",
+            access_mods,
+        ), patch.object(self.api_mod.mod_events, "publish_mod_event", publish_event):
+            response = self.client.post(f"{self.main_url}/mods/7/downloads")
+
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertEqual(body["mod_id"], 7)
+        self.assertTrue(body["download_url"].startswith(f"{self.storage_url}/download/archive/mods/7/main.zip"))
+        self.assertEqual(session.commit_count, 1)
+        self.assertTrue(any(isinstance(stmt, Update) for stmt in session.execute_statements))
+        publish_event.assert_awaited_once()
+        access_mods.assert_awaited_once()
+
+    def test_games_list_returns_items_and_pagination(self) -> None:
+        session = _RecordingSession(rows=[_game()], scalar_values=[1])
+
+        with patch.object(self.api_game.catalog, "AsyncSessionLocal", return_value=session):
             response = self.client.get(
-                f"{self.main_url}/mods",
-                params={"dependents_count_min": 2, "dependents_count_max": 4},
+                f"{self.main_url}/games",
+                params={
+                    "page": 0,
+                    "page_size": 20,
+                    "sort": "-mods_downloads",
+                    "types": ["game"],
+                    "sources": ["steam"],
+                    "include": ["statistics"],
+                },
             )
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(body["database_size"], 1)
-        self.assertEqual(body["results"][0]["id"], 9)
-        self.assertTrue(
-            any(
-                "unity_mods_dependencies" in sql
-                and "dependence" in sql
-                and ">=" in sql
-                and "<=" in sql
-                for sql in dummy_session.executed_sql
-            ),
-            msg=(
-                "Captured SQL did not include dependents count bounds: "
-                f"{dummy_session.executed_sql}"
-            ),
-        )
+        self.assertEqual(body["pagination"]["total"], 1)
+        self.assertEqual(body["items"][0]["mods_downloads"], 4567)
+        self.assertEqual(body["items"][0]["source"], "steam")
+        self.assertEqual(session.commit_count, 0)
 
-    def test_sort_helpers_support_download_and_plugins_count_aliases(self) -> None:
-        count_expr = literal_column("plugins_count")
+    def test_resources_list_is_get_safe(self) -> None:
+        session = _RecordingSession(rows=[_resource()], scalar_values=[1])
 
-        self.assertIs(
-            self.api_mod.tools.sort_mods("MOD_DOWNLOADS"),
-            self.api_mod.catalog.Mod.downloads,
-        )
-        self.assertIn(
-            "DESC",
-            str(self.api_mod.tools.sort_mods("iMOD_DOWNLOADS")).upper(),
-        )
-        self.assertIn(
-            "DESC",
-            str(self.api_mod.tools.sort_mods("DOWNLOADS")).upper(),
-        )
-        self.assertIs(
-            self.api_mod.tools.sort_games("MOD_DOWNLOADS"),
-            self.api_mod.catalog.Game.mods_downloads,
-        )
-        self.assertIn(
-            "DESC",
-            str(self.api_mod.tools.sort_games("MODS_DOWNLOADS")).upper(),
-        )
-        self.assertIn(
-            "DESC",
-            str(self.api_mod.tools.sort_games("iMOD_DOWNLOADS")).upper(),
-        )
-
-        self.assertIs(self.api_mod.tools.sort_mods("PLUGINS_COUNT", count_expr), count_expr)
-        self.assertIn(
-            "DESC",
-            str(self.api_mod.tools.sort_mods("iPLUGINS_COUNT", count_expr)).upper(),
-        )
-
-    def test_mod_list_applies_unpacked_size_range_filter(self) -> None:
-        mod = types.SimpleNamespace(
-            id=8,
-            name="Unpacked Mod",
-            description="",
-            short_description="",
-            date_creation=None,
-            date_update_file=None,
-            date_edit=None,
-            size=150,
-            size_unpacked=320,
-            source="local",
-            source_id=11,
-            downloads=42,
-        )
-        dummy_session = _DummySession([mod])
-
-        with patch.object(
-            self.api_mod.catalog,
-            "AsyncSessionLocal",
-            return_value=dummy_session,
-        ):
+        with patch.object(self.api_resource.catalog, "AsyncSessionLocal", return_value=session):
             response = self.client.get(
-                f"{self.main_url}/mods",
-                params={"size_unpacked_min": 300, "size_unpacked_max": 400},
+                f"{self.main_url}/resources",
+                params={
+                    "owner_type": "games",
+                    "owner_ids": [1],
+                    "types": ["screenshot"],
+                    "page": 0,
+                    "page_size": 20,
+                },
             )
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(body["database_size"], 1)
-        self.assertEqual(body["results"][0]["size_unpacked"], 320)
-        self.assertTrue(
-            any(
-                "mods.size_unpacked >= " in sql and "mods.size_unpacked <= " in sql
-                for sql in dummy_session.executed_sql
-            ),
-            msg=(
-                "Captured SQL did not include unpacked size bounds: "
-                f"{dummy_session.executed_sql}"
-            ),
-        )
+        self.assertEqual(body["items"][0]["owner_type"], "games")
+        self.assertEqual(body["items"][0]["url"], "https://example.com/image.webp")
+        self.assertEqual(session.commit_count, 0)
+        self.assertEqual(session.flush_count, 0)
 
-    def test_mod_feed_returns_size_range(self) -> None:
-        dummy_session = _DummySession(
-            [],
-            scalar_values=[7, 1024, 1048576, 2048, 2097152],
-        )
+    def test_profile_avatar_get_is_get_safe(self) -> None:
+        session = _RecordingSession(scalar_values=["local/avatar.webp"])
 
-        with patch.object(
-            self.api_mod.catalog,
-            "AsyncSessionLocal",
-            return_value=dummy_session,
-        ):
-            response = self.client.get(f"{self.main_url}/mods/feed")
+        with patch.object(self.api_profile.account, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(f"{self.main_url}/profiles/123/avatar", follow_redirects=False)
 
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertEqual(body["database_size"], 7)
-        self.assertEqual(body["size_min"], 1024)
-        self.assertEqual(body["size_max"], 1048576)
-        self.assertEqual(body["size_unpacked_min"], 2048)
-        self.assertEqual(body["size_unpacked_max"], 2097152)
-        self.assertTrue(
-            any(
-                "mods.public" in sql and "mods.condition" in sql
-                for sql in dummy_session.executed_sql
-            ),
-            msg=f"Captured SQL did not include visibility filters: {dummy_session.executed_sql}",
-        )
-
-    def test_mod_feed_applies_game_filter(self) -> None:
-        dummy_session = _DummySession(
-            [],
-            scalar_values=[4, 128, 256, 512, 1024],
-        )
-
-        with patch.object(
-            self.api_mod.catalog,
-            "AsyncSessionLocal",
-            return_value=dummy_session,
-        ):
-            response = self.client.get(
-                f"{self.main_url}/mods/feed",
-                params={"game": 12},
-            )
-
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertEqual(body["database_size"], 4)
-        self.assertEqual(body["size_min"], 128)
-        self.assertEqual(body["size_max"], 256)
-        self.assertEqual(body["size_unpacked_min"], 512)
-        self.assertEqual(body["size_unpacked_max"], 1024)
-        self.assertTrue(
-            any(
-                "mods.game =" in sql
-                for sql in dummy_session.executed_sql
-            ),
-            msg=f"Captured SQL did not include game filter: {dummy_session.executed_sql}",
-        )
-
-    def test_mod_feed_returns_null_ranges_for_empty_catalog(self) -> None:
-        dummy_session = _DummySession([], scalar_values=[0, None, None, None, None])
-
-        with patch.object(
-            self.api_mod.catalog,
-            "AsyncSessionLocal",
-            return_value=dummy_session,
-        ):
-            response = self.client.get(f"{self.main_url}/mods/feed")
-
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertEqual(body["database_size"], 0)
-        self.assertIsNone(body["size_min"])
-        self.assertIsNone(body["size_max"])
-        self.assertIsNone(body["size_unpacked_min"])
-        self.assertIsNone(body["size_unpacked_max"])
+        self.assertEqual(response.status_code, 307)
+        self.assertIn(f"{self.storage_url}/download/avatar/123.webp", response.headers["location"])
+        self.assertEqual(session.commit_count, 0)
+        self.assertEqual(session.flush_count, 0)
 
 
 if __name__ == "__main__":  # pragma: no cover

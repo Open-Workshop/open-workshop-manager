@@ -197,9 +197,10 @@ async def _load_mods(
 
 
 @router.post(
-    MAIN_URL + "/access/callback/context",
+    "/internal/access/context",
     tags=["Access"],
     summary="Trusted static access context",
+    include_in_schema=False,
     response_model=AccessCallbackContext,
     response_model_exclude_none=True,
 )

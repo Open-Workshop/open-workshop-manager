@@ -1,405 +1,401 @@
-"""Game management routes."""
+"""Game REST routes."""
 
-import logging
+from __future__ import annotations
+
 from datetime import datetime
 
-from fastapi import APIRouter, Path, Query, Request, Response
-from fastapi.responses import JSONResponse, PlainTextResponse
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy import delete, func, select
 
 from open_workshop_manager import standarts, tools
+from open_workshop_manager.api_helpers import ensure_non_empty_patch, make_list_response
+from open_workshop_manager.api_models import (
+    GameCreate,
+    GameListResponse,
+    GamePatch,
+    GameRead,
+    GenreListResponse,
+    GenreRead,
+    ResourceRead,
+    TagRead,
+)
 from open_workshop_manager.limits import LIMITS
-from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.sql_logic import sql_catalog as catalog
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+GAME_INCLUDE_FIELDS = {
+    "short_description",
+    "description",
+    "dates",
+    "statistics",
+    "genres",
+    "tags",
+    "resources",
+}
 
-class GameCreatePayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(..., max_length=LIMITS.game.name_max)
-    short_description: str = Field(..., max_length=LIMITS.game.short_desc_max)
-    description: str = Field(..., max_length=LIMITS.game.desc_max)
-    type: str = Field("game", max_length=LIMITS.game.type_max)
+def _raise_game_not_found(request: Request) -> None:
+    raise standarts.StandardAPIError(
+        status_code=404,
+        title="Not Found",
+        detail="Game not found.",
+        code="GAME_NOT_FOUND",
+        instance=str(request.url),
+    )
 
 
-class GameUpdatePayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+def _raise_unsupported_include(request: Request, field: str) -> None:
+    raise standarts.StandardAPIError(
+        status_code=400,
+        title="Bad Request",
+        detail="Unsupported include field.",
+        code="UNSUPPORTED_INCLUDE_FIELD",
+        instance=str(request.url),
+        context={"field": field, "allowed": sorted(GAME_INCLUDE_FIELDS)},
+    )
 
-    name: str | None = Field(None, max_length=LIMITS.game.name_max)
-    short_description: str | None = Field(None, max_length=LIMITS.game.short_desc_max)
-    description: str | None = Field(None, max_length=LIMITS.game.desc_max)
-    type: str | None = Field(None, max_length=LIMITS.game.type_max)
-    source: str | None = Field(None, max_length=LIMITS.game.source_max)
-    source_id: int | None = None
+
+def _raise_unsupported_sort(request: Request, field: str) -> None:
+    raise standarts.StandardAPIError(
+        status_code=400,
+        title="Bad Request",
+        detail="Unsupported sort field.",
+        code="UNSUPPORTED_SORT_FIELD",
+        instance=str(request.url),
+        context={
+            "field": field,
+            "allowed": ["name", "type", "created_at", "source", "mods_downloads", "mods_count"],
+        },
+    )
+
+
+def _normalize_includes(request: Request, include: list[str]) -> set[str]:
+    normalized = {item.strip() for item in include if item and item.strip()}
+    unknown = normalized.difference(GAME_INCLUDE_FIELDS)
+    if unknown:
+        _raise_unsupported_include(request, sorted(unknown)[0])
+    return normalized
+
+
+def _serialize_game_base(row: catalog.Game) -> dict[str, object]:
+    return {
+        "id": int(row.id),
+        "name": str(getattr(row, "name", "")),
+        "short_description": getattr(row, "short_description", None),
+        "description": getattr(row, "description", None),
+        "type": str(getattr(row, "type", "game")),
+        "source": str(getattr(row, "source", "local")),
+        "source_id": getattr(row, "source_id", None),
+        "mods_count": int(getattr(row, "mods_count", 0)) if getattr(row, "mods_count", None) is not None else None,
+        "mods_downloads": int(getattr(row, "mods_downloads", 0)) if getattr(row, "mods_downloads", None) is not None else None,
+        "created_at": getattr(row, "creation_date", None),
+    }
+
+
+async def _serialize_game_with_includes(
+    session,
+    request: Request,
+    row: catalog.Game,
+    include: set[str],
+) -> GameRead:
+    payload = _serialize_game_base(row)
+
+    if "statistics" not in include:
+        payload.pop("mods_count", None)
+        payload.pop("mods_downloads", None)
+
+    if "short_description" not in include:
+        payload.pop("short_description", None)
+    if "description" not in include:
+        payload.pop("description", None)
+    if "dates" not in include:
+        payload.pop("created_at", None)
+
+    if "genres" in include:
+        genres = (
+            await session.execute(
+                select(catalog.Genre)
+                .join(catalog.game_genres)
+                .where(catalog.game_genres.c.game_id == row.id)
+                .order_by(catalog.Genre.name)
+            )
+        ).scalars().all()
+        payload["genres"] = [GenreRead(id=int(item.id), name=item.name).model_dump(mode="json") for item in genres]
+
+    if "tags" in include:
+        tags = (
+            await session.execute(
+                select(catalog.Tag)
+                .join(catalog.allowed_mods_tags)
+                .where(catalog.allowed_mods_tags.c.game_id == row.id)
+                .order_by(catalog.Tag.name)
+            )
+        ).scalars().all()
+        payload["tags"] = [TagRead(id=int(item.id), name=item.name).model_dump(mode="json") for item in tags]
+
+    if "resources" in include:
+        resources = (
+            await session.execute(
+                select(catalog.Resource)
+                .where(
+                    catalog.Resource.owner_type == "games",
+                    catalog.Resource.owner_id == row.id,
+                )
+                .order_by(catalog.Resource.id)
+            )
+        ).scalars().all()
+        payload["resources"] = await tools.resources_serialize(resources)
+
+    return GameRead.model_validate(payload)
 
 
 @router.get(
-    MAIN_URL + "/games",
+    "/games",
     tags=["Game"],
-    summary="Список игр.",
     status_code=200,
-    responses={
-        200: {
-            "description": "OK",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "database_size": 123,
-                        "offset": 123,
-                        "results": [
-                            {"id": 1, "name": "?", "type": "app", "source": "local"},
-                            {"id": 2, "name": "!?", "type": "game", "source": "steam"},
-                        ],
-                    }
-                }
-            },
-        },
-        413: {
-            "description": "Неккоректный диапазон параметров(размеров).",
-            "content": {
-                "application/json": {
-                    "example": {"message": "incorrect page size", "error_id": 1}
-                }
-            },
-        },
-    },
+    response_model=GameListResponse,
+    response_model_exclude_none=True,
 )
-async def games_list(
+async def list_games(
     request: Request,
     page_size: int = Query(
         LIMITS.page.default,
-        description="Размер 1 страницы. Диапазон - 1...50 элементов.",
+        ge=LIMITS.page.min,
+        le=LIMITS.page.max,
     ),
-    page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
-    sort: str = Query(
-        "MODS_DOWNLOADS",
-        description="Сортировка. Префикс `i` указывает что сортировка должна быть инвертированной.",
-    ),
-    name: str = Query("", description="Фильтр по заголовку/названию."),
-    type_app=Query(
-        [],
-        description="Фильтр по типу *(`game` и/или `app`)*.",
-        examples=["['game','app']"],
-    ),
-    genres=Query(
-        [],
-        description="Фильтр по жанрам. Передать id интересующих жанров.",
-        examples=["[1,2]"],
-    ),
-    primary_sources=Query(
-        [],
-        description="Фильтр по источникам. Передать названия источников.",
-        examples=["['local','steam']"],
-    ),
-    allowed_sources_ids=Query(
-        [],
-        description="Фильтр по source_id. Передать id в источниках (не работает если не передан `primary_sources`).",
-        examples=["[1,2]"],
-    ),
-    allowed_ids=Query(
-        [], description="Фильтр по id. Передать id игр.", examples=["[1,2]"]
-    ),
-    short_description: bool = Query(
-        False, description="Отправлять ли короткое описание."
-    ),
-    description: bool = Query(False, description="Отправлять ли описание."),
-    dates: bool = Query(False, description="Отправлять ли даты (дата создания)."),
-    statistics: bool = Query(
-        False,
-        description="Отправлять ли статистику (количество модов и их общее количество скачиваний).",
-    ),
+    page: int = Query(0, ge=0),
+    sort: str = Query(default="-mods_downloads"),
+    name: str | None = Query(default=None, max_length=LIMITS.game.name_max),
+    types: list[str] = Query(default_factory=list),
+    genre_ids: list[int] = Query(default_factory=list),
+    sources: list[str] = Query(default_factory=list),
+    source_ids: list[int] = Query(default_factory=list),
+    ids: list[int] = Query(default_factory=list),
+    include: list[str] = Query(default_factory=list),
 ):
-    genres = tools.str_to_list(genres)
-    type_app = tools.str_to_list(type_app)
-    primary_sources = tools.str_to_list(primary_sources)
-    allowed_ids = tools.str_to_list(allowed_ids)
-    allowed_sources_ids = tools.str_to_list(allowed_sources_ids)
-
-    if page_size > LIMITS.page.max or page_size < LIMITS.page.min:
-        raise standarts.PayloadTooLargeError(
-            detail="incorrect page size",
-            instance=str(request.url),
-            context={"error_id": 1},
-        )
-    if (
-        len(type_app)
-        + len(genres)
-        + len(primary_sources)
-        + len(allowed_ids)
-        + len(allowed_sources_ids)
-    ) > LIMITS.game.filters_max:
-        raise standarts.PayloadTooLargeError(
-            detail="the maximum complexity of filters is 80 elements in sum",
-            instance=str(request.url),
-            context={"error_id": 2},
-        )
+    include_set = _normalize_includes(request, include)
+    sort_clause = None
+    try:
+        sort_clause = tools.sort_games(sort)
+    except KeyError as exc:
+        _raise_unsupported_sort(request, exc.args[0] if exc.args else str(exc))
 
     async with catalog.AsyncSessionLocal() as session:
         count_stmt = select(func.count()).select_from(catalog.Game)
-        list_stmt = select(catalog.Game)
-        list_stmt = list_stmt.order_by(tools.sort_games(sort))
+        list_stmt = select(catalog.Game).order_by(sort_clause)
 
-        if allowed_ids:
-            condition = catalog.Game.id.in_(allowed_ids)
-            count_stmt = count_stmt.where(condition)
-            list_stmt = list_stmt.where(condition)
+        if ids:
+            count_stmt = count_stmt.where(catalog.Game.id.in_(ids))
+            list_stmt = list_stmt.where(catalog.Game.id.in_(ids))
 
-        if genres:
-            for genre in genres:
-                logger.debug("Genre filter type=%s", type(genre))
-                count_stmt = count_stmt.where(catalog.Game.genres.any(id=genre))
-                list_stmt = list_stmt.where(catalog.Game.genres.any(id=genre))
+        if types:
+            count_stmt = count_stmt.where(catalog.Game.type.in_(types))
+            list_stmt = list_stmt.where(catalog.Game.type.in_(types))
 
-        if primary_sources:
-            condition = catalog.Game.source.in_(primary_sources)
-            count_stmt = count_stmt.where(condition)
-            list_stmt = list_stmt.where(condition)
-            if allowed_sources_ids:
-                condition = catalog.Game.source_id.in_(allowed_sources_ids)
+        if sources:
+            count_stmt = count_stmt.where(catalog.Game.source.in_(sources))
+            list_stmt = list_stmt.where(catalog.Game.source.in_(sources))
+
+        if source_ids:
+            count_stmt = count_stmt.where(catalog.Game.source_id.in_(source_ids))
+            list_stmt = list_stmt.where(catalog.Game.source_id.in_(source_ids))
+
+        if genre_ids:
+            for genre_id in genre_ids:
+                condition = catalog.Game.genres.any(id=genre_id)
                 count_stmt = count_stmt.where(condition)
                 list_stmt = list_stmt.where(condition)
-
-        if type_app:
-            condition = catalog.Game.type.in_(type_app)
-            count_stmt = count_stmt.where(condition)
-            list_stmt = list_stmt.where(condition)
 
         if name:
             condition = catalog.Game.name.ilike(f"%{name}%")
             count_stmt = count_stmt.where(condition)
             list_stmt = list_stmt.where(condition)
 
-        games_count = int((await session.execute(count_stmt)).scalar_one())
-        offset = page_size * page
-        games = (await session.execute(list_stmt.offset(offset).limit(page_size))).scalars().all()
+        total = int((await session.scalar(count_stmt)) or 0)
+        offset = page * page_size
+        rows = (await session.execute(list_stmt.offset(offset).limit(page_size))).scalars().all()
 
-    output_games = []
-    for game in games:
-        out = {
-            "id": game.id,
-            "name": game.name,
-            "type": game.type,
-            "source": game.source,
-            "source_id": game.source_id,
-        }
-        if description:
-            out["description"] = game.description
-        if short_description:
-            out["short_description"] = game.short_description
-        if dates:
-            out["creation_date"] = game.creation_date
-        if statistics:
-            out["mods_count"] = game.mods_count
-            out["mods_downloads"] = game.mods_downloads
-        output_games.append(out)
+        items: list[dict[str, object]] = []
+        for row in rows:
+            payload = _serialize_game_base(row)
+            if "statistics" not in include_set:
+                payload.pop("mods_count", None)
+                payload.pop("mods_downloads", None)
+            if "short_description" not in include_set:
+                payload.pop("short_description", None)
+            if "description" not in include_set:
+                payload.pop("description", None)
+            if "dates" not in include_set:
+                payload.pop("created_at", None)
 
-    return {"database_size": games_count, "offset": offset, "results": output_games}
+            if include_set:
+                serialized = await _serialize_game_with_includes(session, request, row, include_set)
+                payload = serialized.model_dump(mode="json", exclude_none=True)
+            items.append(payload)
+
+    return make_list_response(items, page=page, page_size=page_size, total=total)
 
 
 @router.get(
-    MAIN_URL + "/games/{game_id}",
+    "/games/{game_id}",
     tags=["Game"],
-    summary="Информация об игре",
     status_code=200,
-    responses={
-        200: {"description": "OK"},
-        404: {"description": "Игра не найдена."},
-    },
+    response_model=GameRead,
+    response_model_exclude_none=True,
 )
-async def game_info(
+async def get_game(
     request: Request,
-    game_id: int = Path(description="ID игры"),
-    short_description: bool = Query(
-        False, description="Отправлять ли короткое описание."
-    ),
-    description: bool = Query(False, description="Отправлять ли описание."),
-    dates: bool = Query(False, description="Отправлять ли даты (дата создания)."),
-    statistics: bool = Query(
-        False,
-        description="Отправлять ли статистику (количество модов и их общее количество скачиваний).",
-    ),
-):
+    game_id: int,
+    include: list[str] = Query(default_factory=list),
+) -> GameRead:
+    include_set = _normalize_includes(request, include)
+
     async with catalog.AsyncSessionLocal() as session:
-        stmt = select(catalog.Game).where(catalog.Game.id == game_id)
-        row = (await session.execute(stmt)).scalar_one_or_none()
+        row = await session.get(catalog.Game, game_id)
+        if row is None:
+            _raise_game_not_found(request)
 
-    if not row:
-        raise standarts.NotFoundError(
-            detail="Game not found.",
-            instance=str(request.url),
-        )
-
-    out = {
-        "id": row.id,
-        "name": row.name,
-        "type": row.type,
-        "source": row.source,
-        "source_id": row.source_id,
-    }
-    if description:
-        out["description"] = row.description
-    if short_description:
-        out["short_description"] = row.short_description
-    if dates:
-        out["creation_date"] = row.creation_date
-    if statistics:
-        out["mods_count"] = row.mods_count
-        out["mods_downloads"] = row.mods_downloads
-
-    return out
+        if include_set:
+            return await _serialize_game_with_includes(session, request, row, include_set)
+        return GameRead.model_validate(_serialize_game_base(row))
 
 
 @router.post(
-    MAIN_URL + "/games",
+    "/games",
     tags=["Game"],
-    summary="Добавление игры",
-    status_code=202,
-    responses={
-        202: {
-            "description": "Возвращает ID созданной игры",
-            "content": {"application/json": {"example": 123}},
-        },
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
-    },
+    status_code=201,
+    response_model=GameRead,
+    response_model_exclude_none=True,
 )
-async def add_game(
+async def create_game(
     response: Response,
     request: Request,
-    payload: GameCreatePayload,
-):
-    access_result = await tools.access_admin(request=request)
-    if access_result is not True:
-        return access_result
+    payload: GameCreate,
+) -> GameRead:
+    await tools.access_admin(request=request)
 
     async with catalog.AsyncSessionLocal() as session:
-        new_game = catalog.Game(
+        game = catalog.Game(
             name=payload.name,
-            type=payload.type,
             short_description=payload.short_description,
             description=payload.description,
+            type=payload.type,
             mods_downloads=0,
             mods_count=0,
             creation_date=datetime.now(),
             source="local",
+            source_id=None,
         )
-        session.add(new_game)
+        session.add(game)
         await session.flush()
-        game_id = int(new_game.id)
         await session.commit()
-
-    return JSONResponse(status_code=202, content=game_id)
+        response.headers["Location"] = f"/games/{game.id}"
+        return GameRead.model_validate(_serialize_game_base(game))
 
 
 @router.patch(
-    MAIN_URL + "/games/{game_id}",
+    "/games/{game_id}",
     tags=["Game"],
-    summary="Редактирование игры",
-    status_code=202,
-    responses={
-        202: {"description": "Изменение данных в базе данных по указанному ID игры."},
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
-        404: {"description": "Игра не найдена."},
-        412: {"description": "Такая source-связка уже существует."},
-        418: {"description": "Пустой запрос. Возникает если не передан ни один из параметров-свойств."},
-    },
+    status_code=200,
+    response_model=GameRead,
+    response_model_exclude_none=True,
 )
-async def edit_game(
-    response: Response,
+async def patch_game(
     request: Request,
-    payload: GameUpdatePayload,
-    game_id: int = Path(description="ID игры для редактирования"),
-) -> Response:
+    game_id: int,
+    payload: GamePatch,
+) -> GameRead:
+    await tools.access_admin(request=request)
+
+    data = payload.model_dump(exclude_none=True)
+    ensure_non_empty_patch(data)
+
+    async with catalog.AsyncSessionLocal() as session:
+        game = await session.get(catalog.Game, game_id)
+        if game is None:
+            _raise_game_not_found(request)
+
+        if "source" in data or "source_id" in data:
+            candidate_source = data.get("source", game.source)
+            candidate_source_id = data.get("source_id", game.source_id)
+            if candidate_source_id is not None:
+                existing = await session.scalar(
+                    select(catalog.Game.id).where(
+                        catalog.Game.id != game_id,
+                        catalog.Game.source == candidate_source,
+                        catalog.Game.source_id == candidate_source_id,
+                    )
+                )
+                if existing is not None:
+                    raise standarts.StandardAPIError(
+                        status_code=409,
+                        title="Conflict",
+                        detail="Game source already exists.",
+                        code="GAME_SOURCE_ALREADY_EXISTS",
+                        instance=str(request.url),
+                        context={
+                            "source": candidate_source,
+                            "source_id": candidate_source_id,
+                        },
+                    )
+            game.source = candidate_source
+            game.source_id = candidate_source_id
+            data.pop("source", None)
+            data.pop("source_id", None)
+
+        for key, value in data.items():
+            setattr(game, key, value)
+
+        await session.commit()
+        return GameRead.model_validate(_serialize_game_base(game))
+
+
+@router.delete(
+    "/games/{game_id}",
+    tags=["Game"],
+    status_code=204,
+)
+async def delete_game(request: Request, game_id: int) -> Response:
     await tools.access_admin(request=request)
 
     async with catalog.AsyncSessionLocal() as session:
         game = await session.get(catalog.Game, game_id)
-        if not game:
-            raise standarts.NotFoundError(
-                detail="The element does not exist.",
-                instance=str(request.url),
-            )
+        if game is None:
+            _raise_game_not_found(request)
 
-        data_edit: dict[str, object] = {}
-        if payload.name:
-            data_edit["name"] = payload.name
-        if payload.short_description:
-            data_edit["short_description"] = payload.short_description
-        if payload.description:
-            data_edit["description"] = payload.description
-        if payload.type:
-            data_edit["type"] = payload.type
-        if payload.source:
-            data_edit["source"] = payload.source
-            data_edit["source_id"] = payload.source_id
-
-            exists = (
-                await session.execute(
-                    select(catalog.Game).where(
-                        catalog.Game.source == payload.source,
-                        catalog.Game.source_id == payload.source_id,
-                    )
-                )
-            ).scalar_one_or_none()
-            if exists:
-                raise standarts.PreconditionFailedError(
-                    detail="The element already exists",
-                    instance=str(request.url),
-                )
-
-        if len(data_edit) <= 0:
-            raise standarts.RequestRejectedError(
-                detail="The request is empty",
-                instance=str(request.url),
-            )
-
-        for key, value in data_edit.items():
-            setattr(game, key, value)
+        await tools.delete_resources(owner_type="games", owner_id=game_id)
+        await session.execute(catalog.game_genres.delete().where(catalog.game_genres.c.game_id == game_id))
+        await session.execute(
+            catalog.allowed_mods_tags.delete().where(catalog.allowed_mods_tags.c.game_id == game_id)
+        )
+        await session.execute(delete(catalog.Game).where(catalog.Game.id == game_id))
         await session.commit()
 
-    return PlainTextResponse(status_code=202, content="Complite")
+    return Response(status_code=204)
 
 
-@router.delete(
-    MAIN_URL + "/games/{game_id}",
-    tags=["Game"],
-    summary="Удаление игры",
-    status_code=202,
-    responses={
-        202: {"description": "Успешно"},
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
-    },
+@router.get(
+    "/games/{game_id}/genres",
+    tags=["Game", "Genre", "Association"],
+    status_code=200,
+    response_model=GenreListResponse,
+    response_model_exclude_none=True,
 )
-async def delete_game(
-    response: Response,
-    request: Request,
-    game_id: int = Path(description="ID игры для удаления"),
-):
-    access_result = await tools.access_admin(request=request)
-    if access_result is not True:
-        return access_result
-
-    await tools.delete_resources(owner_type="games", owner_id=game_id)
-
+async def get_game_genres(request: Request, game_id: int) -> dict[str, object]:
     async with catalog.AsyncSessionLocal() as session:
-        delete_game_stmt = delete(catalog.Game).where(catalog.Game.id == game_id)
-        delete_genres_association = catalog.game_genres.delete().where(
-            catalog.game_genres.c.game_id == game_id
-        )
-        delete_tags_association = catalog.allowed_mods_tags.delete().where(
-            catalog.allowed_mods_tags.c.game_id == game_id
-        )
+        game = await session.get(catalog.Game, game_id)
+        if game is None:
+            _raise_game_not_found(request)
 
-        await session.execute(delete_game_stmt)
-        await session.execute(delete_genres_association)
-        await session.execute(delete_tags_association)
-        await session.commit()
+        genres = (
+            await session.execute(
+                select(catalog.Genre)
+                .join(catalog.game_genres)
+                .where(catalog.game_genres.c.game_id == game_id)
+                .order_by(catalog.Genre.name)
+            )
+        ).scalars().all()
 
-    return JSONResponse(status_code=202, content="Complite")
+    items = [GenreRead(id=int(item.id), name=item.name).model_dump(mode="json") for item in genres]
+    return make_list_response(items, page=0, page_size=max(len(items), 1), total=len(items))

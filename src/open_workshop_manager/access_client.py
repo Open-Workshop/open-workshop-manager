@@ -173,6 +173,9 @@ def _parse_problem_details(status_code: int, text: str) -> ProblemDetails | None
     except (TypeError, json.JSONDecodeError):
         return None
 
+    if isinstance(payload, dict) and "instance" not in payload:
+        payload = {**payload, "instance": ""}
+
     try:
         problem = ProblemDetails.model_validate(payload)
     except Exception:

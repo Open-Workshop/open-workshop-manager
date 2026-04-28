@@ -1,421 +1,282 @@
-"""Association control routes."""
+"""Association mutation routes."""
 
-from typing import Any
+from __future__ import annotations
 
-from fastapi import APIRouter, Path, Request, Response
-from fastapi.responses import JSONResponse
-from sqlalchemy import insert, select
+from fastapi import APIRouter, Request, Response
+from sqlalchemy import delete, insert, select
 
 from open_workshop_manager import standarts, tools
-from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
 
-ASSOCIATION_RESPONSES: dict[int | str, dict[str, Any]] = {
-    202: {
-        "description": "Запрос успешно обработан.",
-        "content": {"application/json": {"example": "Complite"}},
-    },
-    409: {
-        "description": "Запрашиваемое состояние уже реализовано.",
-        "content": {
-            "application/json": {"example": "The association is already present"}
-        },
-    },
-}
+
+def _raise_not_found(request: Request, code: str, detail: str) -> None:
+    raise standarts.StandardAPIError(
+        status_code=404,
+        title="Not Found",
+        detail=detail,
+        code=code,
+        instance=str(request.url),
+    )
 
 
-async def association_game_with_genre(
-    response: Response,
+def _raise_conflict(request: Request, code: str, detail: str) -> None:
+    raise standarts.StandardAPIError(
+        status_code=409,
+        title="Conflict",
+        detail=detail,
+        code=code,
+        instance=str(request.url),
+    )
+
+
+async def _ensure_game_exists(request: Request, game_id: int) -> None:
+    async with catalog.AsyncSessionLocal() as session:
+        game = await session.get(catalog.Game, game_id)
+    if game is None:
+        _raise_not_found(request, "GAME_NOT_FOUND", "Game not found.")
+
+
+async def _ensure_genre_exists(request: Request, genre_id: int) -> None:
+    async with catalog.AsyncSessionLocal() as session:
+        genre = await session.get(catalog.Genre, genre_id)
+    if genre is None:
+        _raise_not_found(request, "GENRE_NOT_FOUND", "Genre not found.")
+
+
+async def _ensure_tag_exists(request: Request, tag_id: int) -> None:
+    async with catalog.AsyncSessionLocal() as session:
+        tag = await session.get(catalog.Tag, tag_id)
+    if tag is None:
+        _raise_not_found(request, "TAG_NOT_FOUND", "Tag not found.")
+
+
+async def _ensure_mod_exists(request: Request, mod_id: int) -> None:
+    async with catalog.AsyncSessionLocal() as session:
+        mod = await session.get(catalog.Mod, mod_id)
+    if mod is None:
+        _raise_not_found(request, "MOD_NOT_FOUND", "Mod not found.")
+
+
+async def _associate(
     request: Request,
-    game_id: int,
-    mode: bool,
-    genre_id: int,
-):
-    access_result = await tools.access_admin(request=request)
+    *,
+    table,
+    insert_values: dict[str, object],
+    exists_where,
+    delete_where,
+    conflict_code: str,
+    conflict_detail: str,
+) -> None:
+    async with catalog.AsyncSessionLocal() as session:
+        exists = await session.execute(select(table).where(*exists_where))
+        if exists.first() is not None:
+            _raise_conflict(request, conflict_code, conflict_detail)
+        await session.execute(insert(table).values(**insert_values))
+        await session.commit()
 
-    if access_result is True:
-        async with catalog.AsyncSessionLocal() as session:
-            if mode:
-                result = await session.execute(
-                    select(catalog.game_genres).where(
-                        catalog.game_genres.c.game_id == game_id,
-                        catalog.game_genres.c.genre_id == genre_id,
-                    )
-                )
-                output = result.first()
-                if output is None:
-                    insert_statement = insert(catalog.game_genres).values(
-                        game_id=game_id, genre_id=genre_id
-                    )
-                    await session.execute(insert_statement)
-                    await session.commit()
-                    return JSONResponse(status_code=202, content="Complite")
-                else:
-                    raise standarts.ConflictError(
-                        detail="The association is already present",
-                        instance=str(request.url),
-                    )
-            else:
-                delete_genre_association = catalog.game_genres.delete().where(
-                    catalog.game_genres.c.game_id == game_id,
-                    catalog.game_genres.c.genre_id == genre_id,
-                )
 
-                # Выполнение операции DELETE
-                await session.execute(delete_genre_association)
-                await session.commit()
-                return JSONResponse(status_code=202, content="Complite")
-    else:
-        return access_result
+async def _delete_assoc(request: Request, *, table, delete_where) -> None:
+    async with catalog.AsyncSessionLocal() as session:
+        await session.execute(delete(table).where(*delete_where))
+        await session.commit()
 
 
 @router.post(
-    MAIN_URL + "/games/{game_id}/genres/{genre_id}",
+    "/games/{game_id}/genres/{genre_id}",
     tags=["Association", "Game", "Genre"],
-    summary="Добавление жанра игре",
-    status_code=202,
-    responses=ASSOCIATION_RESPONSES
-    | {
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
-    },
+    status_code=204,
 )
-async def game_add_genre(
-    response: Response,
-    request: Request,
-    game_id: int = Path(description="ID игры"),
-    genre_id: int = Path(description="ID жанра"),
-):
-    return await association_game_with_genre(
-        response=response,
-        request=request,
-        game_id=game_id,
-        mode=True,
-        genre_id=genre_id,
-    )
+async def add_game_genre(request: Request, game_id: int, genre_id: int):
+    await tools.access_admin(request=request)
+    await _ensure_game_exists(request, game_id)
+    await _ensure_genre_exists(request, genre_id)
+
+    async with catalog.AsyncSessionLocal() as session:
+        exists = await session.execute(
+            select(catalog.game_genres).where(
+                catalog.game_genres.c.game_id == game_id,
+                catalog.game_genres.c.genre_id == genre_id,
+            )
+        )
+        if exists.first() is not None:
+            _raise_conflict(request, "ASSOCIATION_ALREADY_EXISTS", "The association is already present.")
+        await session.execute(
+            insert(catalog.game_genres).values(game_id=game_id, genre_id=genre_id)
+        )
+        await session.commit()
+
+    return Response(status_code=204)
 
 
 @router.delete(
-    MAIN_URL + "/games/{game_id}/genres/{genre_id}",
+    "/games/{game_id}/genres/{genre_id}",
     tags=["Association", "Game", "Genre"],
-    summary="Удаление жанра у игры",
-    status_code=202,
-    responses=ASSOCIATION_RESPONSES
-    | {
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
-    },
+    status_code=204,
 )
-async def game_delete_genre(
-    response: Response,
-    request: Request,
-    game_id: int = Path(description="ID игры"),
-    genre_id: int = Path(description="ID жанра"),
-):
-    return await association_game_with_genre(
-        response=response,
-        request=request,
-        game_id=game_id,
-        mode=False,
-        genre_id=genre_id,
-    )
+async def delete_game_genre(request: Request, game_id: int, genre_id: int):
+    await tools.access_admin(request=request)
+    await _ensure_game_exists(request, game_id)
+    await _ensure_genre_exists(request, genre_id)
+
+    async with catalog.AsyncSessionLocal() as session:
+        await session.execute(
+            delete(catalog.game_genres).where(
+                catalog.game_genres.c.game_id == game_id,
+                catalog.game_genres.c.genre_id == genre_id,
+            )
+        )
+        await session.commit()
+
+    return Response(status_code=204)
 
 
 @router.post(
-    MAIN_URL + "/mods/{mod_id}/dependencies/{dependencie_id}",
-    tags=["Association", "Mod"],
-    summary="Добавление зависимости мода",
-    status_code=202,
-    responses=ASSOCIATION_RESPONSES
-    | {
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.FORBIDDEN_RESPONSE_SPEC,
-    },
-)
-async def mod_add_dependency(
-    response: Response,
-    request: Request,
-    mod_id: int = Path(description="ID мода"),
-    dependencie_id: int = Path(description="ID зависимости (мода)"),
-):
-    return await association_mod_with_dependencie(
-        response=response,
-        request=request,
-        mod_id=mod_id,
-        mode=True,
-        dependencie=dependencie_id,
-    )
-
-
-@router.delete(
-    MAIN_URL + "/mods/{mod_id}/dependencies/{dependencie_id}",
-    tags=["Association", "Mod"],
-    summary="Удаление зависимости мода",
-    status_code=202,
-    responses=ASSOCIATION_RESPONSES
-    | {
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.FORBIDDEN_RESPONSE_SPEC,
-    },
-)
-async def mod_delete_dependency(
-    response: Response,
-    request: Request,
-    mod_id: int = Path(description="ID мода"),
-    dependencie_id: int = Path(description="ID зависимости (мода)"),
-):
-    return await association_mod_with_dependencie(
-        response=response,
-        request=request,
-        mod_id=mod_id,
-        mode=False,
-        dependencie=dependencie_id,
-    )
-
-
-async def association_game_with_tag(
-    response: Response,
-    request: Request,
-    game_id: int,
-    mode: bool,
-    tag_id: int,
-):
-    access_result = await tools.access_admin(request=request)
-
-    if access_result is True:
-        async with catalog.AsyncSessionLocal() as session:
-            if mode:
-                result = await session.execute(
-                    select(catalog.allowed_mods_tags).where(
-                        catalog.allowed_mods_tags.c.game_id == game_id,
-                        catalog.allowed_mods_tags.c.tag_id == tag_id,
-                    )
-                )
-                output = result.first()
-                if output is None:
-                    insert_statement = insert(catalog.allowed_mods_tags).values(
-                        game_id=game_id, tag_id=tag_id
-                    )
-                    await session.execute(insert_statement)
-                    await session.commit()
-                    return JSONResponse(status_code=202, content="Complite")
-                else:
-                    raise standarts.ConflictError(
-                        detail="The association is already present",
-                        instance=str(request.url),
-                    )
-            else:
-                delete_tags_association = catalog.allowed_mods_tags.delete().where(
-                    catalog.allowed_mods_tags.c.game_id == game_id,
-                    catalog.allowed_mods_tags.c.tag_id == tag_id,
-                )
-
-                # Выполнение операции DELETE
-                await session.execute(delete_tags_association)
-                await session.commit()
-                return JSONResponse(status_code=202, content="Complite")
-    else:
-        return access_result
-
-
-async def association_mod_with_tag(
-    response: Response,
-    request: Request,
-    mod_id: int,
-    mode: bool,
-    tag_id: int,
-):
-    access_result = await tools.access_mods(
-        request=request, mods_ids=mod_id
-    )
-
-    if access_result is True:
-        async with catalog.AsyncSessionLocal() as session:
-            if mode:
-                result = await session.execute(
-                    select(catalog.mods_tags).where(
-                        catalog.mods_tags.c.mod_id == mod_id,
-                        catalog.mods_tags.c.tag_id == tag_id,
-                    )
-                )
-                output = result.first()
-                if output is None:
-                    insert_statement = insert(catalog.mods_tags).values(
-                        mod_id=mod_id, tag_id=tag_id
-                    )
-                    await session.execute(insert_statement)
-                    await session.commit()
-                    return JSONResponse(status_code=202, content="Complite")
-                else:
-                    raise standarts.ConflictError(
-                        detail="The association is already present",
-                        instance=str(request.url),
-                    )
-            else:
-                delete_tags_association = catalog.mods_tags.delete().where(
-                    catalog.mods_tags.c.mod_id == mod_id,
-                    catalog.mods_tags.c.tag_id == tag_id,
-                )
-
-                # Выполнение операции DELETE
-                await session.execute(delete_tags_association)
-                await session.commit()
-                return JSONResponse(status_code=202, content="Complite")
-    else:
-        return access_result
-
-
-@router.post(
-    MAIN_URL + "/games/{game_id}/tags/{tag_id}",
+    "/games/{game_id}/tags/{tag_id}",
     tags=["Association", "Game", "Tag"],
-    summary="Добавление тега игре",
-    status_code=202,
-    responses=ASSOCIATION_RESPONSES
-    | {
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
-    },
+    status_code=204,
 )
-async def game_add_tag(
-    response: Response,
-    request: Request,
-    game_id: int = Path(description="ID игры"),
-    tag_id: int = Path(description="ID тега"),
-):
-    return await association_game_with_tag(
-        response=response,
-        request=request,
-        game_id=game_id,
-        mode=True,
-        tag_id=tag_id,
-    )
+async def add_game_tag(request: Request, game_id: int, tag_id: int):
+    await tools.access_admin(request=request)
+    await _ensure_game_exists(request, game_id)
+    await _ensure_tag_exists(request, tag_id)
+
+    async with catalog.AsyncSessionLocal() as session:
+        exists = await session.execute(
+            select(catalog.allowed_mods_tags).where(
+                catalog.allowed_mods_tags.c.game_id == game_id,
+                catalog.allowed_mods_tags.c.tag_id == tag_id,
+            )
+        )
+        if exists.first() is not None:
+            _raise_conflict(request, "ASSOCIATION_ALREADY_EXISTS", "The association is already present.")
+        await session.execute(
+            insert(catalog.allowed_mods_tags).values(game_id=game_id, tag_id=tag_id)
+        )
+        await session.commit()
+
+    return Response(status_code=204)
 
 
 @router.delete(
-    MAIN_URL + "/games/{game_id}/tags/{tag_id}",
+    "/games/{game_id}/tags/{tag_id}",
     tags=["Association", "Game", "Tag"],
-    summary="Удаление тега у игры",
-    status_code=202,
-    responses=ASSOCIATION_RESPONSES
-    | {
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
-    },
+    status_code=204,
 )
-async def game_delete_tag(
-    response: Response,
-    request: Request,
-    game_id: int = Path(description="ID игры"),
-    tag_id: int = Path(description="ID тега"),
-):
-    return await association_game_with_tag(
-        response=response,
-        request=request,
-        game_id=game_id,
-        mode=False,
-        tag_id=tag_id,
-    )
+async def delete_game_tag(request: Request, game_id: int, tag_id: int):
+    await tools.access_admin(request=request)
+    await _ensure_game_exists(request, game_id)
+    await _ensure_tag_exists(request, tag_id)
+
+    async with catalog.AsyncSessionLocal() as session:
+        await session.execute(
+            delete(catalog.allowed_mods_tags).where(
+                catalog.allowed_mods_tags.c.game_id == game_id,
+                catalog.allowed_mods_tags.c.tag_id == tag_id,
+            )
+        )
+        await session.commit()
+
+    return Response(status_code=204)
 
 
 @router.post(
-    MAIN_URL + "/mods/{mod_id}/tags/{tag_id}",
-    tags=["Association", "Mod", "Tag"],
-    summary="Добавление тега модификации",
-    status_code=202,
-    responses=ASSOCIATION_RESPONSES
-    | {
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.FORBIDDEN_RESPONSE_SPEC,
-    },
+    "/mods/{mod_id}/dependencies/{dependency_mod_id}",
+    tags=["Association", "Mod"],
+    status_code=204,
 )
-async def mod_add_tag(
-    response: Response,
-    request: Request,
-    mod_id: int = Path(description="ID мода"),
-    tag_id: int = Path(description="ID тега"),
-):
-    return await association_mod_with_tag(
-        response=response,
-        request=request,
-        mod_id=mod_id,
-        mode=True,
-        tag_id=tag_id,
-    )
+async def add_mod_dependency(request: Request, mod_id: int, dependency_mod_id: int):
+    await tools.access_mods(request=request, mods_ids=[mod_id], edit=True)
+    await _ensure_mod_exists(request, mod_id)
+    await _ensure_mod_exists(request, dependency_mod_id)
+
+    async with catalog.AsyncSessionLocal() as session:
+        exists = await session.execute(
+            select(catalog.mods_dependencies).where(
+                catalog.mods_dependencies.c.mod_id == mod_id,
+                catalog.mods_dependencies.c.dependence == dependency_mod_id,
+            )
+        )
+        if exists.first() is not None:
+            _raise_conflict(request, "ASSOCIATION_ALREADY_EXISTS", "The association is already present.")
+        await session.execute(
+            insert(catalog.mods_dependencies).values(
+                mod_id=mod_id,
+                dependence=dependency_mod_id,
+            )
+        )
+        await session.commit()
+
+    return Response(status_code=204)
 
 
 @router.delete(
-    MAIN_URL + "/mods/{mod_id}/tags/{tag_id}",
-    tags=["Association", "Mod", "Tag"],
-    summary="Удаление тега модификации",
-    status_code=202,
-    responses=ASSOCIATION_RESPONSES
-    | {
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.FORBIDDEN_RESPONSE_SPEC,
-    },
+    "/mods/{mod_id}/dependencies/{dependency_mod_id}",
+    tags=["Association", "Mod"],
+    status_code=204,
 )
-async def mod_delete_tag(
-    response: Response,
-    request: Request,
-    mod_id: int = Path(description="ID мода"),
-    tag_id: int = Path(description="ID тега"),
-):
-    return await association_mod_with_tag(
-        response=response,
-        request=request,
-        mod_id=mod_id,
-        mode=False,
-        tag_id=tag_id,
-    )
+async def delete_mod_dependency(request: Request, mod_id: int, dependency_mod_id: int):
+    await tools.access_mods(request=request, mods_ids=[mod_id], edit=True)
+    await _ensure_mod_exists(request, mod_id)
+    await _ensure_mod_exists(request, dependency_mod_id)
+
+    async with catalog.AsyncSessionLocal() as session:
+        await session.execute(
+            delete(catalog.mods_dependencies).where(
+                catalog.mods_dependencies.c.mod_id == mod_id,
+                catalog.mods_dependencies.c.dependence == dependency_mod_id,
+            )
+        )
+        await session.commit()
+
+    return Response(status_code=204)
 
 
-async def association_mod_with_dependencie(
-    response: Response,
-    request: Request,
-    mod_id: int,
-    mode: bool,
-    dependencie: int,
-):
-    """
-    Создание ассоциативной зависимости между модом и другим модом в качестве зависимости.
-    """
-    access_result = await tools.access_mods(
-        request=request, mods_ids=mod_id
-    )
+@router.post(
+    "/mods/{mod_id}/tags/{tag_id}",
+    tags=["Association", "Mod", "Tag"],
+    status_code=204,
+)
+async def add_mod_tag(request: Request, mod_id: int, tag_id: int):
+    await tools.access_mods(request=request, mods_ids=[mod_id], edit=True)
+    await _ensure_mod_exists(request, mod_id)
+    await _ensure_tag_exists(request, tag_id)
 
-    if access_result is True:
-        async with catalog.AsyncSessionLocal() as session:
-            if mode:
-                result = await session.execute(
-                    select(catalog.mods_dependencies).where(
-                        catalog.mods_dependencies.c.mod_id == mod_id,
-                        catalog.mods_dependencies.c.dependence == dependencie,
-                    )
-                )
-                output = result.first()
-                if output is None:
-                    insert_statement = insert(catalog.mods_dependencies).values(
-                        mod_id=mod_id, dependence=dependencie
-                    )
-                    await session.execute(insert_statement)
-                    await session.commit()
-                    return JSONResponse(status_code=202, content="Complite")
-                else:
-                    raise standarts.ConflictError(
-                        detail="The association is already present",
-                        instance=str(request.url),
-                    )
-            else:
-                delete_dependence_association = catalog.mods_dependencies.delete().where(
-                    catalog.mods_dependencies.c.mod_id == mod_id,
-                    catalog.mods_dependencies.c.dependence == dependencie,
-                )
+    async with catalog.AsyncSessionLocal() as session:
+        exists = await session.execute(
+            select(catalog.mods_tags).where(
+                catalog.mods_tags.c.mod_id == mod_id,
+                catalog.mods_tags.c.tag_id == tag_id,
+            )
+        )
+        if exists.first() is not None:
+            _raise_conflict(request, "ASSOCIATION_ALREADY_EXISTS", "The association is already present.")
+        await session.execute(
+            insert(catalog.mods_tags).values(mod_id=mod_id, tag_id=tag_id)
+        )
+        await session.commit()
 
-                # Выполнение операции DELETE
-                await session.execute(delete_dependence_association)
-                await session.commit()
-                return JSONResponse(status_code=202, content="Complite")
-    else:
-        return access_result
+    return Response(status_code=204)
+
+
+@router.delete(
+    "/mods/{mod_id}/tags/{tag_id}",
+    tags=["Association", "Mod", "Tag"],
+    status_code=204,
+)
+async def delete_mod_tag(request: Request, mod_id: int, tag_id: int):
+    await tools.access_mods(request=request, mods_ids=[mod_id], edit=True)
+    await _ensure_mod_exists(request, mod_id)
+    await _ensure_tag_exists(request, tag_id)
+
+    async with catalog.AsyncSessionLocal() as session:
+        await session.execute(
+            delete(catalog.mods_tags).where(
+                catalog.mods_tags.c.mod_id == mod_id,
+                catalog.mods_tags.c.tag_id == tag_id,
+            )
+        )
+        await session.commit()
+
+    return Response(status_code=204)

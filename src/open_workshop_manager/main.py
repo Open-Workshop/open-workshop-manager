@@ -13,9 +13,6 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from open_workshop_manager import mod_events
 from open_workshop_manager import settings as config
 from open_workshop_manager import standarts
-from open_workshop_manager.app.api_catalog_statistics import (
-    router as catalog_statistics_router,
-)
 from open_workshop_manager.association.api_association_control import (
     router as association_control_router,
 )
@@ -31,6 +28,7 @@ from open_workshop_manager.logging_setup import setup_logging
 from open_workshop_manager.mods.api_mod import router as mod_router
 from open_workshop_manager.mods.api_resource import router as resource_router
 from open_workshop_manager.mods.api_tag import router as tag_router
+from open_workshop_manager.uploads.api_uploads import router as upload_router
 from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.social.api_profile import router as profile_router
 from open_workshop_manager.social.api_session import router as session_router
@@ -140,7 +138,10 @@ app = FastAPI(
         "identifier": "MPL-2.0",
     },
     description="""
-    OpenWorkshop.Manager - это оркестратор "сервисного монолита" OpenWorkshop. Через него выполняются все операции чтения/записи каталога.
+    OpenWorkshop.Manager - это оркестратор "сервисного монолита" OpenWorkshop.
+    HTTP API здесь намеренно разделён на два слоя: ресурсный REST-контур для сущностей
+    и command/RPC-контур для workflow-операций. Версионирование и legacy-совместимость
+    не поддерживаются: контракт считается единым и ломающе обновляемым.
 
     Оркестратор имеет зависимые микросервисы: MySQL *(заблокирован для использования вне оркестратора)*, Storage *(файловый сервер к которому можно обращаться напрямую)*.
     """,
@@ -258,11 +259,11 @@ app.include_router(mod_router)
 app.include_router(genre_router)
 app.include_router(tag_router)
 app.include_router(resource_router)
+app.include_router(upload_router)
 app.include_router(association_control_router)
 app.include_router(association_getter_router)
 app.include_router(access_callback_router)
 app.include_router(profile_router)
 app.include_router(session_router)
-app.include_router(catalog_statistics_router)
 
 setup_uptrace_telemetry(app)

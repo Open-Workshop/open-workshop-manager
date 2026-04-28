@@ -1,165 +1,136 @@
-import datetime
-import logging
-import uuid
-from urllib.parse import quote
+"""Profile REST routes."""
 
-import bcrypt
-from fastapi import APIRouter, Form, Path, Query, Request, Response
-from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
-from pydantic import BaseModel, ConfigDict
+from __future__ import annotations
+
+import datetime
+from fastapi import APIRouter, Query, Request, Response
+from fastapi.responses import RedirectResponse
 from sqlalchemy import insert, select, update
 
-from open_workshop_manager import settings as config
-from open_workshop_manager import standarts, tools
+from open_workshop_manager import settings as config, standarts, tools
+from open_workshop_manager.api_helpers import ensure_non_empty_patch
+from open_workshop_manager.api_models import (
+    ProfileGeneralRead,
+    ProfilePatch,
+    ProfilePasswordPatch,
+    ProfilePrivateRead,
+    ProfileRead,
+    ProfileRightsPatch,
+    ProfileRightsRead,
+)
 from open_workshop_manager.limits import LIMITS
-from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.sql_logic import sql_account as account
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-
-class ProfileRightsPayload(BaseModel):
-    model_config = ConfigDict(from_attributes=True, extra="forbid")
-
-    admin: bool
-    write_comments: bool
-    set_reactions: bool
-    create_reactions: bool
-    publish_mods: bool
-    change_authorship_mods: bool
-    change_self_mods: bool
-    change_mods: bool
-    delete_self_mods: bool
-    delete_mods: bool
-    mute_users: bool
-    create_forums: bool
-    change_authorship_forums: bool
-    change_self_forums: bool
-    change_forums: bool
-    delete_self_forums: bool
-    delete_forums: bool
-    change_username: bool
-    change_about: bool
-    change_avatar: bool
-    vote_for_reputation: bool
+PROFILE_INCLUDE_FIELDS = {"general", "rights", "private"}
 
 
-class ProfilePrivatePayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    last_username_reset: datetime.datetime | None = None
-    last_password_reset: datetime.datetime | None = None
-    yandex: bool
-    google: bool
-
-
-class ProfileGeneralPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: int
-    username: str
-    about: str
-    avatar_url: str
-    grade: str
-    comments: int
-    author_mods: int
-    registration_date: datetime.datetime
-    reputation: int
-    mute: datetime.datetime | bool
-
-
-class ProfileResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    general: ProfileGeneralPayload | None = None
-    private: ProfilePrivatePayload | None = None
-    rights: ProfileRightsPayload | None = None
-
-
-def _profile_private_payload(row: account.Account) -> ProfilePrivatePayload:
-    return ProfilePrivatePayload(
-        last_username_reset=row.last_username_reset,
-        last_password_reset=row.last_password_reset,
-        yandex=bool(row.yandex_id),
-        google=bool(row.google_id),
+def _raise_profile_not_found(request: Request) -> None:
+    raise standarts.StandardAPIError(
+        status_code=404,
+        title="Not Found",
+        detail="Profile not found.",
+        code="PROFILE_NOT_FOUND",
+        instance=str(request.url),
     )
 
 
-def _profile_rights_payload(row: account.Account) -> ProfileRightsPayload:
-    return ProfileRightsPayload.model_validate(row, from_attributes=True)
-
-
-def _profile_general_payload(
-    row: account.Account, now: datetime.datetime
-) -> ProfileGeneralPayload:
-    return ProfileGeneralPayload(
-        id=row.id,
-        username=row.username,
-        about=row.about,
-        avatar_url=row.avatar_url,
-        grade=row.grade,
-        comments=row.comments,
-        author_mods=row.author_mods,
-        registration_date=row.registration_date,
-        reputation=row.reputation,
-        mute=row.mute_until if row.mute_until and row.mute_until > now else False,
+def _profile_general_payload(row: account.Account, now: datetime.datetime) -> ProfileGeneralRead:
+    return ProfileGeneralRead(
+        id=int(row.id),
+        username=str(getattr(row, "username", "")),
+        about=str(getattr(row, "about", "") or ""),
+        avatar_url=str(getattr(row, "avatar_url", "") or ""),
+        grade=str(getattr(row, "grade", "") or ""),
+        comments=int(getattr(row, "comments", 0) or 0),
+        author_mods=int(getattr(row, "author_mods", 0) or 0),
+        registration_date=getattr(row, "registration_date", now),
+        reputation=int(getattr(row, "reputation", 0) or 0),
+        mute=bool(getattr(row, "mute_until", None) and getattr(row, "mute_until") > now),
     )
+
+
+def _profile_private_payload(row: account.Account) -> ProfilePrivateRead:
+    return ProfilePrivateRead(
+        last_username_reset=getattr(row, "last_username_reset", None),
+        last_password_reset=getattr(row, "last_password_reset", None),
+        yandex=bool(getattr(row, "yandex_id", None)),
+        google=bool(getattr(row, "google_id", None)),
+    )
+
+
+def _profile_rights_payload(row: account.Account) -> ProfileRightsRead:
+    return ProfileRightsRead(
+        admin=bool(getattr(row, "admin", False)),
+        write_comments=bool(getattr(row, "write_comments", False)),
+        set_reactions=bool(getattr(row, "set_reactions", False)),
+        create_reactions=bool(getattr(row, "create_reactions", False)),
+        publish_mods=bool(getattr(row, "publish_mods", False)),
+        change_authorship_mods=bool(getattr(row, "change_authorship_mods", False)),
+        change_self_mods=bool(getattr(row, "change_self_mods", False)),
+        change_mods=bool(getattr(row, "change_mods", False)),
+        delete_self_mods=bool(getattr(row, "delete_self_mods", False)),
+        delete_mods=bool(getattr(row, "delete_mods", False)),
+        mute_users=bool(getattr(row, "mute_users", False)),
+        create_forums=bool(getattr(row, "create_forums", False)),
+        change_authorship_forums=bool(getattr(row, "change_authorship_forums", False)),
+        change_self_forums=bool(getattr(row, "change_self_forums", False)),
+        change_forums=bool(getattr(row, "change_forums", False)),
+        delete_self_forums=bool(getattr(row, "delete_self_forums", False)),
+        delete_forums=bool(getattr(row, "delete_forums", False)),
+        change_username=bool(getattr(row, "change_username", False)),
+        change_about=bool(getattr(row, "change_about", False)),
+        change_avatar=bool(getattr(row, "change_avatar", False)),
+        vote_for_reputation=bool(getattr(row, "vote_for_reputation", False)),
+    )
+
+
+def _normalize_include(request: Request, include: list[str]) -> set[str]:
+    normalized = {item.strip() for item in include if item and item.strip()}
+    unknown = normalized.difference(PROFILE_INCLUDE_FIELDS)
+    if unknown:
+        raise standarts.StandardAPIError(
+            status_code=400,
+            title="Bad Request",
+            detail="Unsupported include field.",
+            code="UNSUPPORTED_INCLUDE_FIELD",
+            instance=str(request.url),
+            context={"field": sorted(unknown)[0], "allowed": sorted(PROFILE_INCLUDE_FIELDS)},
+        )
+    if not normalized:
+        normalized = {"general"}
+    return normalized
 
 
 @router.get(
-    MAIN_URL + "/profiles/{user_id}",
+    "/profiles/{user_id}",
     tags=["Profile"],
-    summary="Информация о профиле",
     status_code=200,
-    response_model=ProfileResponse,
+    response_model=ProfileRead,
     response_model_exclude_none=True,
-    responses={
-        200: {
-            "description": "Возвращает информацию о профиле по запрошенным разделам."
-        },
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.FORBIDDEN_RESPONSE_SPEC,
-        404: {"description": "Профиль не найден."},
-    },
 )
-async def info_profile(
-    response: Response,
+async def get_profile(
     request: Request,
-    user_id: int = Path(description="ID запрашивающего профиля."),
-    general: bool = Query(True, description="Вернуть ли общую информацию."),
-    rights: bool = Query(
-        False,
-        description="Вернуть ли права пользователя *(должен быть владельцем аккаунта или админом)*.",
-    ),
-    private: bool = Query(
-        False,
-        description="Вернуть ли скрытую информацию *(должен быть владельцем аккаунта или админом)*.",
-    ),
-):
-    result = ProfileResponse()
+    user_id: int,
+    include: list[str] = Query(default_factory=lambda: ["general"]),
+) -> ProfileRead:
+    include_set = _normalize_include(request, include)
     async with account.AsyncSessionLocal() as session:
         row = await session.get(account.Account, user_id)
-        if not row:
-            raise standarts.NotFoundError(
-                detail="Пользователь не найден(",
-                instance=str(request.url),
-            )
+        if row is None:
+            _raise_profile_not_found(request)
 
-        if rights or private:
-            logger.debug(
-                "Access token cookie present=%s",
-                bool(request.cookies.get("accessToken")),
-            )
-            access_result = await tools.access_profile(
-                request=request,
-                profile_id=user_id,
-            )
+        result = ProfileRead()
+        now = datetime.datetime.now()
 
+        if "general" in include_set:
+            result.general = _profile_general_payload(row, now)
+
+        if "private" in include_set or "rights" in include_set:
+            access_result = await tools.access_profile(request=request, profile_id=user_id)
             if not access_result.authenticated:
                 raise standarts.UnauthorizedError(instance=str(request.url))
-
             if user_id != access_result.owner_id and not access_result.info.meta.value:
                 raise standarts.ForbiddenError(
                     detail=access_result.info.meta.reason,
@@ -167,352 +138,144 @@ async def info_profile(
                     context={"reason_code": access_result.info.meta.reason_code},
                 )
 
-            if private:
+            if "private" in include_set:
                 result.private = _profile_private_payload(row)
-
-            if rights:
+            if "rights" in include_set:
                 result.rights = _profile_rights_payload(row)
 
-        if general:
-            result.general = _profile_general_payload(row, datetime.datetime.now())
-
-    return result
+        return result
 
 
 @router.get(
-    MAIN_URL + "/profiles/{user_id}/avatar",
+    "/profiles/{user_id}/avatar",
     tags=["Profile"],
-    summary="Аватар профиля",
     status_code=307,
-    responses={
-        200: {"description": "Пользователь не назначил аватар."},
-        307: {"description": "Перенаправляет на аватар*(файл)* пользователя."},
-        404: {"description": "Пользователь не найден."},
-    },
 )
-async def avatar_profile(
-    request: Request,
-    user_id: int = Path(description="ID профиля."),
-):
-    """
-    Возвращает url, по которому можно получить аватар пользователя при условии, что он есть.
-    """
+async def get_avatar(request: Request, user_id: int):
     async with account.AsyncSessionLocal() as session:
         avatar_url = await session.scalar(
             select(account.Account.avatar_url).where(account.Account.id == user_id)
         )
 
-    if avatar_url:
-        if avatar_url.startswith("local"):
-            return RedirectResponse(
-                url=f'{config.STORAGE_URL}/download/avatar/{user_id}.{avatar_url.split(".")[1]}'
-            )
-        if len(avatar_url) > 0:
-            return RedirectResponse(url=avatar_url)
-        return PlainTextResponse(status_code=200, content="Avatar not set.")
+    if avatar_url is None:
+        _raise_profile_not_found(request)
 
-    raise standarts.NotFoundError(
-        detail="User not found!",
-        instance=str(request.url),
-    )
+    if not avatar_url:
+        return Response(status_code=204)
+
+    avatar_url_str = str(avatar_url)
+    if avatar_url_str.startswith("local"):
+        ext = avatar_url_str.split(".")[-1]
+        return RedirectResponse(url=f"{config.STORAGE_URL}/download/avatar/{user_id}.{ext}")
+
+    return RedirectResponse(url=avatar_url_str)
 
 
-@router.post(
-    MAIN_URL + "/profiles/{user_id}/avatar/upload",
+@router.delete(
+    "/profiles/{user_id}/avatar",
     tags=["Profile"],
-    summary="Инициализация загрузки аватара (файл напрямую на Storage)",
-    status_code=307,
-    responses={
-        200: {"description": "JSON с transfer_url/ws_url для прямой загрузки"},
-        307: {"description": "Redirect на Storage transfer/upload"},
-        403: standarts.FORBIDDEN_RESPONSE_SPEC,
-        404: {"description": "Пользователь не найден."},
-        425: {"description": "Временное ограничение социальной активности."},
-        500: {"description": "Не настроен JWT секрет."},
-    },
+    status_code=204,
 )
-async def init_avatar_upload(
-    response: Response,
-    request: Request,
-    user_id: int = Path(description="ID профиля."),
-):
-    access_result = await tools.access_profile(
-        request=request,
-        profile_id=user_id,
-    )
+async def delete_avatar(request: Request, user_id: int) -> Response:
+    access_result = await tools.access_profile(request=request, profile_id=user_id)
     if not access_result.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
+    if not access_result.edit.avatar.value:
+        raise standarts.ForbiddenError(
+            detail=access_result.edit.avatar.reason,
+            instance=str(request.url),
+            context={"reason_code": access_result.edit.avatar.reason_code},
+        )
 
     async with account.AsyncSessionLocal() as session:
-        user = await session.get(account.Account, user_id)
-        if not user:
-            raise standarts.NotFoundError(
-                detail="Пользователь не найден!",
-                instance=str(request.url),
-            )
+        row = await session.get(account.Account, user_id)
+        if row is None:
+            _raise_profile_not_found(request)
 
-        if not access_result.edit.avatar.value:
-            raise standarts.ForbiddenError(
-                detail=access_result.edit.avatar.reason,
-                instance=str(request.url),
-                context={"reason_code": access_result.edit.avatar.reason_code},
-            )
+        avatar_url = str(getattr(row, "avatar_url", "") or "")
+        if avatar_url.startswith("local"):
+            ext = avatar_url.split(".")[-1]
+            if not await tools.storage_file_delete(type="avatar", path=f"{row.id}.{ext}"):
+                raise standarts.AvatarDeletionFailedError(instance=str(request.url))
+        row.avatar_url = ""
+        await session.commit()
 
-    if not getattr(config, "TRANSFER_JWT_SECRET", None):
-        raise standarts.InternalServerError(
-            detail="JWT secret missing",
-            instance=str(request.url),
-        )
-
-    job_id = uuid.uuid4().hex
-    ttl_raw = getattr(config, "TRANSFER_JWT_TTL_SECONDS", 900)
-    try:
-        ttl_seconds = int(ttl_raw)
-    except (TypeError, ValueError):
-        ttl_seconds = 900
-
-    payload = {
-        "job_id": job_id,
-        "transfer_kind": "img",
-        "storage_type": "avatar",
-        "file_kind": "img",
-        "max_bytes": LIMITS.profile.avatar_max_bytes,
-        "callback_action": "avatar_set",
-        "callback_context": {"user_id": user_id},
-        "target_path": f"{user_id}.webp",
-    }
-    token = tools.create_transfer_jwt(payload, audience="storage", ttl_seconds=ttl_seconds)
-    if not token:
-        raise standarts.InternalServerError(
-            detail="JWT secret missing",
-            instance=str(request.url),
-        )
-
-    transfer_url = f"{config.STORAGE_URL}/transfer/upload?token={quote(token)}&job_id={job_id}"
-    wants_json = (
-        request.headers.get("X-Requested-With") == "XMLHttpRequest"
-        or "application/json" in (request.headers.get("Accept", "") or "")
-    )
-    if wants_json:
-        return JSONResponse(
-            status_code=200,
-            content={
-                "job_id": job_id,
-                "user_id": user_id,
-                "transfer_url": transfer_url,
-                "ws_url": f"{config.STORAGE_URL}/transfer/ws/{job_id}?token={quote(token)}",
-            },
-        )
-
-    out = RedirectResponse(url=transfer_url, status_code=307)
-    out.headers["X-Upload-Job"] = job_id
-    out.headers["X-Progress-WS"] = f"{config.STORAGE_URL}/transfer/ws/{job_id}"
-    return out
+    return Response(status_code=204)
 
 
 @router.patch(
-    MAIN_URL + "/profiles/{user_id}",
+    "/profiles/{user_id}",
     tags=["Profile"],
-    summary="Редактирование профиля",
-    status_code=202,
-    responses={
-        202: {"description": "Профиль успешно отредактирован."},
-        400: {"description": "Нельзя замутить самого себя."},
-        403: standarts.FORBIDDEN_RESPONSE_SPEC,
-        404: {"description": "Пользователь не найден."},
-        411: {
-            "description": "Недостигнута длина *(слишком короткий никнейм/грейд/пароль)*, либо указанная дата мута уже прошла."
-        },
-        413: {"desctiption": "Превышена длина *(никнейм/обо мне/грейд/пароль)*."},
-        425: {
-            "description": "Отказано в изменении, т.к. запрашивающий в муте *(узнать о длине мута можно в GET /profiles/{user_id})*, либо слишком часто меняется пароль/никнейм *(в таком случае в теле ответа возвращается дата снятия ограничения)*"
-        },
-        500: {
-            "description": "Неизвестная ошибка при подготовке изменений *(детали в теле ответа)*."
-        },
-        523: {"description": "Ошибка на стороне файлового сервера."},
-    },
+    status_code=200,
+    response_model=ProfileGeneralRead,
+    response_model_exclude_none=True,
 )
-async def edit_profile(
-    response: Response,
+async def patch_profile(
     request: Request,
-    user_id: int = Path(description="ID профиля."),
-    username: str | None = Form(
-        None,
-        description="Новое имя пользователя.",
-        min_length=LIMITS.profile.username_min_form,
-        max_length=LIMITS.profile.username_max,
-    ),
-    about: str | None = Form(
-        None, description="Новое описание профиля.", max_length=LIMITS.profile.about_max
-    ),
-    empty_avatar: bool | None = Form(
-        None, description="Удалить аватар профиля *(приоритетней установки аватара)*."
-    ),
-    grade: str | None = Form(
-        None,
-        description="Новое звание пользователя *(назначается только админами)*.",
-        min_length=LIMITS.profile.grade_min_form,
-        max_length=LIMITS.profile.grade_max,
-    ),
-    off_password: bool | None = Form(
-        None, description="Отключить пароль *(приоритетней установки пароля)*."
-    ),
-    new_password: str | None = Form(
-        None,
-        description="Новый пароль.",
-        min_length=LIMITS.profile.password_min,
-        max_length=LIMITS.profile.password_max,
-    ),
-    mute: datetime.datetime | None = Form(
-        None,
-        description="Время мута *(может быть назначен только админом и не самому себе)*, *(время не должно быть прошедшим)*.",
-    ),
-):
-    """
-    Редактирование пользователей *(самого себя или другого юзера)*.
-    """
-    access_result = await tools.access_profile(
-        request=request,
-        profile_id=user_id,
-    )
-
-    # Смотрим действительна ли она (сессия)
+    user_id: int,
+    payload: ProfilePatch,
+) -> ProfileGeneralRead:
+    access_result = await tools.access_profile(request=request, profile_id=user_id)
     if not access_result.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
 
-    owner_id = access_result.owner_id  # id юзера запрашивающего данные
-    can_manage_rights = bool(access_result.edit.rights.value)
+    data = payload.model_dump(exclude_none=True)
+    ensure_non_empty_patch(data)
 
-    today = datetime.datetime.now()
+    owner_id = access_result.owner_id
+    can_manage_rights = bool(access_result.edit.rights.value)
+    now = datetime.datetime.now()
 
     async with account.AsyncSessionLocal() as session:
-        user = await session.get(account.Account, user_id)
-        if not user:
-            raise standarts.NotFoundError(
-                detail="Пользователь не найден!",
+        row = await session.get(account.Account, user_id)
+        if row is None:
+            _raise_profile_not_found(request)
+
+        if owner_id != user_id and not can_manage_rights:
+            if "username" in data and not access_result.edit.nickname.value:
+                raise standarts.ForbiddenError(
+                    detail=access_result.edit.nickname.reason,
+                    instance=str(request.url),
+                    context={"reason_code": access_result.edit.nickname.reason_code},
+                )
+            if "about" in data and not access_result.edit.description.value:
+                raise standarts.ForbiddenError(
+                    detail=access_result.edit.description.reason,
+                    instance=str(request.url),
+                    context={"reason_code": access_result.edit.description.reason_code},
+                )
+            if "grade" in data:
+                raise standarts.ForbiddenError(
+                    detail=access_result.edit.grade.reason,
+                    instance=str(request.url),
+                    context={"reason_code": access_result.edit.grade.reason_code},
+                )
+            if "mute_until" in data:
+                raise standarts.ForbiddenError(
+                    detail=access_result.edit.mute.reason,
+                    instance=str(request.url),
+                    context={"reason_code": access_result.edit.mute.reason_code},
+                )
+        elif owner_id == user_id and "mute_until" in data:
+            raise standarts.BadRequestError(
+                detail="Cannot mute yourself.",
                 instance=str(request.url),
+                code="SELF_MUTE_FORBIDDEN",
             )
 
-        if owner_id != user_id:
-            if not can_manage_rights:
-                if new_password is not None or off_password is not None:
-                    raise standarts.ForbiddenError(
-                        detail="Доступ запрещен!",
-                        instance=str(request.url),
-                    )
-                if username is not None and not access_result.edit.nickname.value:
-                    raise standarts.ForbiddenError(
-                        detail=access_result.edit.nickname.reason,
-                        instance=str(request.url),
-                        context={"reason_code": access_result.edit.nickname.reason_code},
-                    )
-                if about is not None and not access_result.edit.description.value:
-                    raise standarts.ForbiddenError(
-                        detail=access_result.edit.description.reason,
-                        instance=str(request.url),
-                        context={"reason_code": access_result.edit.description.reason_code},
-                    )
-                if empty_avatar is not None and not access_result.edit.avatar.value:
-                    raise standarts.ForbiddenError(
-                        detail=access_result.edit.avatar.reason,
-                        instance=str(request.url),
-                        context={"reason_code": access_result.edit.avatar.reason_code},
-                    )
-                if grade is not None and not access_result.edit.grade.value:
-                    raise standarts.ForbiddenError(
-                        detail=access_result.edit.grade.reason,
-                        instance=str(request.url),
-                        context={"reason_code": access_result.edit.grade.reason_code},
-                    )
-                if mute is not None and not access_result.edit.mute.value:
-                    raise standarts.ForbiddenError(
-                        detail=access_result.edit.mute.reason,
-                        instance=str(request.url),
-                        context={"reason_code": access_result.edit.mute.reason_code},
-                    )
-            elif new_password is not None or off_password is not None:
-                raise standarts.ForbiddenError(
-                    detail="Даже администраторы не могут менять пароли!",
-                    instance=str(request.url),
-                )
-        else:
-            if mute is not None:
-                raise standarts.BadRequestError(
-                    detail="Нельзя замутить самого себя!",
-                    instance=str(request.url),
-                )
-            elif not can_manage_rights:
-                if access_result.mute_until and access_result.mute_until > today:
-                    raise standarts.TooEarlyError(
-                        detail="Вам выдано временное ограничение на социальную активность :(",
-                        instance=str(request.url),
-                    )
-
-                if grade is not None:
-                    raise standarts.ForbiddenError(
-                        detail=access_result.edit.grade.reason,
-                        instance=str(request.url),
-                        context={"reason_code": access_result.edit.grade.reason_code},
-                    )
-
-                if (
-                    new_password is not None
-                    and access_result.last_password_reset
-                    and access_result.last_password_reset + datetime.timedelta(minutes=5) > today
-                ):
-                    raise standarts.TooEarlyError(
-                        detail=(
-                            access_result.last_password_reset + datetime.timedelta(minutes=5)
-                        ).strftime(account.STANDART_STR_TIME),
-                        instance=str(request.url),
-                    )
-
-                if username is not None:
-                    if not access_result.edit.nickname.value:
-                        raise standarts.ForbiddenError(
-                            detail=access_result.edit.nickname.reason,
-                            instance=str(request.url),
-                            context={"reason_code": access_result.edit.nickname.reason_code},
-                        )
-                    elif (
-                        access_result.last_username_reset
-                        and (access_result.last_username_reset + datetime.timedelta(days=30)) > today
-                    ):
-                        raise standarts.TooEarlyError(
-                            detail=(
-                                access_result.last_username_reset + datetime.timedelta(days=30)
-                            ).strftime(account.STANDART_STR_TIME),
-                            instance=str(request.url),
-                        )
-
-                if empty_avatar is not None and not access_result.edit.avatar.value:
-                    raise standarts.ForbiddenError(
-                        detail=access_result.edit.avatar.reason,
-                        instance=str(request.url),
-                        context={"reason_code": access_result.edit.avatar.reason_code},
-                    )
-
-                if about is not None and not access_result.edit.description.value:
-                    raise standarts.ForbiddenError(
-                        detail=access_result.edit.description.reason,
-                        instance=str(request.url),
-                        context={"reason_code": access_result.edit.description.reason_code},
-                    )
-
-        if username:
+        if "username" in data:
+            username = str(data["username"])
             if len(username) < LIMITS.profile.username_min:
                 raise standarts.PreconditionRequiredError(
-                    detail="Слишком короткий никнейм! (минимальная длина 2 символа)",
+                    detail="Username is too short.",
                     instance=str(request.url),
                 )
             if len(username) > LIMITS.profile.username_max:
                 raise standarts.PayloadTooLargeError(
-                    detail="Слишком длинный никнейм! (максимальная длина 50 символов)",
+                    detail="Username is too long.",
                     instance=str(request.url),
                 )
-
-            existing_username = (
+            existing = (
                 await session.execute(
                     select(account.Account.id).where(
                         account.Account.username == username,
@@ -520,226 +283,170 @@ async def edit_profile(
                     )
                 )
             ).first()
-            if existing_username:
+            if existing:
                 raise standarts.ConflictError(
-                    detail="Этот никнейм уже занят!",
+                    detail="Username already exists.",
                     instance=str(request.url),
+                    code="PROFILE_USERNAME_ALREADY_EXISTS",
                 )
+            row.username = username
+            row.last_username_reset = now
 
-            user.username = username
-            user.last_username_reset = today
-
-        if about:
+        if "about" in data:
+            about = str(data["about"])
             if len(about) > LIMITS.profile.about_max:
                 raise standarts.PayloadTooLargeError(
-                    detail='Слишком длинное поле "обо мне"! (максимальная длина 512 символов)',
+                    detail="About is too long.",
                     instance=str(request.url),
                 )
-            user.about = about
+            row.about = about
 
-        if grade:
+        if "grade" in data:
+            grade = str(data["grade"])
             if len(grade) < LIMITS.profile.grade_min:
                 raise standarts.PreconditionRequiredError(
-                    detail="Слишком короткий грейд! (минимальная длина 2 символа)",
+                    detail="Grade is too short.",
                     instance=str(request.url),
                 )
             if len(grade) > LIMITS.profile.grade_max:
                 raise standarts.PayloadTooLargeError(
-                    detail="Слишком длинный грейд! (максимальная длина 100 символов)",
+                    detail="Grade is too long.",
                     instance=str(request.url),
                 )
-            user.grade = grade
+            row.grade = grade
 
-        if off_password:
-            user.password_hash = None
-            user.last_password_reset = today
-        elif new_password:
-            if len(new_password) < LIMITS.profile.password_min:
+        if "mute_until" in data:
+            mute_until = data["mute_until"]
+            if not isinstance(mute_until, datetime.datetime):
+                raise standarts.BadRequestError(
+                    detail="Invalid mute_until value.",
+                    instance=str(request.url),
+                )
+            if mute_until <= now:
                 raise standarts.PreconditionRequiredError(
-                    detail="Слишком короткий пароль! (минимальная длина 6 символа)",
+                    detail="Mute end date must be in the future.",
                     instance=str(request.url),
                 )
-            if len(new_password) > LIMITS.profile.password_max:
-                raise standarts.PayloadTooLargeError(
-                    detail="Слишком длинный пароль! (максимальная длина 100 символов)",
-                    instance=str(request.url),
-                )
+            row.mute_until = mute_until
 
-            user.password_hash = (
-                bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt(9))
-            ).decode("utf-8")
-            user.last_password_reset = today
-
-        if mute:
-            if mute < today:
-                raise standarts.PreconditionRequiredError(
-                    detail="Указанная дата окончания мута уже прошла!",
-                    instance=str(request.url),
-                )
-            user.mute_until = mute
-
-        if empty_avatar:
-            user.avatar_url = ""
-
-            avatar_url = str(user.avatar_url)
-            if avatar_url.startswith("local"):
-                format_name = avatar_url.split(".")[1]
-                if not await tools.storage_file_delete(
-                    type="avatar", path=f"{user.id}.{format_name}"
-                ):
-                    raise standarts.AvatarDeletionFailedError(
-                        detail="Что-то пошло не так при удалении аватара из системы.",
-                        instance=str(request.url),
-                    )
         await session.commit()
-
-    # Возвращаем успешный результат
-    return PlainTextResponse(status_code=202, content="Изменения приняты :)")
+        return _profile_general_payload(row, now)
 
 
 @router.patch(
-    MAIN_URL + "/profiles/{user_id}/rights",
+    "/profiles/{user_id}/rights",
     tags=["Profile"],
-    summary="Редактирование прав профиля",
-    status_code=202,
-    responses={
-        202: {"description": "Изменения приняты."},
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
-        404: {"description": "Профиль не найден."},
-    },
+    status_code=200,
+    response_model=ProfileRightsRead,
+    response_model_exclude_none=True,
 )
-async def edit_profile_rights(
-    response: Response,
+async def patch_profile_rights(
     request: Request,
-    user_id: int = Path(description="ID профиля."),
-    write_comments: bool = Form(None, description="Разрешено ли писать комментарии."),
-    set_reactions: bool = Form(None, description="Разрешено ли устанавливать реакции."),
-    create_reactions: bool = Form(None, description="Разрешено ли создавать реакции."),
-    mute_users: bool = Form(None, description="Разрешено ли мутить юзеров."),
-    publish_mods: bool = Form(None, description="Разрешено ли публиковать моды."),
-    change_authorship_mods: bool = Form(
-        None, description="Разрешено ли менять авторство модов *(чужих)*."
-    ),
-    change_self_mods: bool = Form(None, description="Разрешено ли менять свои моды."),
-    change_mods: bool = Form(None, description="Разрешено ли менять чужие моды."),
-    delete_self_mods: bool = Form(None, description="Разрешено ли удалять свои моды."),
-    delete_mods: bool = Form(None, description="Разрешено ли удалять чужие моды."),
-    create_forums: bool = Form(None, description="Разрешено ли создавать форумы."),
-    change_authorship_forums: bool = Form(
-        None, description="Разрешено ли менять авторство форумов *(чужих)*."
-    ),
-    change_self_forums: bool = Form(
-        None, description="Разрешено ли менять свои форумы."
-    ),
-    change_forums: bool = Form(None, description="Разрешено ли менять чужие форумы."),
-    delete_self_forums: bool = Form(
-        None, description="Разрешено ли удалять свои форумы."
-    ),
-    delete_forums: bool = Form(None, description="Разрешено ли удалять чужие форумы."),
-    change_username: bool = Form(None, description="Разрешено ли менять юзернейм."),
-    change_about: bool = Form(None, description='Разрешено ли менять о "обо мне".'),
-    change_avatar: bool = Form(None, description="Разрешено ли менять аватар."),
-    vote_for_reputation: bool = Form(
-        None, description="Разрешено ли голосовать за репутацию модов и форумов."
-    ),
-):
-    """
-    Изменять права может только администратор.
-    """
-    access_result = await tools.access_profile(
-        request=request,
-        profile_id=user_id,
-    )
-
+    user_id: int,
+    payload: ProfileRightsPatch,
+) -> ProfileRightsRead:
+    access_result = await tools.access_profile(request=request, profile_id=user_id)
     if not access_result.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
+    if not access_result.edit.rights.value:
+        raise standarts.ForbiddenError(
+            detail=access_result.edit.rights.reason,
+            instance=str(request.url),
+            context={"reason_code": access_result.edit.rights.reason_code},
+        )
 
-    owner_id = access_result.owner_id  # id юзера запрашивающего изменения
+    data = payload.model_dump(exclude_none=True)
+    ensure_non_empty_patch(data)
 
     async with account.AsyncSessionLocal() as session:
-        user = await session.get(account.Account, user_id)
-        if not user:
-            raise standarts.NotFoundError(
-                detail="Пользователь не найден!",
-                instance=str(request.url),
-            )
+        row = await session.get(account.Account, user_id)
+        if row is None:
+            _raise_profile_not_found(request)
 
-        if not access_result.edit.rights.value:
-            raise standarts.ForbiddenError(
-                detail=access_result.edit.rights.reason,
-                instance=str(request.url),
-                context={"reason_code": access_result.edit.rights.reason_code},
-            )
+        for key, value in data.items():
+            setattr(row, key, value)
+        await session.commit()
+        return _profile_rights_payload(row)
 
-        sample_query_update: dict[str, bool | None] = {
-            "write_comments": write_comments,
-            "set_reactions": set_reactions,
-            "create_reactions": create_reactions,
-            "mute_users": mute_users,
-            "publish_mods": publish_mods,
-            "change_authorship_mods": change_authorship_mods,
-            "change_self_mods": change_self_mods,
-            "change_mods": change_mods,
-            "delete_self_mods": delete_self_mods,
-            "delete_mods": delete_mods,
-            "create_forums": create_forums,
-            "change_authorship_forums": change_authorship_forums,
-            "change_self_forums": change_self_forums,
-            "change_forums": change_forums,
-            "delete_self_forums": delete_self_forums,
-            "delete_forums": delete_forums,
-            "change_username": change_username,
-            "change_about": change_about,
-            "change_avatar": change_avatar,
-            "vote_for_reputation": vote_for_reputation,
-        }
 
-        query_update: dict[str, bool] = {}
-        for key, value in sample_query_update.items():
-            if value is not None:
-                query_update[key] = value
+@router.patch(
+    "/profiles/{user_id}/password",
+    tags=["Profile"],
+    status_code=204,
+)
+async def patch_profile_password(
+    request: Request,
+    user_id: int,
+    payload: ProfilePasswordPatch,
+) -> Response:
+    access_result = await tools.access_profile(request=request, profile_id=user_id)
+    if not access_result.authenticated:
+        raise standarts.UnauthorizedError(instance=str(request.url))
+    if access_result.owner_id != user_id:
+        raise standarts.ForbiddenError(
+            detail="Password can only be changed for your own account.",
+            instance=str(request.url),
+        )
 
-        for key, value in query_update.items():
-            setattr(user, key, value)
+    if len(payload.new_password) < LIMITS.profile.password_min:
+        raise standarts.PreconditionRequiredError(
+            detail="Password is too short.",
+            instance=str(request.url),
+        )
+    if len(payload.new_password) > LIMITS.profile.password_max:
+        raise standarts.PayloadTooLargeError(
+            detail="Password is too long.",
+            instance=str(request.url),
+        )
+
+    import bcrypt
+
+    async with account.AsyncSessionLocal() as session:
+        row = await session.get(account.Account, user_id)
+        if row is None:
+            _raise_profile_not_found(request)
+        row.password_hash = bcrypt.hashpw(payload.new_password.encode("utf-8"), bcrypt.gensalt(9)).decode("utf-8")
+        row.last_password_reset = datetime.datetime.now()
         await session.commit()
 
-    # Возвращаем успешный результат
-    return PlainTextResponse(status_code=202, content="Изменения приняты :)")
+    return Response(status_code=204)
 
 
 @router.delete(
-    MAIN_URL + "/profiles/{user_id}",
+    "/profiles/{user_id}/password",
     tags=["Profile"],
-    summary="Удаление аккаунта",
-    status_code=200,
-    responses={
-        200: {"description": "Удален успешно."},
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.FORBIDDEN_RESPONSE_SPEC,
-        523: {
-            "description": "Не удалось удалить аватар пользователя *(удаление прервано)*."
-        },
-    },
+    status_code=204,
 )
-async def delete_account(
-    response: Response,
-    request: Request,
-    user_id: int = Path(description="ID профиля для удаления."),
-):
-    """
-    Удаление аккаунта. Сделать это может только сам пользователь, при этом удаляются только персональные данные пользователя.
-    Т.е. - аватар, никнейм, "обо мне", электронный адрес, ассоциация с сервисами авторизации, текста комментариев.
-    "следы" такие, как история сессий, комментарии (сохраняется факт их наличия, содержимое удаляется) и т.п..
-    """
-    access_result = await tools.access_profile(
-        request=request,
-        profile_id=user_id,
-    )
-
+async def delete_profile_password(request: Request, user_id: int) -> Response:
+    access_result = await tools.access_profile(request=request, profile_id=user_id)
     if not access_result.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
+    if access_result.owner_id != user_id:
+        raise standarts.ForbiddenError(
+            detail="Password can only be changed for your own account.",
+            instance=str(request.url),
+        )
 
+    async with account.AsyncSessionLocal() as session:
+        row = await session.get(account.Account, user_id)
+        if row is None:
+            _raise_profile_not_found(request)
+        row.password_hash = None
+        row.last_password_reset = datetime.datetime.now()
+        await session.commit()
+
+    return Response(status_code=204)
+
+
+@router.delete(
+    "/profiles/{user_id}",
+    tags=["Profile"],
+    status_code=204,
+)
+async def delete_profile(request: Request, user_id: int) -> Response:
+    access_result = await tools.access_profile(request=request, profile_id=user_id)
+    if not access_result.authenticated:
+        raise standarts.UnauthorizedError(instance=str(request.url))
     if not access_result.delete.value:
         raise standarts.ForbiddenError(
             detail=access_result.delete.reason,
@@ -747,34 +454,29 @@ async def delete_account(
             context={"reason_code": access_result.delete.reason_code},
         )
 
-    user_id = access_result.owner_id
-
     async with account.AsyncSessionLocal() as session:
         row = await session.get(account.Account, user_id)
         if row is None:
-            raise standarts.NotFoundError(
-                detail="Пользователь не найден!",
-                instance=str(request.url),
-            )
-        insert_statement = insert(account.blocked_account_creation).values(
-            yandex_id=row.yandex_id,
-            google_id=row.google_id,
-            forget=datetime.datetime.now() + datetime.timedelta(days=5),
-        )
+            _raise_profile_not_found(request)
 
-        avatar_url = str(row.avatar_url)
+        avatar_url = str(getattr(row, "avatar_url", "") or "")
         if avatar_url.startswith("local"):
-            format_name = avatar_url.split(".")[1]
-            if not await tools.storage_file_delete(
-                type="avatar", path=f"{row.id}.{format_name}"
-            ):
-                raise standarts.AvatarDeletionFailedError(
-                    detail="Что-то пошло не так при удалении аватара из системы.",
-                    instance=str(request.url),
-                )
+            ext = avatar_url.split(".")[-1]
+            if not await tools.storage_file_delete(type="avatar", path=f"{row.id}.{ext}"):
+                raise standarts.AvatarDeletionFailedError(instance=str(request.url))
 
-        await session.execute(insert_statement)
-        await session.commit()
+        await session.execute(
+            insert(account.blocked_account_creation).values(
+                yandex_id=row.yandex_id,
+                google_id=row.google_id,
+                forget=datetime.datetime.now() + datetime.timedelta(days=5),
+            )
+        )
+        await session.execute(
+            update(account.Session)
+            .where(account.Session.owner_id == user_id)
+            .values(broken="account deleted")
+        )
 
         for key in [
             "yandex_id",
@@ -786,12 +488,6 @@ async def delete_account(
             "password_hash",
         ]:
             setattr(row, key, None)
-        await session.execute(
-            update(account.Session)
-            .where(account.Session.owner_id == user_id)
-            .values(broken="account deleted")
-        )
-
         await session.commit()
 
-    return PlainTextResponse(status_code=200, content="Успешно!")
+    return Response(status_code=204)

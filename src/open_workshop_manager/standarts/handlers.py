@@ -32,18 +32,16 @@ def build_problem(
     detail: str | None = None,
     code: str | None = None,
     instance: str | None = None,
-    errors: list[ValidationIssue] | None = None,
     context: dict[str, object] | None = None,
-    problem_type: str = STANDARD_PROBLEM_TYPE,
+    problem_type: str | None = None,
 ) -> ProblemDetails:
     return ProblemDetails(
         type=problem_type,
         title=title or status_title(status_code),
         status=status_code,
-        detail=detail,
-        instance=instance,
+        detail=detail or status_title(status_code),
+        instance=instance or "",
         code=code or status_code_name(status_code),
-        errors=errors,
         context=context,
     )
 
@@ -83,7 +81,7 @@ UNAUTHORIZED_RESPONSE_SPEC: Final[ResponseSpec] = response_spec(
         401,
         title=status_title(401),
         detail=DEFAULT_UNAUTHORIZED_DETAIL,
-        code="session_invalid",
+        code="UNAUTHORIZED",
     ),
     "Недействительный ключ сессии (не авторизован).",
 )
@@ -93,7 +91,7 @@ ADMIN_FORBIDDEN_RESPONSE_SPEC: Final[ResponseSpec] = response_spec(
         403,
         title=status_title(403),
         detail=DEFAULT_ADMIN_FORBIDDEN_DETAIL,
-        code="admin_required",
+        code="ADMIN_REQUIRED",
     ),
     "Требуются права администратора.",
 )
@@ -103,7 +101,7 @@ FORBIDDEN_RESPONSE_SPEC: Final[ResponseSpec] = response_spec(
         403,
         title=status_title(403),
         detail=DEFAULT_FORBIDDEN_DETAIL,
-        code="access_denied",
+        code="FORBIDDEN",
     ),
     "Нехватка прав.",
 )
@@ -120,17 +118,17 @@ def _validation_problem(
             type=error["type"],
             input=error.get("input"),
             ctx=error.get("ctx"),
-        )
+        ).model_dump(mode="json", exclude_none=True)
         for error in exc.errors()
     ]
 
     return build_problem(
         422,
-        title=status_title(422),
+        title="Validation error",
         detail=VALIDATION_ERROR_DETAIL,
         code=VALIDATION_ERROR_CODE,
         instance=str(request.url),
-        errors=issues,
+        context={"issues": issues},
     )
 
 

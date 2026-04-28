@@ -230,7 +230,8 @@ async def resources_serialize(
                 "size": resource.size,
                 "owner_id": resource.owner_id,
                 "owner_type": resource.owner_type,
-                "date_event": resource.date_event,
+                "created_at": resource.date_event,
+                "updated_at": resource.date_event,
             }
         )
     return real_resources
@@ -638,89 +639,44 @@ async def delete_resources(
     return True
 
 
+def _sort_clause(sort_by: str, mapping: dict[str, object], default: str):
+    value = (sort_by or "").strip()
+    reverse = value.startswith("-")
+    field = value[1:] if reverse else value
+    if not field:
+        field = default
+    if field not in mapping:
+        raise KeyError(field)
+    clause = mapping[field]
+    return desc(clause) if reverse else clause
+
+
 def sort_mods(sort_by: str, dependents_count_stmt=None):
-    match sort_by:
-        case "NAME":
-            return catalog.Mod.name
-        case "iNAME":
-            return desc(catalog.Mod.name)
-        case "SIZE":
-            return catalog.Mod.size
-        case "iSIZE":
-            return desc(catalog.Mod.size)
-        case "CREATION_DATE":
-            return catalog.Mod.date_creation
-        case "iCREATION_DATE":
-            return desc(catalog.Mod.date_creation)
-        case "UPDATE_DATE":
-            return catalog.Mod.date_update_file
-        case "iUPDATE_DATE":
-            return desc(catalog.Mod.date_update_file)
-        case "EDIT_DATE":
-            return catalog.Mod.date_edit
-        case "iEDIT_DATE":
-            return desc(catalog.Mod.date_edit)
-        case "SOURCE":
-            return catalog.Mod.source
-        case "iSOURCE":
-            return desc(catalog.Mod.source)
-        case "MOD_DOWNLOADS":
-            return catalog.Mod.downloads
-        case "iMOD_DOWNLOADS":
-            return desc(catalog.Mod.downloads)
-        case "PLUGINS_COUNT":
-            return (
-                dependents_count_stmt
-                if dependents_count_stmt is not None
-                else catalog.Mod.downloads
-            )
-        case "iPLUGINS_COUNT":
-            return (
-                desc(dependents_count_stmt)
-                if dependents_count_stmt is not None
-                else desc(catalog.Mod.downloads)
-            )
-        case "DOWNLOADS":
-            return desc(catalog.Mod.downloads)
-        case "iDOWNLOADS":
-            return catalog.Mod.downloads
-        case _:
-            return catalog.Mod.downloads  # По умолчанию сортируем по загрузкам
+    mapping = {
+        "name": catalog.Mod.name,
+        "size": catalog.Mod.size,
+        "created_at": catalog.Mod.date_creation,
+        "file_updated_at": catalog.Mod.date_update_file,
+        "updated_at": catalog.Mod.date_edit,
+        "source": catalog.Mod.source,
+        "downloads": catalog.Mod.downloads,
+        "public": catalog.Mod.public,
+        "adult": catalog.Mod.adult,
+        "game_id": catalog.Mod.game,
+        "dependents_count": dependents_count_stmt
+        if dependents_count_stmt is not None
+        else catalog.Mod.downloads,
+    }
+    return _sort_clause(sort_by, mapping, default="downloads")
 
 
 def sort_games(sort_by: str):
-    match sort_by:
-        case "NAME":
-            return catalog.Game.name
-        case "iNAME":
-            return desc(catalog.Game.name)
-        case "TYPE":
-            return catalog.Game.type
-        case "iTYPE":
-            return desc(catalog.Game.type)
-        case "CREATION_DATE":
-            return catalog.Game.creation_date
-        case "iCREATION_DATE":
-            return desc(catalog.Game.creation_date)
-        case "SOURCE":
-            return catalog.Game.source
-        case "iSOURCE":
-            return desc(catalog.Game.source)
-        case "MODS_DOWNLOADS":
-            return desc(catalog.Game.mods_downloads)
-        case "iMODS_DOWNLOADS":
-            return catalog.Game.mods_downloads
-        case "MOD_DOWNLOADS":
-            return catalog.Game.mods_downloads
-        case "iMOD_DOWNLOADS":
-            return desc(catalog.Game.mods_downloads)
-        case "MODS_COUNT":
-            return catalog.Game.mods_count
-        case "iMODS_COUNT":
-            return desc(catalog.Game.mods_count)
-        case "DOWNLOADS":
-            return desc(catalog.Game.mods_downloads)
-        case "iDOWNLOADS":
-            return catalog.Game.mods_downloads
-        case _:
-            return catalog.Game.mods_downloads
+    mapping = {
+        "name": catalog.Game.name,
+        "type": catalog.Game.type,
+        "created_at": catalog.Game.creation_date,
+        "source": catalog.Game.source,
+        "mods_downloads": catalog.Game.mods_downloads,
+        "mods_count": catalog.Game.mods_count,
+    }
+    return _sort_clause(sort_by, mapping, default="name")

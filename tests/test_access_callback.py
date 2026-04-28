@@ -81,7 +81,7 @@ class AccessCallbackTests(unittest.TestCase):
             "AsyncSessionLocal",
             return_value=dummy_session,
         ):
-            response = self.client.post(f"{MAIN_URL}/access/callback/context")
+            response = self.client.post(f"{MAIN_URL}/internal/access/context")
 
         self.assertEqual(response.status_code, 200)
         body = response.json()

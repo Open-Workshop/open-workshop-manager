@@ -1,210 +1,167 @@
-"""Genre management routes."""
+"""Genre REST routes."""
+
+from __future__ import annotations
 
 from fastapi import APIRouter, Query, Request, Response
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, func, select
 
 from open_workshop_manager import standarts, tools
+from open_workshop_manager.api_helpers import make_list_response, ensure_non_empty_patch
+from open_workshop_manager.api_models import GenreCreate, GenreListResponse, GenrePatch, GenreRead
 from open_workshop_manager.limits import LIMITS
-from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
 
 
-class GenreCreatePayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(..., max_length=LIMITS.genre.name_max)
-
-
-class GenreUpdatePayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str | None = Field(None, max_length=LIMITS.genre.name_max)
+def _serialize_genre(genre: catalog.Genre) -> GenreRead:
+    return GenreRead(id=int(genre.id), name=str(genre.name))
 
 
 @router.get(
-    MAIN_URL + "/genres",
+    "/genres",
     tags=["Genre"],
-    summary="Список жанров игр",
     status_code=200,
-    responses={
-        200: {
-            "description": "OK",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "database_size": 123,
-                        "offset": 123,
-                        "results": [
-                            {"id": 1, "name": "?"},
-                            {"id": 2, "name": "!"},
-                        ],
-                    }
-                }
-            },
-        },
-        413: {
-            "description": "Неккоректный диапазон параметров(размеров).",
-            "content": {
-                "application/json": {
-                    "example": {"message": "incorrect page size", "error_id": 1}
-                }
-            },
-        },
-    },
+    response_model=GenreListResponse,
+    response_model_exclude_none=True,
 )
 async def list_genres(
     request: Request,
     page_size: int = Query(
         LIMITS.page.default,
-        description="Размер 1 страницы. Диапазон - 1...50 элементов.",
+        ge=LIMITS.page.min,
+        le=LIMITS.page.max,
     ),
-    page: int = Query(0, description="Номер страницы. Не должна быть отрицательной."),
-    name: str = Query(
-        "", description="Поиск по названию.", max_length=LIMITS.genre.name_max
-    ),
+    page: int = Query(0, ge=0),
+    name: str | None = Query(default=None, max_length=LIMITS.genre.name_max),
+    ids: list[int] = Query(default_factory=list),
 ):
-    if page_size > LIMITS.page.max or page_size < LIMITS.page.min:
-        raise standarts.PayloadTooLargeError(
-            detail="incorrect page size",
-            instance=str(request.url),
-            context={"error_id": 1},
-        )
-
     async with catalog.AsyncSessionLocal() as session:
         count_stmt = select(func.count()).select_from(catalog.Genre)
         list_stmt = select(catalog.Genre)
-        if len(name) > 0:
+
+        if name:
             condition = catalog.Genre.name.ilike(f"%{name}%")
             count_stmt = count_stmt.where(condition)
             list_stmt = list_stmt.where(condition)
 
-        genres_count = int((await session.execute(count_stmt)).scalar_one())
-        offset = page_size * page
-        genres = (
-            await session.execute(list_stmt.offset(offset).limit(page_size))
-        ).scalars().all()
+        if ids:
+            count_stmt = count_stmt.where(catalog.Genre.id.in_(ids))
+            list_stmt = list_stmt.where(catalog.Genre.id.in_(ids))
 
-    return {"database_size": genres_count, "offset": offset, "results": genres}
+        total = int((await session.scalar(count_stmt)) or 0)
+        offset = page * page_size
+        rows = (await session.execute(list_stmt.offset(offset).limit(page_size))).scalars().all()
+
+    items = [_serialize_genre(row) for row in rows]
+    return make_list_response(
+        [item.model_dump(mode="json", exclude_none=True) for item in items],
+        page=page,
+        page_size=page_size,
+        total=total,
+    )
+
+
+@router.get(
+    "/genres/{genre_id}",
+    tags=["Genre"],
+    status_code=200,
+    response_model=GenreRead,
+    response_model_exclude_none=True,
+)
+async def get_genre(request: Request, genre_id: int) -> GenreRead:
+    async with catalog.AsyncSessionLocal() as session:
+        genre = await session.get(catalog.Genre, genre_id)
+
+    if genre is None:
+        raise standarts.StandardAPIError(
+            status_code=404,
+            title="Not Found",
+            detail="Genre not found.",
+            code="GENRE_NOT_FOUND",
+            instance=str(request.url),
+        )
+
+    return _serialize_genre(genre)
 
 
 @router.post(
-    MAIN_URL + "/genres",
+    "/genres",
     tags=["Genre"],
-    summary="Добавляет жанр",
-    status_code=202,
-    responses={
-        202: {
-            "description": "Возвращает ID добавленного жанра.",
-        },
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
-    },
+    status_code=201,
+    response_model=GenreRead,
+    response_model_exclude_none=True,
 )
-async def add_genre(
-    response: Response,
-    request: Request,
-    payload: GenreCreatePayload,
-):
-    access_result = await tools.access_admin(request=request)
+async def create_genre(response: Response, request: Request, payload: GenreCreate) -> GenreRead:
+    await tools.access_admin(request=request)
 
-    if access_result is True:
-        async with catalog.AsyncSessionLocal() as session:
-            new_genre = catalog.Genre(name=payload.name)
-            session.add(new_genre)
-            await session.flush()
-            genre_id = int(new_genre.id)  # Получаем ID последней вставленной строки
-
-            await session.commit()
-
-        return JSONResponse(status_code=202, content=genre_id)  # Возвращаем значение `id`
-    else:
-        return access_result
+    async with catalog.AsyncSessionLocal() as session:
+        genre = catalog.Genre(name=payload.name)
+        session.add(genre)
+        await session.flush()
+        await session.commit()
+        response.headers["Location"] = f"/genres/{genre.id}"
+        return _serialize_genre(genre)
 
 
 @router.patch(
-    MAIN_URL + "/genres/{genre_id}",
+    "/genres/{genre_id}",
     tags=["Genre"],
-    summary="Редактирует жанр",
-    status_code=202,
-    responses={
-        202: {"description": "Изменение данных в базе данных по указанному ID жанра."},
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
-        404: {"description": "Жанр не найден."},
-        418: {
-            "description": "Пустой запрос. Возникает если не передан ни один из параметров-свойств."
-        },
-    },
+    status_code=200,
+    response_model=GenreRead,
+    response_model_exclude_none=True,
 )
-async def edit_genre(
+async def patch_genre(
     response: Response,
     request: Request,
     genre_id: int,
-    payload: GenreUpdatePayload,
-):
-    access_result = await tools.access_admin(request=request)
+    payload: GenrePatch,
+) -> GenreRead:
+    await tools.access_admin(request=request)
 
-    if access_result is True:
-        async with catalog.AsyncSessionLocal() as session:
-            genre = await session.get(catalog.Genre, genre_id)
-            if not genre:
-                raise standarts.NotFoundError(
-                    detail="The element does not exist.",
-                    instance=str(request.url),
-                )
+    data = payload.model_dump(exclude_none=True)
+    ensure_non_empty_patch(data)
 
-            data_edit = {}
-            if payload.name:
-                data_edit["name"] = payload.name
+    async with catalog.AsyncSessionLocal() as session:
+        genre = await session.get(catalog.Genre, genre_id)
+        if genre is None:
+            raise standarts.StandardAPIError(
+                status_code=404,
+                title="Not Found",
+                detail="Genre not found.",
+                code="GENRE_NOT_FOUND",
+                instance=str(request.url),
+            )
 
-            if len(data_edit) <= 0:
-                raise standarts.RequestRejectedError(
-                    detail="The request is empty",
-                    instance=str(request.url),
-                )
-
-            for key, value in data_edit.items():
-                setattr(genre, key, value)
-            await session.commit()
-        return JSONResponse(status_code=202, content="Complite")
-    else:
-        return access_result
+        for key, value in data.items():
+            setattr(genre, key, value)
+        await session.commit()
+        return _serialize_genre(genre)
 
 
 @router.delete(
-    MAIN_URL + "/genres/{genre_id}",
+    "/genres/{genre_id}",
     tags=["Genre"],
-    summary="Удаляет жанр",
-    status_code=202,
-    responses={
-        202: {"description": "Удалено успешно."},
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
-    },
+    status_code=204,
 )
-async def delete_genre(
-    response: Response,
-    request: Request,
-    genre_id: int,
-):
-    access_result = await tools.access_admin(request=request)
+async def delete_genre(request: Request, genre_id: int) -> Response:
+    await tools.access_admin(request=request)
 
-    if access_result is True:
-        async with catalog.AsyncSessionLocal() as session:
-            delete_game = delete(catalog.Genre).where(catalog.Genre.id == genre_id)
-
-            delete_genres_association = catalog.game_genres.delete().where(
-                catalog.game_genres.c.genre_id == genre_id
+    async with catalog.AsyncSessionLocal() as session:
+        genre = await session.get(catalog.Genre, genre_id)
+        if genre is None:
+            raise standarts.StandardAPIError(
+                status_code=404,
+                title="Not Found",
+                detail="Genre not found.",
+                code="GENRE_NOT_FOUND",
+                instance=str(request.url),
             )
 
-            # Выполнение операции DELETE
-            await session.execute(delete_game)
-            await session.execute(delete_genres_association)
-            await session.commit()
-        return JSONResponse(status_code=202, content="Complite")
-    else:
-        return access_result
+        await session.execute(
+            catalog.game_genres.delete().where(catalog.game_genres.c.genre_id == genre_id)
+        )
+        await session.execute(delete(catalog.Genre).where(catalog.Genre.id == genre_id))
+        await session.commit()
+
+    return Response(status_code=204)

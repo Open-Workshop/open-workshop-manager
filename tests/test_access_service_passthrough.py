@@ -150,7 +150,7 @@ class AccessServicePassThroughTests(unittest.TestCase):
             "title": "Доступ запрещен",
             "status": 403,
             "detail": "Нельзя редактировать этот мод.",
-            "code": "access_denied",
+            "code": "FORBIDDEN",
             "context": {"reason_code": "forbidden"},
         }
 
@@ -161,7 +161,7 @@ class AccessServicePassThroughTests(unittest.TestCase):
         self.assertEqual(problem.status, 403)
         self.assertEqual(problem.title, "Доступ запрещен")
         self.assertEqual(problem.detail, "Нельзя редактировать этот мод.")
-        self.assertEqual(problem.code, "access_denied")
+        self.assertEqual(problem.code, "FORBIDDEN")
         self.assertEqual(problem.context, {"reason_code": "forbidden"})
 
     def test_access_service_errors_are_rethrown_with_problem_details(self) -> None:
@@ -170,7 +170,8 @@ class AccessServicePassThroughTests(unittest.TestCase):
             title="Доступ запрещен",
             status=403,
             detail="Нельзя редактировать этот мод.",
-            code="access_denied",
+            instance="http://manager.test/mod/1",
+            code="FORBIDDEN",
             context={"reason_code": "forbidden"},
         )
         exc = access_client.AccessServiceError.with_problem(
