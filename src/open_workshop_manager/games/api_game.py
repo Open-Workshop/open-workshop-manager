@@ -28,7 +28,7 @@ from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
 
-GameIncludeField = Literal["description", "dates", "statistics", "genres", "tags", "resources"]
+GameIncludeField = Literal["short_description", "description", "dates", "statistics", "genres", "tags", "resources"]
 
 GAME_BAD_REQUEST_RESPONSE = standarts.response_spec(
     standarts.build_problem(
@@ -61,6 +61,7 @@ GAME_CONFLICT_RESPONSE = standarts.response_spec(
 )
 
 GAME_INCLUDE_FIELDS = {
+    "short_description",
     "description",
     "dates",
     "statistics",
@@ -189,6 +190,7 @@ async def _serialize_game_with_includes(
     description=(
         "Returns a paginated list of games.\n\n"
         "Use `include` to opt in to extra fields:\n"
+        "- `short_description`\n"
         "- `description`\n"
         "- `dates`\n"
         "- `statistics`\n"
@@ -305,6 +307,7 @@ async def list_games(
     description=(
         "Returns a single game by ID.\n\n"
         "Use `include` to opt in to extra fields:\n"
+        "- `short_description`\n"
         "- `description`\n"
         "- `dates`\n"
         "- `statistics`\n"

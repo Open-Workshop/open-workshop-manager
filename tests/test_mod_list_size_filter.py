@@ -326,7 +326,7 @@ class ModListSizeFilterTests(unittest.TestCase):
                     "sort": "-mods_downloads",
                     "types": ["game"],
                     "sources": ["steam"],
-                    "include": ["statistics"],
+                    "include": ["short_description", "statistics"],
                 },
             )
 
@@ -345,7 +345,7 @@ class ModListSizeFilterTests(unittest.TestCase):
         with patch.object(self.api_game.catalog, "AsyncSessionLocal", return_value=session):
             response = self.client.get(
                 f"{self.main_url}/games/1",
-                params={"include": ["description"]},
+                params={"include": ["short_description", "description"]},
             )
 
         self.assertEqual(response.status_code, 200)
@@ -406,8 +406,14 @@ class ModListSizeFilterTests(unittest.TestCase):
                     return set(parameter["schema"]["items"]["enum"])
             self.fail(f"include parameter missing for {method.upper()} {path}")
 
-        self.assertEqual(include_enum("/games", "get"), {"description", "dates", "statistics", "genres", "tags", "resources"})
-        self.assertEqual(include_enum("/games/{game_id}", "get"), {"description", "dates", "statistics", "genres", "tags", "resources"})
+        self.assertEqual(
+            include_enum("/games", "get"),
+            {"short_description", "description", "dates", "statistics", "genres", "tags", "resources"},
+        )
+        self.assertEqual(
+            include_enum("/games/{game_id}", "get"),
+            {"short_description", "description", "dates", "statistics", "genres", "tags", "resources"},
+        )
         self.assertEqual(
             include_enum("/mods", "get"),
             {"short_description", "description", "dates", "game", "tags", "dependencies", "authors", "resources"},
