@@ -213,14 +213,6 @@ class IntCollectionRead(ReadModel):
 ModRead.model_rebuild()
 
 
-class ModDownloadRead(ApiModel):
-    id: str
-    mod_id: int
-    download_url: str
-    filename: str
-    expires_at: datetime.datetime | None = None
-
-
 class ModDownloadUrlRead(ApiModel):
     mod_id: int
     download_url: str

@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import re
-import uuid
 from datetime import datetime
 from urllib.parse import quote
 from typing import Literal
 
 from fastapi import APIRouter, Query, Request, Response
-from fastapi.responses import RedirectResponse
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import aliased
 
@@ -24,7 +22,6 @@ from open_workshop_manager.api_models import (
     IntCollectionRead,
     ModCreate,
     ModFeedRead,
-    ModDownloadRead,
     ModDownloadUrlRead,
     ModListResponse,
     ModPatch,
@@ -859,22 +856,7 @@ async def delete_mod(request: Request, mod_id: int) -> Response:
     return Response(status_code=204)
 
 
-@router.post(
-    "/mods/{mod_id}/downloads",
-    tags=["Mod"],
-    summary="Register mod download",
-    description="Registers a download event and returns a storage download URL.",
-    status_code=201,
-    response_model=ModDownloadRead,
-    response_model_exclude_none=True,
-    response_description="Download metadata and storage URL.",
-    responses={
-        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
-        403: standarts.FORBIDDEN_RESPONSE_SPEC,
-        404: MOD_NOT_FOUND_RESPONSE,
-    },
-)
-async def create_download(request: Request, mod_id: int) -> ModDownloadRead:
+async def _register_download(request: Request, mod_id: int) -> dict[str, str]:
     await tools.access_mods(request=request, mods_ids=[mod_id])
 
     async with catalog.AsyncSessionLocal() as session:
@@ -885,14 +867,14 @@ async def create_download(request: Request, mod_id: int) -> ModDownloadRead:
         await session.execute(
             update(catalog.Mod)
             .where(catalog.Mod.id == mod_id)
-            .values({catalog.Mod.downloads: catalog.Mod.downloads + 1})
+            .values({catalog.Mod.downloads: func.coalesce(catalog.Mod.downloads, 0) + 1})
         )
         mod_game = getattr(mod, "game", None)
         if mod_game is not None:
             await session.execute(
                 update(catalog.Game)
                 .where(catalog.Game.id == mod_game)
-                .values({catalog.Game.mods_downloads: catalog.Game.mods_downloads + 1})
+                .values({catalog.Game.mods_downloads: func.coalesce(catalog.Game.mods_downloads, 0) + 1})
             )
         await session.commit()
 
@@ -905,33 +887,18 @@ async def create_download(request: Request, mod_id: int) -> ModDownloadRead:
     )
 
     filename = _sanitize_filename(getattr(mod, "name", "") or "", mod_id)
-    return ModDownloadRead(
-        id=uuid.uuid4().hex,
-        mod_id=mod_id,
-        download_url=f"{_download_url(mod_id)}?filename={quote(filename)}",
-        filename=filename,
-        expires_at=None,
-    )
+    return {
+        "download_url": f"{_download_url(mod_id)}?filename={quote(filename)}",
+        "filename": filename,
+    }
 
 
 @router.post(
-    "/mods/{mod_id}/downloads/redirect",
-    tags=["Mod"],
-    summary="Redirect to mod download",
-    description="Redirects the client to the mod archive download URL.",
-    status_code=303,
-)
-async def redirect_download(request: Request, mod_id: int) -> RedirectResponse:
-    download = await create_download(request, mod_id)
-    return RedirectResponse(url=download.download_url, status_code=303)
-
-
-@router.get(
     "/mods/{mod_id}/download-url",
     tags=["Mod"],
     summary="Get mod download URL",
-    description="Returns a one-shot storage download URL for the mod archive.",
-    status_code=200,
+    description="Registers a download event and returns a one-shot storage download URL for the mod archive.",
+    status_code=201,
     response_model=ModDownloadUrlRead,
     response_model_exclude_none=True,
     response_description="Mod archive download URL.",
@@ -941,19 +908,12 @@ async def redirect_download(request: Request, mod_id: int) -> RedirectResponse:
         404: MOD_NOT_FOUND_RESPONSE,
     },
 )
-async def get_download_url(request: Request, mod_id: int) -> ModDownloadUrlRead:
-    await tools.access_mods(request=request, mods_ids=[mod_id])
-
-    async with catalog.AsyncSessionLocal() as session:
-        mod = await session.get(catalog.Mod, mod_id)
-        if mod is None:
-            _raise_mod_not_found(request)
-
-    filename = _sanitize_filename(getattr(mod, "name", "") or "", mod_id)
+async def download_url(request: Request, mod_id: int) -> ModDownloadUrlRead:
+    download = await _register_download(request, mod_id)
     return ModDownloadUrlRead(
         mod_id=mod_id,
-        download_url=f"{_download_url(mod_id)}?filename={quote(filename)}",
-        filename=filename,
+        download_url=download["download_url"],
+        filename=download["filename"],
         expires_at=None,
     )
 

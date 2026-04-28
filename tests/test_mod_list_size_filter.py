@@ -302,32 +302,8 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(body, {"count": 3, "items": [1, 2, 3]})
         access_mods.assert_awaited_once()
 
-    def test_mod_download_url_is_get_safe(self) -> None:
-        session = _RecordingSession(get_value=_mod(name="Downloadable Mod"))
-        access_mods = AsyncMock(return_value=True)
-
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_mod.tools,
-            "access_mods",
-            access_mods,
-        ):
-            response = self.client.get(f"{self.main_url}/mods/7/download-url")
-
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertNotIn("id", body)
-        self.assertEqual(body["mod_id"], 7)
-        self.assertEqual(body["filename"], "Downloadable_Mod")
-        self.assertEqual(
-            body["download_url"],
-            f"{self.storage_url}/download/archive/mods/7/main.zip?filename=Downloadable_Mod",
-        )
-        self.assertEqual(session.commit_count, 0)
-        self.assertEqual(session.flush_count, 0)
-        access_mods.assert_awaited_once()
-
-    def test_mod_download_command_returns_created_resource(self) -> None:
-        session = _RecordingSession(rows=[], get_value=_mod(name="Downloadable Mod"), allow_writes=True)
+    def test_mod_download_url_registers_download_and_returns_storage_url(self) -> None:
+        session = _RecordingSession(get_value=_mod(name="Downloadable Mod"), allow_writes=True)
         access_mods = AsyncMock(return_value=True)
         publish_event = AsyncMock(return_value=None)
 
@@ -336,10 +312,11 @@ class ModListSizeFilterTests(unittest.TestCase):
             "access_mods",
             access_mods,
         ), patch.object(self.api_mod.mod_events, "publish_mod_event", publish_event):
-            response = self.client.post(f"{self.main_url}/mods/7/downloads")
+            response = self.client.post(f"{self.main_url}/mods/7/download-url")
 
         self.assertEqual(response.status_code, 201)
         body = response.json()
+        self.assertNotIn("id", body)
         self.assertEqual(body["mod_id"], 7)
         self.assertEqual(body["filename"], "Downloadable_Mod")
         self.assertEqual(
@@ -348,8 +325,8 @@ class ModListSizeFilterTests(unittest.TestCase):
         )
         self.assertEqual(session.commit_count, 1)
         self.assertTrue(any(isinstance(stmt, Update) for stmt in session.execute_statements))
-        publish_event.assert_awaited_once()
         access_mods.assert_awaited_once()
+        publish_event.assert_awaited_once()
 
     def test_games_list_returns_items_and_pagination(self) -> None:
         session = _RecordingSession(rows=[_game()], scalar_values=[1])
