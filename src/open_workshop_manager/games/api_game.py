@@ -137,6 +137,8 @@ async def _serialize_game_with_includes(
 ) -> GameRead:
     payload = _serialize_game_base(row)
 
+    if "short_description" not in include:
+        payload.pop("short_description", None)
     if "statistics" not in include:
         payload.pop("mods_count", None)
         payload.pop("mods_downloads", None)
@@ -287,6 +289,8 @@ async def list_games(
             if "statistics" not in include_set:
                 payload.pop("mods_count", None)
                 payload.pop("mods_downloads", None)
+            if "short_description" not in include_set:
+                payload.pop("short_description", None)
             if "description" not in include_set:
                 payload.pop("description", None)
             if "dates" not in include_set:
@@ -339,6 +343,10 @@ async def get_game(
         if include_set:
             return await _serialize_game_with_includes(session, request, row, include_set)
         payload = _serialize_game_base(row)
+        payload.pop("short_description", None)
+        payload.pop("mods_count", None)
+        payload.pop("mods_downloads", None)
+        payload.pop("created_at", None)
         payload.pop("description", None)
         return GameRead.model_validate(payload)
 
