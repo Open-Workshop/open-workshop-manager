@@ -8,7 +8,11 @@ from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy import delete, func, select
 
 from open_workshop_manager import standarts, tools
-from open_workshop_manager.api_helpers import ensure_non_empty_patch, make_list_response
+from open_workshop_manager.api_helpers import (
+    ensure_fields_not_none,
+    ensure_non_empty_patch,
+    make_list_response,
+)
 from open_workshop_manager.api_models import (
     GameCreate,
     GameListResponse,
@@ -307,8 +311,14 @@ async def patch_game(
 ) -> GameRead:
     await tools.access_admin(request=request)
 
-    data = payload.model_dump(exclude_none=True)
+    data = payload.model_dump(exclude_unset=True)
     ensure_non_empty_patch(data)
+    ensure_fields_not_none(
+        request,
+        data,
+        ("name", "type", "source"),
+        detail="Game patch fields cannot be null.",
+    )
 
     async with catalog.AsyncSessionLocal() as session:
         game = await session.get(catalog.Game, game_id)
@@ -372,4 +382,3 @@ async def delete_game(request: Request, game_id: int) -> Response:
         await session.commit()
 
     return Response(status_code=204)
-

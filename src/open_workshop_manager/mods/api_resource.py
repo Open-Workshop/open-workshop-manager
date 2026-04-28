@@ -8,7 +8,11 @@ from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy import delete, func, select
 
 from open_workshop_manager import standarts, tools
-from open_workshop_manager.api_helpers import ensure_non_empty_patch, make_list_response
+from open_workshop_manager.api_helpers import (
+    ensure_fields_not_none,
+    ensure_non_empty_patch,
+    make_list_response,
+)
 from open_workshop_manager.api_models import ResourceCreate, ResourceListResponse, ResourcePatch, ResourceRead
 from open_workshop_manager.limits import LIMITS
 from open_workshop_manager.sql_logic import sql_catalog as catalog
@@ -202,8 +206,14 @@ async def patch_resource(
     resource_id: int,
     payload: ResourcePatch,
 ) -> ResourceRead:
-    data = payload.model_dump(exclude_none=True)
+    data = payload.model_dump(exclude_unset=True)
     ensure_non_empty_patch(data)
+    ensure_fields_not_none(
+        request,
+        data,
+        ("type", "url"),
+        detail="Resource patch fields cannot be null.",
+    )
 
     async with catalog.AsyncSessionLocal() as session:
         resource = await session.get(catalog.Resource, resource_id)

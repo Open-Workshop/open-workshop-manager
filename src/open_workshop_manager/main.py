@@ -22,6 +22,9 @@ from open_workshop_manager.association.api_association_getter import (
 from open_workshop_manager.access.api_callback import (
     router as access_callback_router,
 )
+from open_workshop_manager.app.api_catalog_statistics import (
+    router as catalog_statistics_router,
+)
 from open_workshop_manager.games.api_game import router as game_router
 from open_workshop_manager.games.api_genre import router as genre_router
 from open_workshop_manager.logging_setup import setup_logging
@@ -262,6 +265,7 @@ app.include_router(resource_router)
 app.include_router(upload_router)
 app.include_router(association_control_router)
 app.include_router(association_getter_router)
+app.include_router(catalog_statistics_router)
 app.include_router(access_callback_router)
 app.include_router(profile_router)
 app.include_router(session_router)

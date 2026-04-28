@@ -67,11 +67,44 @@ def _store_job(job: UploadRead) -> UploadRead:
     return job
 
 
-def _update_job_status(job_id: str, status: str) -> None:
+def _upload_row(job: UploadRead) -> catalog.UploadJob:
+    return catalog.UploadJob(
+        id=job.id,
+        kind=job.kind,
+        status=job.status,
+        transfer_url=job.transfer_url,
+        ws_url=job.ws_url,
+        expires_at=job.expires_at,
+        owner_type=job.owner_type,
+        owner_id=job.owner_id,
+        mode=job.mode,
+        resource_id=job.resource_id,
+    )
+
+
+async def _load_job(job_id: str) -> UploadRead | None:
     job = UPLOAD_JOBS.get(job_id)
     if job is None:
-        return
-    UPLOAD_JOBS[job_id] = job.model_copy(update={"status": status})
+        async with catalog.AsyncSessionLocal() as session:
+            row = await session.get(catalog.UploadJob, job_id)
+            if row is None:
+                return None
+            job = UploadRead.model_validate(row)
+            UPLOAD_JOBS[job_id] = job
+    return job
+
+
+async def _update_job_status(job_id: str, status: str) -> None:
+    job = UPLOAD_JOBS.get(job_id)
+    if job is not None:
+        UPLOAD_JOBS[job_id] = job.model_copy(update={"status": status})
+
+    async with catalog.AsyncSessionLocal() as session:
+        row = await session.get(catalog.UploadJob, job_id)
+        if row is None:
+            return
+        row.status = status
+        await session.commit()
 
 
 def _coerce_int(value: object | None, default: int = 0) -> int:
@@ -161,7 +194,7 @@ async def _handle_archive_completion(
     status = str(payload.get("status") or "").strip().lower()
     if status != "success":
         logger.warning("transfer failed job_id=%s status=%s", job_id, status or "-")
-        _update_job_status(job_id, "failed")
+        await _update_job_status(job_id, "failed")
         return Response(status_code=202, content="Transfer failed")
 
     pack_format = str(payload.get("pack_format") or "zip").strip() or "zip"
@@ -176,7 +209,7 @@ async def _handle_archive_completion(
         )
     except Exception:
         logger.exception("transfer move exception job_id=%s mod_id=%s", job_id, mod_id)
-        _update_job_status(job_id, "failed")
+        await _update_job_status(job_id, "failed")
         raise standarts.GatewayTimeoutError(
             detail="Move timeout",
             instance=str(request.url),
@@ -189,7 +222,7 @@ async def _handle_archive_completion(
             move_code,
             move_payload,
         )
-        _update_job_status(job_id, "failed")
+        await _update_job_status(job_id, "failed")
         raise standarts.InternalServerError(
             detail="Move failed",
             instance=str(request.url),
@@ -211,7 +244,7 @@ async def _handle_archive_completion(
     async with catalog.AsyncSessionLocal() as session:
         mod = await session.get(catalog.Mod, mod_id)
         if mod is None:
-            _update_job_status(job_id, "failed")
+            await _update_job_status(job_id, "failed")
             raise standarts.NotFoundError(
                 detail="Mod not found",
                 instance=str(request.url),
@@ -235,11 +268,11 @@ async def _handle_archive_completion(
                 getattr(mod, "description", None),
                 getattr(mod, "public", 0),
             )
-            _update_job_status(job_id, "completed")
+            await _update_job_status(job_id, "completed")
             return Response(status_code=200)
 
         if int(getattr(mod, "condition", 0) or 0) == 0:
-            _update_job_status(job_id, "completed")
+            await _update_job_status(job_id, "completed")
             return Response(status_code=200)
 
         if (
@@ -284,7 +317,7 @@ async def _handle_archive_completion(
                     )
                     await asession.commit()
 
-                _update_job_status(job_id, "failed")
+                await _update_job_status(job_id, "failed")
                 raise standarts.PreconditionFailedError(
                     detail="Такая source-связка уже существует!",
                     instance=str(request.url),
@@ -321,7 +354,7 @@ async def _handle_archive_completion(
         getattr(mod, "description", None),
         getattr(mod, "public", 0),
     )
-    _update_job_status(job_id, "completed")
+    await _update_job_status(job_id, "completed")
     return Response(status_code=200)
 
 
@@ -364,7 +397,7 @@ async def _handle_image_completion(
                     delete(catalog.Resource).where(catalog.Resource.id == resource_id_value)
                 )
                 await session.commit()
-        _update_job_status(job_id, "failed")
+        await _update_job_status(job_id, "failed")
         return Response(status_code=202, content="Transfer failed")
 
     try:
@@ -386,7 +419,7 @@ async def _handle_image_completion(
                     delete(catalog.Resource).where(catalog.Resource.id == resource_id_value)
                 )
                 await session.commit()
-        _update_job_status(job_id, "failed")
+        await _update_job_status(job_id, "failed")
         raise standarts.GatewayTimeoutError(
             detail="Move timeout",
             instance=str(request.url),
@@ -406,7 +439,7 @@ async def _handle_image_completion(
                     delete(catalog.Resource).where(catalog.Resource.id == resource_id_value)
                 )
                 await session.commit()
-        _update_job_status(job_id, "failed")
+        await _update_job_status(job_id, "failed")
         raise standarts.InternalServerError(
             detail="Move failed",
             instance=str(request.url),
@@ -425,7 +458,7 @@ async def _handle_image_completion(
             user = await session.get(account.Account, user_id_value)
             if user is None:
                 await tools.storage_file_delete(type="avatar", path=target_path)
-                _update_job_status(job_id, "failed")
+                await _update_job_status(job_id, "failed")
                 raise standarts.NotFoundError(
                     detail="User not found",
                     instance=str(request.url),
@@ -441,7 +474,7 @@ async def _handle_image_completion(
             if old_path != target_path:
                 await tools.storage_file_delete(type="avatar", path=old_path)
 
-        _update_job_status(job_id, "completed")
+        await _update_job_status(job_id, "completed")
         return Response(status_code=200)
 
     if resource_id_value <= 0:
@@ -463,14 +496,14 @@ async def _handle_image_completion(
                     delete(catalog.Resource).where(catalog.Resource.id == resource_id_value)
                 )
                 await session.commit()
-        _update_job_status(job_id, "failed")
+        await _update_job_status(job_id, "failed")
         return Response(status_code=202, content="Invalid file size")
 
     async with catalog.AsyncSessionLocal() as session:
         resource = await session.get(catalog.Resource, resource_id_value)
         if resource is None:
             await tools.storage_file_delete(type="resource", path=target_path)
-            _update_job_status(job_id, "failed")
+            await _update_job_status(job_id, "failed")
             raise standarts.NotFoundError(
                 detail="Resource not found",
                 instance=str(request.url),
@@ -487,7 +520,7 @@ async def _handle_image_completion(
         if old_path != target_path:
             await tools.storage_file_delete(type="resource", path=old_path)
 
-    _update_job_status(job_id, "completed")
+    await _update_job_status(job_id, "completed")
     return Response(status_code=200)
 
 
@@ -562,6 +595,9 @@ async def create_upload(response: Response, request: Request, payload: UploadCre
             owner_id=payload.owner_id,
             mode=mode,
         )
+        async with catalog.AsyncSessionLocal() as session:
+            session.add(_upload_row(job))
+            await session.commit()
         return _store_job(job)
 
     if kind == "resource_image":
@@ -592,45 +628,41 @@ async def create_upload(response: Response, request: Request, payload: UploadCre
                 )
                 session.add(resource)
                 await session.flush()
-                await session.commit()
-
-            token = tools.create_transfer_jwt(
-                {
-                    **_transfer_payload(job_id),
-                    "transfer_kind": "img",
-                    "storage_type": "resource",
-                    "callback_action": "resource_add",
-                    "callback_context": {"resource_id": resource.id},
-                    "target_path": f"{payload.resource_owner_type}/{payload.resource_owner_id}/{resource.id}.webp",
-                },
-                audience="storage",
-                ttl_seconds=ttl_seconds,
-            )
-            if not token:
-                async with catalog.AsyncSessionLocal() as session:
-                    await session.execute(
-                        delete(catalog.Resource).where(catalog.Resource.id == resource.id)
-                    )
-                    await session.commit()
-                raise standarts.InternalServerError(
-                    detail="JWT secret missing.",
-                    instance=str(request.url),
-                    code="STORAGE_UNAVAILABLE",
+                token = tools.create_transfer_jwt(
+                    {
+                        **_transfer_payload(job_id),
+                        "transfer_kind": "img",
+                        "storage_type": "resource",
+                        "callback_action": "resource_add",
+                        "callback_context": {"resource_id": resource.id},
+                        "target_path": f"{payload.resource_owner_type}/{payload.resource_owner_id}/{resource.id}.webp",
+                    },
+                    audience="storage",
+                    ttl_seconds=ttl_seconds,
                 )
+                if not token:
+                    await session.rollback()
+                    raise standarts.InternalServerError(
+                        detail="JWT secret missing.",
+                        instance=str(request.url),
+                        code="STORAGE_UNAVAILABLE",
+                    )
 
-            transfer_url, ws_url = _make_transfer_urls(job_id, token)
-            job = UploadRead(
-                id=job_id,
-                kind=kind,
-                status="created",
-                transfer_url=transfer_url,
-                ws_url=ws_url,
-                expires_at=expires_at,
-                owner_type=payload.owner_type,
-                owner_id=payload.resource_owner_id,
-                mode=mode,
-                resource_id=resource.id,
-            )
+                transfer_url, ws_url = _make_transfer_urls(job_id, token)
+                job = UploadRead(
+                    id=job_id,
+                    kind=kind,
+                    status="created",
+                    transfer_url=transfer_url,
+                    ws_url=ws_url,
+                    expires_at=expires_at,
+                    owner_type=payload.owner_type,
+                    owner_id=payload.resource_owner_id,
+                    mode=mode,
+                    resource_id=resource.id,
+                )
+                session.add(_upload_row(job))
+                await session.commit()
             return _store_job(job)
 
         if payload.owner_id is None:
@@ -657,44 +689,46 @@ async def create_upload(response: Response, request: Request, payload: UploadCre
 
             if payload.resource_type is not None:
                 resource.type = payload.resource_type
-                await session.commit()
 
             target_owner_type = str(resource.owner_type)
             target_owner_id = int(resource.owner_id)
             resource_id = int(resource.id)
 
-        token = tools.create_transfer_jwt(
-            {
-                **_transfer_payload(job_id),
-                "transfer_kind": "img",
-                "storage_type": "resource",
-                "callback_action": "resource_edit",
-                "callback_context": {"resource_id": resource_id},
-                "target_path": f"{target_owner_type}/{target_owner_id}/{resource_id}.webp",
-            },
-            audience="storage",
-            ttl_seconds=ttl_seconds,
-        )
-        if not token:
-            raise standarts.InternalServerError(
-                detail="JWT secret missing.",
-                instance=str(request.url),
-                code="STORAGE_UNAVAILABLE",
+            token = tools.create_transfer_jwt(
+                {
+                    **_transfer_payload(job_id),
+                    "transfer_kind": "img",
+                    "storage_type": "resource",
+                    "callback_action": "resource_edit",
+                    "callback_context": {"resource_id": resource_id},
+                    "target_path": f"{target_owner_type}/{target_owner_id}/{resource_id}.webp",
+                },
+                audience="storage",
+                ttl_seconds=ttl_seconds,
             )
+            if not token:
+                await session.rollback()
+                raise standarts.InternalServerError(
+                    detail="JWT secret missing.",
+                    instance=str(request.url),
+                    code="STORAGE_UNAVAILABLE",
+                )
 
-        transfer_url, ws_url = _make_transfer_urls(job_id, token)
-        job = UploadRead(
-            id=job_id,
-            kind=kind,
-            status="created",
-            transfer_url=transfer_url,
-            ws_url=ws_url,
-            expires_at=expires_at,
-            owner_type=payload.owner_type,
-            owner_id=target_owner_id,
-            mode=mode,
-            resource_id=resource_id,
-        )
+            transfer_url, ws_url = _make_transfer_urls(job_id, token)
+            job = UploadRead(
+                id=job_id,
+                kind=kind,
+                status="created",
+                transfer_url=transfer_url,
+                ws_url=ws_url,
+                expires_at=expires_at,
+                owner_type=payload.owner_type,
+                owner_id=target_owner_id,
+                mode=mode,
+                resource_id=resource_id,
+            )
+            session.add(_upload_row(job))
+            await session.commit()
         return _store_job(job)
 
     if kind == "profile_avatar":
@@ -733,6 +767,9 @@ async def create_upload(response: Response, request: Request, payload: UploadCre
             owner_id=payload.owner_id,
             mode=mode,
         )
+        async with catalog.AsyncSessionLocal() as session:
+            session.add(_upload_row(job))
+            await session.commit()
         return _store_job(job)
 
     _unsupported_upload_kind(request)
@@ -746,7 +783,7 @@ async def create_upload(response: Response, request: Request, payload: UploadCre
     response_model_exclude_none=True,
 )
 async def get_upload(request: Request, upload_id: str) -> UploadRead:
-    job = UPLOAD_JOBS.get(upload_id)
+    job = await _load_job(upload_id)
     if job is None:
         _raise_not_found(request, "UPLOAD_NOT_FOUND", "Upload not found.")
     return job

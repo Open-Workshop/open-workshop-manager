@@ -166,6 +166,21 @@ Index(
 )
 
 
+class UploadJob(Base):  # Очередь загрузочных задач
+    __tablename__ = "upload_jobs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32))
+    transfer_url: Mapped[str] = mapped_column(String(2048))
+    ws_url: Mapped[str] = mapped_column(String(2048))
+    expires_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    owner_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    owner_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    resource_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
 # Теги
 class Genre(Base):  # Жанры для игр
     __tablename__ = "genres"

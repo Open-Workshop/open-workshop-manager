@@ -192,7 +192,14 @@ class ModDownloadRead(ApiModel):
     expires_at: datetime.datetime | None = None
 
 
-class UploadRead(ApiModel):
+class ModDownloadUrlRead(ApiModel):
+    mod_id: int
+    download_url: str
+    filename: str
+    expires_at: datetime.datetime | None = None
+
+
+class UploadRead(ReadModel):
     id: str
     kind: str
     status: str
@@ -259,6 +266,7 @@ class ProfileGeneralRead(ReadModel):
     registration_date: datetime.datetime
     reputation: int
     mute: bool
+    mute_until: datetime.datetime | None = None
 
 
 class ProfileRead(ApiModel):

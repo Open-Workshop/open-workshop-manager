@@ -270,6 +270,7 @@ class ModListSizeFilterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
+        self.assertNotIn("id", body)
         self.assertEqual(body["mod_id"], 7)
         self.assertTrue(body["filename"].endswith(".zip"))
         self.assertTrue(body["download_url"].startswith(f"{self.storage_url}/download/archive/mods/7/main.zip"))

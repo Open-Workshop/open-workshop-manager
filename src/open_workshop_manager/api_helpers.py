@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from fastapi import Request
+
 from open_workshop_manager.api_models import Pagination
 from open_workshop_manager import standarts
 
@@ -33,10 +35,38 @@ def make_list_response(items: list[Any], *, page: int, page_size: int, total: in
 
 
 def ensure_non_empty_patch(payload: dict[str, Any]) -> None:
-    if not any(value is not None for value in payload.values()):
+    if not payload:
         raise standarts.RequestRejectedError(
             detail="The request is empty",
         )
+
+
+def ensure_fields_not_none(
+    request: Request,
+    payload: dict[str, Any],
+    fields: Iterable[str],
+    *,
+    detail: str = "Field value cannot be null.",
+    code: str = "VALIDATION_ERROR",
+) -> None:
+    invalid = [field for field in fields if field in payload and payload[field] is None]
+    if not invalid:
+        return
+
+    context: dict[str, object]
+    if len(invalid) == 1:
+        context = {"field": invalid[0]}
+    else:
+        context = {"fields": invalid}
+
+    raise standarts.StandardAPIError(
+        status_code=422,
+        title="Unprocessable Content",
+        detail=detail,
+        code=code,
+        instance=str(request.url),
+        context=context,
+    )
 
 
 def unique_ints(values: Iterable[int | str]) -> list[int]:

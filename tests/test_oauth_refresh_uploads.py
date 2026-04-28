@@ -43,6 +43,7 @@ if "aiomysql" not in sys.modules:
 
 from open_workshop_manager import standarts
 from open_workshop_manager.api_models import UploadRead
+from open_workshop_manager.social import api_profile
 from open_workshop_manager.social import api_session
 from open_workshop_manager.sql_logic import sql_account, sql_catalog
 from open_workshop_manager.uploads import api_uploads
@@ -216,6 +217,7 @@ class OAuthRefreshUploadTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         app = FastAPI()
         standarts.install_exception_handlers(app)
+        app.include_router(api_profile.router)
         app.include_router(api_session.router)
         app.include_router(api_uploads.router)
         cls.client = TestClient(app)
@@ -450,12 +452,86 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         self.assertEqual(body["resource_id"], 555)
         self.assertEqual(session.commit_count, 1)
         self.assertEqual(session.flush_count, 1)
-        self.assertEqual(len(session.added), 1)
-        self.assertEqual(session.added[0].owner_type, "games")
-        self.assertEqual(session.added[0].owner_id, 7)
-        self.assertEqual(session.added[0].id, 555)
+        self.assertEqual(len(session.added), 2)
+        self.assertTrue(any(isinstance(obj, sql_catalog.Resource) for obj in session.added))
+        self.assertTrue(any(isinstance(obj, sql_catalog.UploadJob) for obj in session.added))
         access_admin.assert_awaited_once()
         access_mods.assert_not_awaited()
+
+    def test_get_upload_reads_persisted_row_when_cache_is_empty(self) -> None:
+        upload_row = SimpleNamespace(
+            id="job-db",
+            kind="mod_archive",
+            status="created",
+            transfer_url="https://storage.example/transfer/upload?token=abc",
+            ws_url="wss://storage.example/transfer/ws/job-db?token=abc",
+            expires_at=datetime.datetime(2026, 4, 27, 12, 15, 0, tzinfo=datetime.timezone.utc),
+            owner_type="mod",
+            owner_id=7,
+            mode="create",
+            resource_id=None,
+        )
+        session = _MutableSession(get_map={sql_catalog.UploadJob: upload_row})
+
+        with patch.object(
+            api_uploads.catalog,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
+            response = self.client.get("/uploads/job-db")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["id"], "job-db")
+        self.assertEqual(body["status"], "created")
+        self.assertEqual(api_uploads.UPLOAD_JOBS["job-db"].status, "created")
+
+    def test_profile_patch_allows_clearing_mute_until(self) -> None:
+        profile_row = SimpleNamespace(
+            id=7,
+            username="User",
+            about="About",
+            avatar_url="",
+            grade="Member",
+            comments=0,
+            author_mods=0,
+            registration_date=datetime.datetime(2026, 4, 1, 0, 0, 0),
+            reputation=0,
+            mute_until=datetime.datetime(2026, 5, 1, 0, 0, 0),
+        )
+        session = _MutableSession(get_map={sql_account.Account: profile_row})
+
+        access_result = SimpleNamespace(
+            authenticated=True,
+            owner_id=1,
+            edit=SimpleNamespace(
+                rights=SimpleNamespace(value=False),
+                nickname=SimpleNamespace(value=True, reason="", reason_code=""),
+                description=SimpleNamespace(value=True, reason="", reason_code=""),
+                grade=SimpleNamespace(value=True, reason="", reason_code=""),
+                mute=SimpleNamespace(value=True, reason="", reason_code=""),
+            ),
+        )
+
+        with patch.object(
+            api_profile.tools,
+            "access_profile",
+            AsyncMock(return_value=access_result),
+        ), patch.object(
+            api_profile.account,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
+            response = self.client.patch(
+                "/profiles/7",
+                json={"mute_until": None},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(profile_row.mute_until)
+        body = response.json()
+        self.assertEqual(body["id"], 7)
+        self.assertFalse(body["mute"])
 
     def test_archive_transfer_completion_updates_mod_and_game(self) -> None:
         mod = SimpleNamespace(

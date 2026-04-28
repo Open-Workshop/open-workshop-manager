@@ -13,12 +13,17 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import aliased
 
 from open_workshop_manager import mod_events, standarts, tools
-from open_workshop_manager.api_helpers import ensure_non_empty_patch, make_list_response
+from open_workshop_manager.api_helpers import (
+    ensure_fields_not_none,
+    ensure_non_empty_patch,
+    make_list_response,
+)
 from open_workshop_manager.api_models import (
     GameRead,
     IntListResponse,
     ModCreate,
     ModDownloadRead,
+    ModDownloadUrlRead,
     ModListResponse,
     ModPatch,
     ModRead,
@@ -498,8 +503,14 @@ async def patch_mod(
 ) -> ModRead:
     await tools.access_mods(request=request, mods_ids=[mod_id], edit=True)
 
-    data = payload.model_dump(exclude_none=True)
+    data = payload.model_dump(exclude_unset=True)
     ensure_non_empty_patch(data)
+    ensure_fields_not_none(
+        request,
+        data,
+        ("name", "source", "public", "adult"),
+        detail="Mod patch fields cannot be null.",
+    )
 
     if "name" in data:
         if len(str(data["name"])) > LIMITS.mod.name_max:
@@ -528,7 +539,7 @@ async def patch_mod(
         if row is None:
             _raise_mod_not_found(request)
 
-        if "game_id" in data and not await tools.check_game_exists(int(data["game_id"])):
+        if "game_id" in data and data["game_id"] is not None and not await tools.check_game_exists(int(data["game_id"])):
             raise standarts.StandardAPIError(
                 status_code=404,
                 title="Not Found",
@@ -562,7 +573,7 @@ async def patch_mod(
 
         for key, value in data.items():
             if key == "game_id":
-                row.game = int(value)
+                row.game = int(value) if value is not None else None
             elif key == "public":
                 row.public = int(value)
             elif key == "adult":
@@ -700,10 +711,10 @@ async def redirect_download(request: Request, mod_id: int) -> RedirectResponse:
     "/mods/{mod_id}/download-url",
     tags=["Mod"],
     status_code=200,
-    response_model=ModDownloadRead,
+    response_model=ModDownloadUrlRead,
     response_model_exclude_none=True,
 )
-async def get_download_url(request: Request, mod_id: int) -> ModDownloadRead:
+async def get_download_url(request: Request, mod_id: int) -> ModDownloadUrlRead:
     await tools.access_mods(request=request, mods_ids=[mod_id])
 
     async with catalog.AsyncSessionLocal() as session:
@@ -712,8 +723,7 @@ async def get_download_url(request: Request, mod_id: int) -> ModDownloadRead:
             _raise_mod_not_found(request)
 
     filename = _sanitize_filename(getattr(mod, "name", "") or "", mod_id) + ".zip"
-    return ModDownloadRead(
-        id=uuid.uuid4().hex,
+    return ModDownloadUrlRead(
         mod_id=mod_id,
         download_url=f"{_download_url(mod_id)}?filename={quote(filename)}",
         filename=filename,

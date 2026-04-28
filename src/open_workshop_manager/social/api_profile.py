@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import insert, select, update
 
 from open_workshop_manager import settings as config, standarts, tools
-from open_workshop_manager.api_helpers import ensure_non_empty_patch
+from open_workshop_manager.api_helpers import ensure_fields_not_none, ensure_non_empty_patch
 from open_workshop_manager.api_models import (
     ProfileGeneralRead,
     ProfilePatch,
@@ -48,6 +48,7 @@ def _profile_general_payload(row: account.Account, now: datetime.datetime) -> Pr
         registration_date=getattr(row, "registration_date", now),
         reputation=int(getattr(row, "reputation", 0) or 0),
         mute=bool(getattr(row, "mute_until", None) and getattr(row, "mute_until") > now),
+        mute_until=getattr(row, "mute_until", None),
     )
 
 
@@ -219,8 +220,14 @@ async def patch_profile(
     if not access_result.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
 
-    data = payload.model_dump(exclude_none=True)
+    data = payload.model_dump(exclude_unset=True)
     ensure_non_empty_patch(data)
+    ensure_fields_not_none(
+        request,
+        data,
+        ("username", "about", "grade"),
+        detail="Profile patch fields cannot be null.",
+    )
 
     owner_id = access_result.owner_id
     can_manage_rights = bool(access_result.edit.rights.value)
@@ -244,13 +251,13 @@ async def patch_profile(
                     instance=str(request.url),
                     context={"reason_code": access_result.edit.description.reason_code},
                 )
-            if "grade" in data:
+            if "grade" in data and not access_result.edit.grade.value:
                 raise standarts.ForbiddenError(
                     detail=access_result.edit.grade.reason,
                     instance=str(request.url),
                     context={"reason_code": access_result.edit.grade.reason_code},
                 )
-            if "mute_until" in data:
+            if "mute_until" in data and not access_result.edit.mute.value:
                 raise standarts.ForbiddenError(
                     detail=access_result.edit.mute.reason,
                     instance=str(request.url),
@@ -317,12 +324,12 @@ async def patch_profile(
 
         if "mute_until" in data:
             mute_until = data["mute_until"]
-            if not isinstance(mute_until, datetime.datetime):
+            if mute_until is not None and not isinstance(mute_until, datetime.datetime):
                 raise standarts.BadRequestError(
                     detail="Invalid mute_until value.",
                     instance=str(request.url),
                 )
-            if mute_until <= now:
+            if mute_until is not None and mute_until <= now:
                 raise standarts.PreconditionRequiredError(
                     detail="Mute end date must be in the future.",
                     instance=str(request.url),
@@ -355,8 +362,14 @@ async def patch_profile_rights(
             context={"reason_code": access_result.edit.rights.reason_code},
         )
 
-    data = payload.model_dump(exclude_none=True)
+    data = payload.model_dump(exclude_unset=True)
     ensure_non_empty_patch(data)
+    ensure_fields_not_none(
+        request,
+        data,
+        data.keys(),
+        detail="Profile rights fields cannot be null.",
+    )
 
     async with account.AsyncSessionLocal() as session:
         row = await session.get(account.Account, user_id)
