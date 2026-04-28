@@ -107,7 +107,6 @@ start.bat
 
 ### Базовые URL и токены
 
-- `MAIN_URL` - базовый префикс API, по умолчанию `/api/accounts`
 - `STORAGE_URL` - адрес storage-сервиса
 - `API_BASE_URL` - внешний базовый URL приложения
 - `ACCESS_SERVICE_URL` - адрес сервиса расчёта прав

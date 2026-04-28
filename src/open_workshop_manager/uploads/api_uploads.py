@@ -131,6 +131,33 @@ async def _require_mod_access(request: Request, mod_id: int) -> None:
     await tools.access_mods(request=request, mods_ids=[mod_id], edit=True)
 
 
+def _validate_mod_archive_mode(
+    request: Request,
+    *,
+    mod: catalog.Mod,
+    mode: str,
+) -> None:
+    condition = int(getattr(mod, "condition", 0) or 0)
+    if mode == "create" and condition == 0:
+        raise standarts.PreconditionFailedError(
+            detail="Create mode is allowed only for draft mods.",
+            instance=str(request.url),
+            code="MOD_UPLOAD_MODE_MISMATCH",
+            context={"mode": mode, "condition": condition, "expected_condition": "draft"},
+        )
+    if mode == "replace" and condition != 0:
+        raise standarts.PreconditionFailedError(
+            detail="Replace mode is allowed only for published mods.",
+            instance=str(request.url),
+            code="MOD_UPLOAD_MODE_MISMATCH",
+            context={
+                "mode": mode,
+                "condition": condition,
+                "expected_condition": "published",
+            },
+        )
+
+
 async def _require_profile_avatar_access(request: Request, profile_id: int) -> None:
     access_result = await tools.access_profile(request=request, profile_id=profile_id)
     if not access_result.authenticated:
@@ -198,8 +225,27 @@ async def _handle_archive_completion(
         return Response(status_code=202, content="Transfer failed")
 
     pack_format = str(payload.get("pack_format") or "zip").strip() or "zip"
-    update_only = bool(payload.get("update_only") or payload.get("keep_condition"))
+    mode = str(payload.get("mode") or "").strip().lower()
+    if mode not in VALID_UPLOAD_MODES:
+        mode = "replace" if bool(payload.get("update_only") or payload.get("keep_condition")) else "create"
+    update_only = mode == "replace"
     destination_path = f"mods/{mod_id}/main.{pack_format}"
+
+    async with catalog.AsyncSessionLocal() as session:
+        mod = await session.get(catalog.Mod, mod_id)
+        if mod is None:
+            await _update_job_status(job_id, "failed")
+            raise standarts.NotFoundError(
+                detail="Mod not found",
+                instance=str(request.url),
+            )
+        _validate_mod_archive_mode(request, mod=mod, mode=mode)
+        mod_name = str(getattr(mod, "name", "") or "")
+        mod_description = getattr(mod, "description", None)
+        mod_public = int(getattr(mod, "public", 0) or 0)
+        mod_source = str(getattr(mod, "source", "local") or "local")
+        mod_source_id = getattr(mod, "source_id", None)
+        mod_game = getattr(mod, "game", None)
 
     try:
         move_code, move_payload, move_ok = await tools.storage_job_move(
@@ -264,28 +310,24 @@ async def _handle_archive_completion(
             await mod_events.publish_mod_event(
                 mod_events.MOD_EVENT_CHANGED,
                 mod_id,
-                getattr(mod, "name", ""),
-                getattr(mod, "description", None),
-                getattr(mod, "public", 0),
+                mod_name,
+                mod_description,
+                mod_public,
             )
             await _update_job_status(job_id, "completed")
             return Response(status_code=200)
 
-        if int(getattr(mod, "condition", 0) or 0) == 0:
-            await _update_job_status(job_id, "completed")
-            return Response(status_code=200)
-
         if (
-            getattr(mod, "source", "local") != "local"
-            and getattr(mod, "source_id", None) is not None
-            and int(getattr(mod, "source_id", 0) or 0) > 0
+            mod_source != "local"
+            and mod_source_id is not None
+            and int(mod_source_id or 0) > 0
         ):
             source_conflict = await session.scalar(
                 select(catalog.Mod.id).where(
                     catalog.Mod.id != mod_id,
                     catalog.Mod.condition == 0,
-                    catalog.Mod.source == mod.source,
-                    catalog.Mod.source_id == mod.source_id,
+                    catalog.Mod.source == mod_source,
+                    catalog.Mod.source_id == mod_source_id,
                 )
             )
             if source_conflict:
@@ -293,10 +335,16 @@ async def _handle_archive_completion(
                     "transfer finalize conflict job_id=%s mod_id=%s source=%s source_id=%s conflict_mod_id=%s",
                     job_id,
                     mod_id,
-                    mod.source,
-                    mod.source_id,
+                    mod_source,
+                    mod_source_id,
                     source_conflict,
                 )
+                if not await tools.storage_file_delete(type="archive", path=destination_path):
+                    logger.warning(
+                        "transfer finalize conflict cleanup failed job_id=%s path=%s",
+                        job_id,
+                        destination_path,
+                    )
                 await session.execute(
                     delete(catalog.mods_dependencies).where(
                         (catalog.mods_dependencies.c.mod_id == mod_id)
@@ -332,10 +380,10 @@ async def _handle_archive_completion(
         await session.execute(
             update(catalog.Mod).where(catalog.Mod.id == mod_id).values(**update_values)
         )
-        if getattr(mod, "game", None) is not None:
+        if mod_game is not None:
             await session.execute(
                 update(catalog.Game)
-                .where(catalog.Game.id == mod.game)
+                .where(catalog.Game.id == mod_game)
                 .values(
                     {
                         catalog.Game.mods_count: func.coalesce(
@@ -350,9 +398,9 @@ async def _handle_archive_completion(
     await mod_events.publish_mod_event(
         mod_events.MOD_EVENT_ADDED,
         mod_id,
-        getattr(mod, "name", ""),
-        getattr(mod, "description", None),
-        getattr(mod, "public", 0),
+        mod_name,
+        mod_description,
+        mod_public,
     )
     await _update_job_status(job_id, "completed")
     return Response(status_code=200)
@@ -562,6 +610,12 @@ async def create_upload(response: Response, request: Request, payload: UploadCre
         if payload.owner_type != "mod" or payload.owner_id is None:
             _invalid_upload_payload(request)
         await _require_mod_access(request, payload.owner_id)
+
+        async with catalog.AsyncSessionLocal() as session:
+            mod = await session.get(catalog.Mod, payload.owner_id)
+            if mod is None:
+                _raise_not_found(request, "MOD_NOT_FOUND", "Mod not found.")
+            _validate_mod_archive_mode(request, mod=mod, mode=mode)
 
         token = tools.create_transfer_jwt(
             {

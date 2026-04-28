@@ -84,7 +84,6 @@ yandex_client_id = _read_str("YANDEX_CLIENT_ID", "", "yandex_client_id")
 yandex_client_secret = _read_str("YANDEX_CLIENT_SECRET", "", "yandex_client_secret")
 
 STORAGE_URL = _read_str("STORAGE_URL", "http://127.0.0.1:7070")
-MAIN_URL = _read_str("MAIN_URL", "")
 API_BASE_URL = _read_str("API_BASE_URL", "https://api.openworkshop.miskler.ru")
 ACCESS_SERVICE_URL = _read_str("ACCESS_SERVICE_URL", "http://127.0.0.1:7777")
 ACCESS_CALLBACK_TOKEN = _read_str("ACCESS_CALLBACK_TOKEN", "", "access_callback_token")

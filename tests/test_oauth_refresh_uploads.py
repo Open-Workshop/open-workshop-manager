@@ -458,6 +458,88 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         access_admin.assert_awaited_once()
         access_mods.assert_not_awaited()
 
+    def test_mod_archive_create_rejects_published_mod(self) -> None:
+        mod = SimpleNamespace(
+            id=7,
+            condition=0,
+            source="local",
+            source_id=None,
+            game=None,
+            name="Published mod",
+            description="Desc",
+            public=0,
+        )
+        session = _MutableSession(get_map={sql_catalog.Mod: mod})
+
+        with patch.object(api_uploads.config, "TRANSFER_JWT_SECRET", "secret", create=True), patch.object(
+            api_uploads.tools,
+            "access_mods",
+            AsyncMock(return_value=True),
+        ), patch.object(
+            api_uploads.tools,
+            "create_transfer_jwt",
+            side_effect=AssertionError("token should not be created"),
+        ), patch.object(
+            api_uploads.catalog,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
+            response = self.client.post(
+                "/uploads",
+                json={
+                    "kind": "mod_archive",
+                    "owner_type": "mod",
+                    "owner_id": 7,
+                    "mode": "create",
+                },
+            )
+
+        self.assertEqual(response.status_code, 412)
+        body = response.json()
+        self.assertEqual(body["code"], "MOD_UPLOAD_MODE_MISMATCH")
+        self.assertEqual(session.commit_count, 0)
+
+    def test_mod_archive_replace_rejects_draft_mod(self) -> None:
+        mod = SimpleNamespace(
+            id=7,
+            condition=1,
+            source="local",
+            source_id=None,
+            game=None,
+            name="Draft mod",
+            description="Desc",
+            public=0,
+        )
+        session = _MutableSession(get_map={sql_catalog.Mod: mod})
+
+        with patch.object(api_uploads.config, "TRANSFER_JWT_SECRET", "secret", create=True), patch.object(
+            api_uploads.tools,
+            "access_mods",
+            AsyncMock(return_value=True),
+        ), patch.object(
+            api_uploads.tools,
+            "create_transfer_jwt",
+            side_effect=AssertionError("token should not be created"),
+        ), patch.object(
+            api_uploads.catalog,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
+            response = self.client.post(
+                "/uploads",
+                json={
+                    "kind": "mod_archive",
+                    "owner_type": "mod",
+                    "owner_id": 7,
+                    "mode": "replace",
+                },
+            )
+
+        self.assertEqual(response.status_code, 412)
+        body = response.json()
+        self.assertEqual(body["code"], "MOD_UPLOAD_MODE_MISMATCH")
+        self.assertEqual(session.commit_count, 0)
+
     def test_get_upload_reads_persisted_row_when_cache_is_empty(self) -> None:
         upload_row = SimpleNamespace(
             id="job-db",
@@ -533,6 +615,159 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         self.assertEqual(body["id"], 7)
         self.assertFalse(body["mute"])
 
+    def test_profile_patch_rejects_self_mute_via_access(self) -> None:
+        profile_row = SimpleNamespace(
+            id=7,
+            username="User",
+            about="About",
+            avatar_url="",
+            grade="Member",
+            comments=0,
+            author_mods=0,
+            registration_date=datetime.datetime(2026, 4, 1, 0, 0, 0),
+            reputation=0,
+            mute_until=None,
+        )
+        session = _MutableSession(get_map={sql_account.Account: profile_row})
+
+        access_result = SimpleNamespace(
+            authenticated=True,
+            owner_id=7,
+            admin=False,
+            edit=SimpleNamespace(
+                rights=SimpleNamespace(value=False),
+                nickname=SimpleNamespace(value=True, reason="", reason_code=""),
+                description=SimpleNamespace(value=True, reason="", reason_code=""),
+                grade=SimpleNamespace(value=True, reason="", reason_code=""),
+                mute=SimpleNamespace(
+                    value=False,
+                    reason="Нельзя назначить мут своему профилю.",
+                    reason_code="forbidden",
+                ),
+                password=SimpleNamespace(value=True, reason="", reason_code=""),
+            ),
+        )
+
+        with patch.object(
+            api_profile.tools,
+            "access_profile",
+            AsyncMock(return_value=access_result),
+        ), patch.object(
+            api_profile.account,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
+            response = self.client.patch(
+                "/profiles/7",
+                json={"mute_until": datetime.datetime(2026, 5, 1, 0, 0, 0).isoformat()},
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "FORBIDDEN")
+
+    def test_profile_patch_username_cooldown_for_self(self) -> None:
+        profile_row = SimpleNamespace(
+            id=7,
+            username="User",
+            about="About",
+            avatar_url="",
+            grade="Member",
+            comments=0,
+            author_mods=0,
+            registration_date=datetime.datetime(2026, 4, 1, 0, 0, 0),
+            reputation=0,
+            mute_until=None,
+            last_username_reset=datetime.datetime(2026, 4, 27, 0, 0, 0),
+        )
+        session = _MutableSession(get_map={sql_account.Account: profile_row})
+
+        access_result = SimpleNamespace(
+            authenticated=True,
+            owner_id=7,
+            admin=False,
+            edit=SimpleNamespace(
+                rights=SimpleNamespace(value=False),
+                nickname=SimpleNamespace(
+                    value=False,
+                    reason="Смена никнейма пока недоступна: после последнего изменения действует задержка.",
+                    reason_code="cooldown",
+                ),
+                description=SimpleNamespace(value=True, reason="", reason_code=""),
+                grade=SimpleNamespace(value=True, reason="", reason_code=""),
+                mute=SimpleNamespace(value=True, reason="", reason_code=""),
+                password=SimpleNamespace(value=True, reason="", reason_code=""),
+            ),
+        )
+
+        with patch.object(
+            api_profile.tools,
+            "access_profile",
+            AsyncMock(return_value=access_result),
+        ), patch.object(
+            api_profile.account,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
+            response = self.client.patch(
+                "/profiles/7",
+                json={"username": "NewName"},
+            )
+
+        self.assertEqual(response.status_code, 412)
+        self.assertEqual(response.json()["code"], "PRECONDITION_FAILED")
+
+    def test_profile_password_patch_enforces_cooldown(self) -> None:
+        profile_row = SimpleNamespace(
+            id=7,
+            username="User",
+            about="About",
+            avatar_url="",
+            grade="Member",
+            comments=0,
+            author_mods=0,
+            registration_date=datetime.datetime(2026, 4, 1, 0, 0, 0),
+            reputation=0,
+            mute_until=None,
+            last_password_reset=datetime.datetime.now() - datetime.timedelta(minutes=1),
+            password_hash="old-hash",
+        )
+        session = _MutableSession(get_map={sql_account.Account: profile_row})
+
+        access_result = SimpleNamespace(
+            authenticated=True,
+            owner_id=7,
+            admin=False,
+            edit=SimpleNamespace(
+                rights=SimpleNamespace(value=False),
+                nickname=SimpleNamespace(value=True, reason="", reason_code=""),
+                description=SimpleNamespace(value=True, reason="", reason_code=""),
+                grade=SimpleNamespace(value=True, reason="", reason_code=""),
+                mute=SimpleNamespace(value=True, reason="", reason_code=""),
+                password=SimpleNamespace(
+                    value=False,
+                    reason="Смена пароля пока недоступна: после последнего изменения действует задержка.",
+                    reason_code="cooldown",
+                ),
+            ),
+        )
+
+        with patch.object(
+            api_profile.tools,
+            "access_profile",
+            AsyncMock(return_value=access_result),
+        ), patch.object(
+            api_profile.account,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
+            response = self.client.patch(
+                "/profiles/7/password",
+                json={"new_password": "new-password"},
+            )
+
+        self.assertEqual(response.status_code, 412)
+        self.assertEqual(response.json()["code"], "PRECONDITION_FAILED")
+
     def test_archive_transfer_completion_updates_mod_and_game(self) -> None:
         mod = SimpleNamespace(
             id=7,
@@ -588,6 +823,10 @@ class OAuthRefreshUploadTests(unittest.TestCase):
             api_uploads.catalog,
             "AsyncSessionLocal",
             return_value=session,
+        ), patch.object(
+            api_uploads.account,
+            "AsyncSessionLocal",
+            return_value=session,
         ):
             response = self.client.post(
                 "/internal/storage/transfer-completions",
@@ -602,6 +841,82 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         self.assertEqual(api_uploads.UPLOAD_JOBS["job-archive"].status, "completed")
         self.assertEqual(session.commit_count, 1)
         self.assertTrue(any(isinstance(stmt, Update) for stmt in session.execute_statements))
+
+    def test_archive_transfer_completion_deletes_conflicting_archive(self) -> None:
+        mod = SimpleNamespace(
+            id=7,
+            name="Mod",
+            description="Desc",
+            public=0,
+            condition=1,
+            source="steam",
+            source_id=99,
+            game=1,
+            size=0,
+            size_unpacked=None,
+        )
+        conflict_mod = SimpleNamespace(id=8)
+        session = _MutableSession(
+            scalar_values=[conflict_mod.id],
+            get_map={
+                sql_catalog.Mod: mod,
+            },
+        )
+        api_uploads.UPLOAD_JOBS["job-archive"] = UploadRead(
+            id="job-archive",
+            kind="mod_archive",
+            status="created",
+            transfer_url="https://storage.example/transfer/upload",
+            ws_url="wss://storage.example/transfer/ws/job-archive",
+            owner_type="mod",
+            owner_id=7,
+            mode="create",
+        )
+
+        storage_delete = AsyncMock(return_value=True)
+
+        with patch.object(
+            api_uploads.tools,
+            "decode_transfer_jwt",
+            return_value={
+                "job_id": "job-archive",
+                "transfer_kind": "archive",
+                "status": "success",
+                "mod_id": 7,
+                "pack_format": "zip",
+                "mode": "create",
+                "bytes": 123,
+                "unpacked_bytes": 456,
+            },
+        ), patch.object(
+            api_uploads.tools,
+            "storage_job_move",
+            AsyncMock(return_value=(200, {"final_bytes": 321, "unpacked_bytes": 654}, True)),
+        ), patch.object(
+            api_uploads.tools,
+            "storage_file_delete",
+            storage_delete,
+        ), patch.object(
+            api_uploads.mod_events,
+            "publish_mod_event",
+            AsyncMock(return_value=None),
+        ), patch.object(
+            api_uploads.catalog,
+            "AsyncSessionLocal",
+            return_value=session,
+        ), patch.object(
+            api_uploads.account,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
+            response = self.client.post(
+                "/internal/storage/transfer-completions",
+                headers={"Authorization": "Bearer callback-token"},
+            )
+
+        self.assertEqual(response.status_code, 412)
+        storage_delete.assert_awaited_once_with(type="archive", path="mods/7/main.zip")
+        self.assertEqual(api_uploads.UPLOAD_JOBS["job-archive"].status, "failed")
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -1,7 +1,6 @@
 from fastapi import APIRouter
 from sqlalchemy import func, select
 
-from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.sql_logic import sql_account as account
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 
@@ -9,7 +8,7 @@ router = APIRouter()
 
 
 @router.get(
-    MAIN_URL + "/catalog/statistics",
+    "/catalog/statistics",
     tags=["Catalog Statistics"],
     summary="Anonymous aggregated catalog statistics",
     status_code=200,

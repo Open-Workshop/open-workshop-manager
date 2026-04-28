@@ -9,7 +9,6 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from open_workshop_manager import standarts, tools
-from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.sql_logic import sql_account as account
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 

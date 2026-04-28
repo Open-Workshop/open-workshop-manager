@@ -104,6 +104,22 @@ def _normalize_include(request: Request, include: list[str]) -> set[str]:
     return normalized
 
 
+def _raise_profile_right_denied(request: Request, right) -> None:
+    reason_code = str(getattr(right, "reason_code", "") or "forbidden")
+    detail = str(getattr(right, "reason", "") or "Forbidden")
+    if reason_code in {"muted", "cooldown"}:
+        raise standarts.TooEarlyError(
+            detail=detail,
+            instance=str(request.url),
+            context={"reason_code": reason_code},
+        )
+    raise standarts.ForbiddenError(
+        detail=detail,
+        instance=str(request.url),
+        context={"reason_code": reason_code},
+    )
+
+
 @router.get(
     "/profiles/{user_id}",
     tags=["Profile"],
@@ -229,8 +245,6 @@ async def patch_profile(
         detail="Profile patch fields cannot be null.",
     )
 
-    owner_id = access_result.owner_id
-    can_manage_rights = bool(access_result.edit.rights.value)
     now = datetime.datetime.now()
 
     async with account.AsyncSessionLocal() as session:
@@ -238,37 +252,14 @@ async def patch_profile(
         if row is None:
             _raise_profile_not_found(request)
 
-        if owner_id != user_id and not can_manage_rights:
-            if "username" in data and not access_result.edit.nickname.value:
-                raise standarts.ForbiddenError(
-                    detail=access_result.edit.nickname.reason,
-                    instance=str(request.url),
-                    context={"reason_code": access_result.edit.nickname.reason_code},
-                )
-            if "about" in data and not access_result.edit.description.value:
-                raise standarts.ForbiddenError(
-                    detail=access_result.edit.description.reason,
-                    instance=str(request.url),
-                    context={"reason_code": access_result.edit.description.reason_code},
-                )
-            if "grade" in data and not access_result.edit.grade.value:
-                raise standarts.ForbiddenError(
-                    detail=access_result.edit.grade.reason,
-                    instance=str(request.url),
-                    context={"reason_code": access_result.edit.grade.reason_code},
-                )
-            if "mute_until" in data and not access_result.edit.mute.value:
-                raise standarts.ForbiddenError(
-                    detail=access_result.edit.mute.reason,
-                    instance=str(request.url),
-                    context={"reason_code": access_result.edit.mute.reason_code},
-                )
-        elif owner_id == user_id and "mute_until" in data:
-            raise standarts.BadRequestError(
-                detail="Cannot mute yourself.",
-                instance=str(request.url),
-                code="SELF_MUTE_FORBIDDEN",
-            )
+        if "username" in data and not access_result.edit.nickname.value:
+            _raise_profile_right_denied(request, access_result.edit.nickname)
+        if "about" in data and not access_result.edit.description.value:
+            _raise_profile_right_denied(request, access_result.edit.description)
+        if "grade" in data and not access_result.edit.grade.value:
+            _raise_profile_right_denied(request, access_result.edit.grade)
+        if "mute_until" in data and not access_result.edit.mute.value:
+            _raise_profile_right_denied(request, access_result.edit.mute)
 
         if "username" in data:
             username = str(data["username"])
@@ -395,11 +386,8 @@ async def patch_profile_password(
     access_result = await tools.access_profile(request=request, profile_id=user_id)
     if not access_result.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
-    if access_result.owner_id != user_id:
-        raise standarts.ForbiddenError(
-            detail="Password can only be changed for your own account.",
-            instance=str(request.url),
-        )
+    if not access_result.edit.password.value:
+        _raise_profile_right_denied(request, access_result.edit.password)
 
     if len(payload.new_password) < LIMITS.profile.password_min:
         raise standarts.PreconditionRequiredError(
@@ -434,11 +422,8 @@ async def delete_profile_password(request: Request, user_id: int) -> Response:
     access_result = await tools.access_profile(request=request, profile_id=user_id)
     if not access_result.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
-    if access_result.owner_id != user_id:
-        raise standarts.ForbiddenError(
-            detail="Password can only be changed for your own account.",
-            instance=str(request.url),
-        )
+    if not access_result.edit.password.value:
+        _raise_profile_right_denied(request, access_result.edit.password)
 
     async with account.AsyncSessionLocal() as session:
         row = await session.get(account.Account, user_id)

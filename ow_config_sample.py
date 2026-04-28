@@ -2,7 +2,6 @@ yandex_client_id = "..."
 yandex_client_secret = "..."
 
 STORAGE_URL = "http://127.0.0.1:7070"
-MAIN_URL = "/api/accounts"
 API_BASE_URL = "https://api.openworkshop.miskler.ru"
 ACCESS_SERVICE_URL = "http://127.0.0.1:7777"
 ACCESS_CALLBACK_TOKEN = ""

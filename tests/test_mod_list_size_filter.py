@@ -197,7 +197,7 @@ class ModListSizeFilterTests(unittest.TestCase):
         cls.api_resource = import_module("open_workshop_manager.mods.api_resource")
         cls.api_profile = import_module("open_workshop_manager.social.api_profile")
         settings = import_module("open_workshop_manager.settings")
-        cls.main_url = settings.MAIN_URL
+        cls.main_url = ""
         cls.storage_url = settings.STORAGE_URL
 
         cls.standarts = standarts

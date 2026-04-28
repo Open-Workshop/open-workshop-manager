@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import datetime
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from open_workshop_manager.limits import LIMITS
 
 
 class ApiModel(BaseModel):
@@ -48,19 +50,19 @@ class GameRead(ReadModel):
 
 
 class GameCreate(ApiModel):
-    name: str
-    short_description: str | None = None
-    description: str | None = None
-    type: str = "game"
+    name: str = Field(min_length=1, max_length=LIMITS.game.name_max)
+    short_description: str | None = Field(default=None, max_length=LIMITS.game.short_desc_max)
+    description: str | None = Field(default=None, max_length=LIMITS.game.desc_max)
+    type: Literal["game", "app"] = "game"
 
 
 class GamePatch(ApiModel):
-    name: str | None = None
-    short_description: str | None = None
-    description: str | None = None
-    type: str | None = None
-    source: str | None = None
-    source_id: int | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=LIMITS.game.name_max)
+    short_description: str | None = Field(default=None, max_length=LIMITS.game.short_desc_max)
+    description: str | None = Field(default=None, max_length=LIMITS.game.desc_max)
+    type: Literal["game", "app"] | None = None
+    source: str | None = Field(default=None, min_length=1, max_length=LIMITS.game.source_max)
+    source_id: int | None = Field(default=None, ge=1)
 
 
 class GameListResponse(ListResponse[GameRead]):
@@ -73,11 +75,11 @@ class GenreRead(ReadModel):
 
 
 class GenreCreate(ApiModel):
-    name: str
+    name: str = Field(min_length=1, max_length=LIMITS.genre.name_max)
 
 
 class GenrePatch(ApiModel):
-    name: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=LIMITS.genre.name_max)
 
 
 class GenreListResponse(ListResponse[GenreRead]):
@@ -90,11 +92,11 @@ class TagRead(ReadModel):
 
 
 class TagCreate(ApiModel):
-    name: str
+    name: str = Field(min_length=1, max_length=LIMITS.tag.name_max)
 
 
 class TagPatch(ApiModel):
-    name: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=LIMITS.tag.name_max)
 
 
 class TagListResponse(ListResponse[TagRead]):
@@ -113,15 +115,23 @@ class ResourceRead(ReadModel):
 
 
 class ResourceCreate(ApiModel):
-    owner_type: str
-    owner_id: int
-    type: str
-    url: str
+    owner_type: Literal["mods", "games"]
+    owner_id: int = Field(ge=1)
+    type: str = Field(min_length=LIMITS.resource.type_min, max_length=LIMITS.resource.type_max)
+    url: str = Field(min_length=LIMITS.resource.url_min, max_length=LIMITS.resource.url_max)
 
 
 class ResourcePatch(ApiModel):
-    type: str | None = None
-    url: str | None = None
+    type: str | None = Field(
+        default=None,
+        min_length=LIMITS.resource.type_min,
+        max_length=LIMITS.resource.type_max,
+    )
+    url: str | None = Field(
+        default=None,
+        min_length=LIMITS.resource.url_min,
+        max_length=LIMITS.resource.url_max,
+    )
 
 
 class ResourceListResponse(ListResponse[ResourceRead | str]):
@@ -154,25 +164,25 @@ class ModRead(ReadModel):
 
 
 class ModCreate(ApiModel):
-    name: str
-    short_description: str | None = None
-    description: str | None = None
-    source: str = "local"
-    source_id: int | None = None
-    game_id: int
-    public: int = 0
+    name: str = Field(min_length=1, max_length=LIMITS.mod.name_max)
+    short_description: str | None = Field(default=None, max_length=LIMITS.mod.short_desc_max)
+    description: str | None = Field(default=None, max_length=LIMITS.mod.desc_max)
+    source: str = Field(default="local", min_length=1, max_length=LIMITS.mod.source_max)
+    source_id: int | None = Field(default=None, ge=1)
+    game_id: int = Field(ge=1)
+    public: int = Field(default=0, ge=0, le=2)
     adult: bool = False
     without_author: bool = False
 
 
 class ModPatch(ApiModel):
-    name: str | None = None
-    short_description: str | None = None
-    description: str | None = None
-    source: str | None = None
-    source_id: int | None = None
-    game_id: int | None = None
-    public: int | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.name_max)
+    short_description: str | None = Field(default=None, max_length=LIMITS.mod.short_desc_max)
+    description: str | None = Field(default=None, max_length=LIMITS.mod.desc_max)
+    source: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.source_max)
+    source_id: int | None = Field(default=None, ge=1)
+    game_id: int | None = Field(default=None, ge=1)
+    public: int | None = Field(default=None, ge=0, le=2)
     adult: bool | None = None
 
 
@@ -213,15 +223,19 @@ class UploadRead(ReadModel):
 
 
 class UploadCreate(ApiModel):
-    kind: str
-    owner_type: str
-    owner_id: int | None = None
-    mode: str
-    format: str | None = None
-    compression_level: int | None = None
-    resource_owner_type: str | None = None
-    resource_owner_id: int | None = None
-    resource_type: str | None = None
+    kind: Literal["mod_archive", "resource_image", "profile_avatar"]
+    owner_type: Literal["mod", "resource", "profile"]
+    owner_id: int | None = Field(default=None, ge=1)
+    mode: Literal["create", "replace"]
+    format: str | None = Field(default=None, min_length=1, max_length=16)
+    compression_level: int | None = Field(default=None, ge=0, le=9)
+    resource_owner_type: Literal["mods", "games"] | None = None
+    resource_owner_id: int | None = Field(default=None, ge=1)
+    resource_type: str | None = Field(
+        default=None,
+        min_length=LIMITS.resource.type_min,
+        max_length=LIMITS.resource.type_max,
+    )
 
 
 class ProfileRightsRead(ReadModel):
@@ -276,14 +290,25 @@ class ProfileRead(ApiModel):
 
 
 class ProfilePatch(ApiModel):
-    username: str | None = None
-    about: str | None = None
-    grade: str | None = None
+    username: str | None = Field(
+        default=None,
+        min_length=LIMITS.profile.username_min,
+        max_length=LIMITS.profile.username_max,
+    )
+    about: str | None = Field(default=None, max_length=LIMITS.profile.about_max)
+    grade: str | None = Field(
+        default=None,
+        min_length=LIMITS.profile.grade_min,
+        max_length=LIMITS.profile.grade_max,
+    )
     mute_until: datetime.datetime | None = None
 
 
 class ProfilePasswordPatch(ApiModel):
-    new_password: str
+    new_password: str = Field(
+        min_length=LIMITS.profile.password_min,
+        max_length=LIMITS.profile.password_max,
+    )
 
 
 class ProfileRightsPatch(ApiModel):
@@ -311,9 +336,12 @@ class ProfileRightsPatch(ApiModel):
 
 
 class SessionCreate(ApiModel):
-    method: str = "password"
-    login: str
-    password: str
+    method: Literal["password"] = "password"
+    login: str = Field(min_length=1, max_length=LIMITS.session.login_max)
+    password: str = Field(
+        min_length=LIMITS.session.password_min,
+        max_length=LIMITS.session.password_max,
+    )
 
 
 class SessionRead(ApiModel):

@@ -31,8 +31,8 @@ from open_workshop_manager.logging_setup import setup_logging
 from open_workshop_manager.mods.api_mod import router as mod_router
 from open_workshop_manager.mods.api_resource import router as resource_router
 from open_workshop_manager.mods.api_tag import router as tag_router
+from open_workshop_manager.uploads import api_uploads as upload_api
 from open_workshop_manager.uploads.api_uploads import router as upload_router
-from open_workshop_manager.settings import MAIN_URL
 from open_workshop_manager.social.api_profile import router as profile_router
 from open_workshop_manager.social.api_session import router as session_router
 from open_workshop_manager.sql_logic import sql_account as account
@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 
 CLEANUP_INTERVAL_SECONDS = 600
 CLEANUP_STALE_SECONDS = 2 * 60 * 60
+UPLOAD_JOB_CLEANUP_STATUSES = {"created", "failed", "completed"}
 _cleanup_task: asyncio.Task | None = None
 
 
@@ -84,12 +85,44 @@ async def _cleanup_stale_mods_once() -> None:
     logger.info("Cleanup stale mods deleted count=%s", len(stale_ids))
 
 
+async def _cleanup_expired_upload_jobs_once() -> None:
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        seconds=CLEANUP_STALE_SECONDS
+    )
+    async with catalog.AsyncSessionLocal() as session:
+        stale_result = await session.execute(
+            select(catalog.UploadJob.id)
+            .where(catalog.UploadJob.expires_at.is_not(None))
+            .where(catalog.UploadJob.expires_at < cutoff)
+            .where(catalog.UploadJob.status.in_(UPLOAD_JOB_CLEANUP_STATUSES))
+        )
+        stale_ids = list(stale_result.scalars().all())
+
+    if not stale_ids:
+        return
+
+    async with catalog.AsyncSessionLocal() as session:
+        await session.execute(
+            delete(catalog.UploadJob).where(catalog.UploadJob.id.in_(stale_ids))
+        )
+        await session.commit()
+
+    for upload_id in stale_ids:
+        upload_api.UPLOAD_JOBS.pop(upload_id, None)
+
+    logger.info("Cleanup expired upload jobs deleted count=%s", len(stale_ids))
+
+
 async def _cleanup_stale_mods_loop() -> None:
     while True:
         try:
             await _cleanup_stale_mods_once()
         except Exception:
             logger.exception("Cleanup stale mods failed")
+        try:
+            await _cleanup_expired_upload_jobs_once()
+        except Exception:
+            logger.exception("Cleanup expired upload jobs failed")
         await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
 
 
@@ -130,7 +163,7 @@ class CookieDefaultsMiddleware:
 
 app = FastAPI(
     title="OpenWorkshop.Manager",
-    openapi_url=MAIN_URL + "/openapi.json",
+    openapi_url="/openapi.json",
     contact={
         "name": "Contacts",
         "url": "https://github.com/Open-Workshop/open-workshop-manager",
@@ -148,8 +181,8 @@ app = FastAPI(
 
     Оркестратор имеет зависимые микросервисы: MySQL *(заблокирован для использования вне оркестратора)*, Storage *(файловый сервер к которому можно обращаться напрямую)*.
     """,
-    redoc_url=MAIN_URL + "/",
-    docs_url=MAIN_URL + "/docs",
+    redoc_url="/",
+    docs_url="/docs",
 )
 # setup_uptrace_telemetry(app)
 standarts.install_exception_handlers(app)

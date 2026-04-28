@@ -133,6 +133,7 @@ class ProfileEditResponse(AccessModel):
     description: BaseRight
     avatar: BaseRight
     mute: BaseRight
+    password: BaseRight
     rights: BaseRight
 
 

@@ -38,7 +38,6 @@ if "aiomysql" not in sys.modules:
     sys.modules["aiomysql"] = aiomysql_stub
 
 from open_workshop_manager.access import api_callback
-from open_workshop_manager.settings import MAIN_URL
 
 
 class _DummySession:
@@ -81,7 +80,7 @@ class AccessCallbackTests(unittest.TestCase):
             "AsyncSessionLocal",
             return_value=dummy_session,
         ):
-            response = self.client.post(f"{MAIN_URL}/internal/access/context")
+            response = self.client.post("/internal/access/context")
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
