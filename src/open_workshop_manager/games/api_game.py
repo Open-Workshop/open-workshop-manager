@@ -14,7 +14,6 @@ from open_workshop_manager.api_models import (
     GameListResponse,
     GamePatch,
     GameRead,
-    GenreListResponse,
     GenreRead,
     ResourceRead,
     TagRead,
@@ -374,28 +373,3 @@ async def delete_game(request: Request, game_id: int) -> Response:
 
     return Response(status_code=204)
 
-
-@router.get(
-    "/games/{game_id}/genres",
-    tags=["Game", "Genre", "Association"],
-    status_code=200,
-    response_model=GenreListResponse,
-    response_model_exclude_none=True,
-)
-async def get_game_genres(request: Request, game_id: int) -> dict[str, object]:
-    async with catalog.AsyncSessionLocal() as session:
-        game = await session.get(catalog.Game, game_id)
-        if game is None:
-            _raise_game_not_found(request)
-
-        genres = (
-            await session.execute(
-                select(catalog.Genre)
-                .join(catalog.game_genres)
-                .where(catalog.game_genres.c.game_id == game_id)
-                .order_by(catalog.Genre.name)
-            )
-        ).scalars().all()
-
-    items = [GenreRead(id=int(item.id), name=item.name).model_dump(mode="json") for item in genres]
-    return make_list_response(items, page=0, page_size=max(len(items), 1), total=len(items))
