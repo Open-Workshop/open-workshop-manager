@@ -21,7 +21,7 @@ from open_workshop_manager.api_helpers import (
 )
 from open_workshop_manager.api_models import (
     GameRead,
-    IntListResponse,
+    IntCollectionRead,
     ModCreate,
     ModFeedRead,
     ModDownloadRead,
@@ -244,7 +244,11 @@ async def _serialize_mod_with_includes(
                 )
             )
         ).scalars().all()
-        payload["dependencies"] = [int(dep) for dep in dependencies]
+        dependency_items = [int(dep) for dep in dependencies]
+        payload["dependencies"] = {
+            "count": len(dependency_items),
+            "items": dependency_items,
+        }
 
     if "authors" in include:
         row_results = (
@@ -995,9 +999,9 @@ async def get_mod_tags(request: Request, mod_id: int) -> dict[str, object]:
     summary="List mod dependencies",
     description="Returns all dependency IDs attached to a mod.",
     status_code=200,
-    response_model=IntListResponse,
+    response_model=IntCollectionRead,
     response_model_exclude_none=True,
-    response_description="Paginated dependency ID list.",
+    response_description="Dependency collection.",
     responses={
         401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
         403: standarts.FORBIDDEN_RESPONSE_SPEC,
@@ -1020,4 +1024,7 @@ async def get_mod_dependencies(request: Request, mod_id: int) -> dict[str, objec
         ).scalars().all()
 
     items = [int(dep) for dep in dependencies]
-    return make_list_response(items, page=0, page_size=max(len(items), 1), total=len(items))
+    return {
+        "count": len(items),
+        "items": items,
+    }

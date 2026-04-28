@@ -272,6 +272,36 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(session.commit_count, 0)
         self.assertEqual(session.flush_count, 0)
 
+    def test_mod_info_includes_dependency_collection(self) -> None:
+        session = _RecordingSession(rows=[1, 2, 3], get_value=_mod())
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(
+                f"{self.main_url}/mods/7",
+                params={"include": ["dependencies"]},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["dependencies"], {"count": 3, "items": [1, 2, 3]})
+        self.assertNotIn("dependencies_count", body)
+
+    def test_mod_dependencies_endpoint_returns_count_and_items(self) -> None:
+        session = _RecordingSession(rows=[1, 2, 3], get_value=_mod())
+        access_mods = AsyncMock(return_value=True)
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_mod.tools,
+            "access_mods",
+            access_mods,
+        ):
+            response = self.client.get(f"{self.main_url}/mods/7/dependencies")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body, {"count": 3, "items": [1, 2, 3]})
+        access_mods.assert_awaited_once()
+
     def test_mod_download_url_is_get_safe(self) -> None:
         session = _RecordingSession(get_value=_mod(name="Downloadable Mod"))
         access_mods = AsyncMock(return_value=True)

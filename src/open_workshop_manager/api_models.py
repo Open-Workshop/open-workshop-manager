@@ -158,7 +158,7 @@ class ModRead(ReadModel):
     file: dict[str, Any] | str | None = None
     game: GameRead | None = None
     tags: list[TagRead] | None = None
-    dependencies: list[int] | None = None
+    dependencies: IntCollectionRead | None = None
     authors: dict[int, dict[str, bool]] | None = None
     resources: list[ResourceRead] | None = None
 
@@ -203,6 +203,14 @@ class ModFeedRead(ReadModel):
 
 class IntListResponse(ListResponse[int]):
     pass
+
+
+class IntCollectionRead(ReadModel):
+    count: int
+    items: list[int]
+
+
+ModRead.model_rebuild()
 
 
 class ModDownloadRead(ApiModel):
