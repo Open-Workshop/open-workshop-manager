@@ -228,6 +228,23 @@ def _download_url(mod_id: int) -> str:
     return f"{STORAGE_URL}/download/archive/mods/{mod_id}/main.zip"
 
 
+async def _update_game_mod_count(session, game_id: int, delta: int) -> None:
+    if delta == 0:
+        return
+
+    count_expr = func.coalesce(catalog.Game.mods_count, 0)
+    if delta > 0:
+        count_expr = count_expr + delta
+    else:
+        count_expr = count_expr - abs(delta)
+
+    await session.execute(
+        update(catalog.Game)
+        .where(catalog.Game.id == game_id)
+        .values({catalog.Game.mods_count: count_expr})
+    )
+
+
 @router.get(
     "/mods",
     tags=["Mod"],
@@ -539,6 +556,11 @@ async def patch_mod(
         if row is None:
             _raise_mod_not_found(request)
 
+        current_game_id = (
+            int(getattr(row, "game", 0)) if getattr(row, "game", None) is not None else None
+        )
+        row_condition = int(getattr(row, "condition", 0) or 0)
+
         if "game_id" in data and data["game_id"] is not None and not await tools.check_game_exists(int(data["game_id"])):
             raise standarts.StandardAPIError(
                 status_code=404,
@@ -581,9 +603,19 @@ async def patch_mod(
             elif key == "name":
                 row.name = str(value)
             elif key == "short_description":
-                row.short_description = str(value)
+                row.short_description = value if value is None else str(value)
             elif key == "description":
-                row.description = str(value)
+                row.description = value if value is None else str(value)
+
+        if "game_id" in data and row_condition == 0:
+            new_game_id = (
+                int(data["game_id"]) if data["game_id"] is not None else None
+            )
+            if current_game_id != new_game_id:
+                if current_game_id is not None:
+                    await _update_game_mod_count(session, current_game_id, -1)
+                if new_game_id is not None:
+                    await _update_game_mod_count(session, new_game_id, 1)
 
         row.date_edit = datetime.now()
         await session.commit()

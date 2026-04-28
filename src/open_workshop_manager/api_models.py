@@ -222,6 +222,11 @@ class UploadRead(ReadModel):
     resource_id: int | None = None
 
 
+class UploadStatusRead(ReadModel):
+    status: str
+    expires_at: datetime.datetime | None = None
+
+
 class UploadCreate(ApiModel):
     kind: Literal["mod_archive", "resource_image", "profile_avatar"]
     owner_type: Literal["mod", "resource", "profile"]

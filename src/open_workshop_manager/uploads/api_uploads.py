@@ -12,7 +12,7 @@ from sqlalchemy import delete, func, select, update
 
 from open_workshop_manager import mod_events
 from open_workshop_manager import settings as config, standarts, tools
-from open_workshop_manager.api_models import UploadCreate, UploadRead
+from open_workshop_manager.api_models import UploadCreate, UploadRead, UploadStatusRead
 from open_workshop_manager.sql_logic import sql_account as account
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 
@@ -168,6 +168,39 @@ async def _require_profile_avatar_access(request: Request, profile_id: int) -> N
             instance=str(request.url),
             context={"reason_code": access_result.edit.avatar.reason_code},
         )
+
+
+async def _require_upload_access(request: Request, job: UploadRead) -> None:
+    if job.kind == "mod_archive":
+        if job.owner_id is None:
+            _raise_not_found(request, "UPLOAD_NOT_FOUND", "Upload not found.")
+        await _require_mod_access(request, int(job.owner_id))
+        return
+
+    if job.kind == "profile_avatar":
+        if job.owner_id is None:
+            _raise_not_found(request, "UPLOAD_NOT_FOUND", "Upload not found.")
+        await _require_profile_avatar_access(request, int(job.owner_id))
+        return
+
+    if job.kind == "resource_image":
+        if job.resource_id is None:
+            _raise_not_found(request, "UPLOAD_NOT_FOUND", "Upload not found.")
+
+        async with catalog.AsyncSessionLocal() as session:
+            resource = await session.get(catalog.Resource, int(job.resource_id))
+
+        if resource is None:
+            _raise_not_found(request, "UPLOAD_NOT_FOUND", "Upload not found.")
+
+        await _require_resource_owner_access(
+            request,
+            str(getattr(resource, "owner_type", "")),
+            int(getattr(resource, "owner_id", 0)),
+        )
+        return
+
+    _unsupported_upload_kind(request)
 
 
 async def _require_resource_owner_access(
@@ -833,14 +866,15 @@ async def create_upload(response: Response, request: Request, payload: UploadCre
     "/uploads/{upload_id}",
     tags=["Upload"],
     status_code=200,
-    response_model=UploadRead,
+    response_model=UploadStatusRead,
     response_model_exclude_none=True,
 )
-async def get_upload(request: Request, upload_id: str) -> UploadRead:
+async def get_upload(request: Request, upload_id: str) -> UploadStatusRead:
     job = await _load_job(upload_id)
     if job is None:
         _raise_not_found(request, "UPLOAD_NOT_FOUND", "Upload not found.")
-    return job
+    await _require_upload_access(request, job)
+    return UploadStatusRead(status=job.status, expires_at=job.expires_at)
 
 
 @router.post(
@@ -867,6 +901,16 @@ async def storage_transfer_completion(
     job_id = _job_id_from_payload(request, token_data)
     if not job_id:
         _invalid_upload_payload(request)
+
+    job = await _load_job(job_id)
+    if job is None:
+        _raise_not_found(request, "UPLOAD_NOT_FOUND", "Upload not found.")
+    if job.status == "completed":
+        return Response(status_code=200)
+    if job.status == "failed":
+        return Response(status_code=409)
+    if job.status != "created":
+        return Response(status_code=409)
 
     transfer_kind = str(token_data.get("transfer_kind") or "archive").strip().lower()
     if transfer_kind == "img":

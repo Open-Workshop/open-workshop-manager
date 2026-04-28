@@ -91,17 +91,39 @@ async def _cleanup_expired_upload_jobs_once() -> None:
     )
     async with catalog.AsyncSessionLocal() as session:
         stale_result = await session.execute(
-            select(catalog.UploadJob.id)
+            select(catalog.UploadJob)
             .where(catalog.UploadJob.expires_at.is_not(None))
             .where(catalog.UploadJob.expires_at < cutoff)
             .where(catalog.UploadJob.status.in_(UPLOAD_JOB_CLEANUP_STATUSES))
         )
-        stale_ids = list(stale_result.scalars().all())
+        stale_jobs = list(stale_result.scalars().all())
 
-    if not stale_ids:
+    if not stale_jobs:
         return
 
+    stale_ids = [str(job.id) for job in stale_jobs]
+
     async with catalog.AsyncSessionLocal() as session:
+        cleaned_resource_ids: set[int] = set()
+        for job in stale_jobs:
+            if (
+                str(getattr(job, "kind", "") or "") == "resource_image"
+                and str(getattr(job, "mode", "") or "") == "create"
+                and str(getattr(job, "status", "") or "") in {"created", "failed"}
+                and getattr(job, "resource_id", None) is not None
+            ):
+                resource_id = int(getattr(job, "resource_id"))
+                if resource_id in cleaned_resource_ids:
+                    continue
+                resource = await session.get(catalog.Resource, resource_id)
+                if resource is None:
+                    continue
+                if str(getattr(resource, "url", "") or "") != "":
+                    continue
+                await session.execute(
+                    delete(catalog.Resource).where(catalog.Resource.id == resource_id)
+                )
+                cleaned_resource_ids.add(resource_id)
         await session.execute(
             delete(catalog.UploadJob).where(catalog.UploadJob.id.in_(stale_ids))
         )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import datetime
 import pathlib
 import sys
@@ -43,6 +44,8 @@ if "aiomysql" not in sys.modules:
 
 from open_workshop_manager import standarts
 from open_workshop_manager.api_models import UploadRead
+from open_workshop_manager import main as app_main
+from open_workshop_manager.mods import api_mod
 from open_workshop_manager.social import api_profile
 from open_workshop_manager.social import api_session
 from open_workshop_manager.sql_logic import sql_account, sql_catalog
@@ -99,24 +102,71 @@ class _MutableSession:
             return self.scalar_values.pop(0)
         return None
 
+    def _resolve_target(self, entity: type, ident: object | None) -> object | None:
+        target = self.get_map.get(entity)
+        if isinstance(target, dict):
+            if ident is None:
+                return None
+            try:
+                ident_value = int(ident)
+            except (TypeError, ValueError):
+                return None
+            return target.get(ident_value)
+        if target is None:
+            return None
+        if ident is None:
+            return target
+        return target if getattr(target, "id", None) == ident else None
+
     def _apply_update(self, stmt: Update) -> None:
         table_name = stmt.table.name
         params = stmt.compile().params
 
         if table_name == sql_catalog.Game.__tablename__:
-            game = self.get_map.get(sql_catalog.Game)
-            if game is not None:
-                game.mods_count = int(getattr(game, "mods_count", 0) or 0) + 1
+            game_targets = self.get_map.get(sql_catalog.Game)
+            target_id = None
+            for key, value in params.items():
+                if key.startswith("id_"):
+                    try:
+                        target_id = int(value)
+                    except (TypeError, ValueError):
+                        target_id = None
+                    break
+            if isinstance(game_targets, dict):
+                game = self._resolve_target(sql_catalog.Game, target_id)
+                if game is None and len(game_targets) == 1:
+                    game = next(iter(game_targets.values()))
+            else:
+                game = game_targets
+
+            if game is None:
+                return
+
+            try:
+                sql_text = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+            except Exception:  # pragma: no cover - fallback for unusual SQLAlchemy paths
+                sql_text = str(stmt)
+
+            if "mods_count" in sql_text:
+                current = int(getattr(game, "mods_count", 0) or 0)
+                if "+ 1" in sql_text or "+1" in sql_text:
+                    game.mods_count = current + 1
+                elif "- 1" in sql_text or "-1" in sql_text:
+                    game.mods_count = current - 1
+                else:
+                    new_value = params.get("mods_count")
+                    if new_value is not None:
+                        game.mods_count = int(new_value)
             return
 
         if table_name == sql_catalog.Mod.__tablename__:
-            target = self.get_map.get(sql_catalog.Mod)
+            target = self._resolve_target(sql_catalog.Mod, None)
         elif table_name == sql_catalog.Resource.__tablename__:
-            target = self.get_map.get(sql_catalog.Resource)
+            target = self._resolve_target(sql_catalog.Resource, None)
         elif table_name == sql_account.Account.__tablename__:
-            target = self.get_map.get(sql_account.Account)
+            target = self._resolve_target(sql_account.Account, None)
         elif table_name == sql_account.Session.__tablename__:
-            target = self.get_map.get(sql_account.Session)
+            target = self._resolve_target(sql_account.Session, None)
         else:
             target = None
 
@@ -139,12 +189,7 @@ class _MutableSession:
         return _DummyResult(first_value)
 
     async def get(self, entity, ident) -> object | None:
-        target = self.get_map.get(entity)
-        if target is None:
-            return None
-        if ident is None:
-            return target
-        return target if getattr(target, "id", None) == ident else None
+        return self._resolve_target(entity, ident)
 
     def add(self, obj) -> None:
         self.added.append(obj)
@@ -218,6 +263,7 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         app = FastAPI()
         standarts.install_exception_handlers(app)
         app.include_router(api_profile.router)
+        app.include_router(api_mod.router)
         app.include_router(api_session.router)
         app.include_router(api_uploads.router)
         cls.client = TestClient(app)
@@ -554,8 +600,13 @@ class OAuthRefreshUploadTests(unittest.TestCase):
             resource_id=None,
         )
         session = _MutableSession(get_map={sql_catalog.UploadJob: upload_row})
+        access_mods = AsyncMock(return_value=True)
 
         with patch.object(
+            api_uploads.tools,
+            "access_mods",
+            access_mods,
+        ), patch.object(
             api_uploads.catalog,
             "AsyncSessionLocal",
             return_value=session,
@@ -564,9 +615,12 @@ class OAuthRefreshUploadTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(body["id"], "job-db")
         self.assertEqual(body["status"], "created")
+        self.assertEqual(set(body.keys()), {"status", "expires_at"})
         self.assertEqual(api_uploads.UPLOAD_JOBS["job-db"].status, "created")
+        access_mods.assert_awaited_once()
+        self.assertEqual(access_mods.await_args.kwargs["mods_ids"], [7])
+        self.assertTrue(access_mods.await_args.kwargs["edit"])
 
     def test_profile_patch_allows_clearing_mute_until(self) -> None:
         profile_row = SimpleNamespace(
@@ -917,6 +971,267 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         self.assertEqual(response.status_code, 412)
         storage_delete.assert_awaited_once_with(type="archive", path="mods/7/main.zip")
         self.assertEqual(api_uploads.UPLOAD_JOBS["job-archive"].status, "failed")
+
+    def test_archive_transfer_completion_is_idempotent_when_job_completed(self) -> None:
+        upload_row = SimpleNamespace(
+            id="job-archive",
+            kind="mod_archive",
+            status="completed",
+            transfer_url="https://storage.example/transfer/upload",
+            ws_url="wss://storage.example/transfer/ws/job-archive",
+            expires_at=datetime.datetime(2026, 4, 27, 12, 15, 0, tzinfo=datetime.timezone.utc),
+            owner_type="mod",
+            owner_id=7,
+            mode="create",
+            resource_id=None,
+        )
+        session = _MutableSession(get_map={sql_catalog.UploadJob: upload_row})
+
+        with patch.object(
+            api_uploads.tools,
+            "decode_transfer_jwt",
+            return_value={
+                "job_id": "job-archive",
+                "transfer_kind": "archive",
+                "status": "success",
+                "mod_id": 7,
+            },
+        ), patch.object(
+            api_uploads.tools,
+            "storage_job_move",
+            AsyncMock(side_effect=AssertionError("move should not be called")),
+        ), patch.object(
+            api_uploads.mod_events,
+            "publish_mod_event",
+            AsyncMock(return_value=None),
+        ), patch.object(
+            api_uploads.catalog,
+            "AsyncSessionLocal",
+            return_value=session,
+        ), patch.object(
+            api_uploads.account,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
+            response = self.client.post(
+                "/internal/storage/transfer-completions",
+                headers={"Authorization": "Bearer callback-token"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(upload_row.status, "completed")
+        self.assertEqual(session.commit_count, 0)
+
+    def test_archive_transfer_completion_returns_conflict_when_job_failed(self) -> None:
+        upload_row = SimpleNamespace(
+            id="job-archive",
+            kind="mod_archive",
+            status="failed",
+            transfer_url="https://storage.example/transfer/upload",
+            ws_url="wss://storage.example/transfer/ws/job-archive",
+            expires_at=datetime.datetime(2026, 4, 27, 12, 15, 0, tzinfo=datetime.timezone.utc),
+            owner_type="mod",
+            owner_id=7,
+            mode="create",
+            resource_id=None,
+        )
+        session = _MutableSession(get_map={sql_catalog.UploadJob: upload_row})
+
+        with patch.object(
+            api_uploads.tools,
+            "decode_transfer_jwt",
+            return_value={
+                "job_id": "job-archive",
+                "transfer_kind": "archive",
+                "status": "success",
+                "mod_id": 7,
+            },
+        ), patch.object(
+            api_uploads.tools,
+            "storage_job_move",
+            AsyncMock(side_effect=AssertionError("move should not be called")),
+        ), patch.object(
+            api_uploads.mod_events,
+            "publish_mod_event",
+            AsyncMock(return_value=None),
+        ), patch.object(
+            api_uploads.catalog,
+            "AsyncSessionLocal",
+            return_value=session,
+        ), patch.object(
+            api_uploads.account,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
+            response = self.client.post(
+                "/internal/storage/transfer-completions",
+                headers={"Authorization": "Bearer callback-token"},
+            )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(upload_row.status, "failed")
+        self.assertEqual(session.commit_count, 0)
+
+    def test_patch_mod_clears_nullable_descriptions_without_stringifying_none(self) -> None:
+        mod = SimpleNamespace(
+            id=7,
+            name="Mod",
+            short_description="Old short",
+            description="Old description",
+            source="local",
+            source_id=None,
+            size=0,
+            size_unpacked=None,
+            condition=1,
+            public=0,
+            adult=False,
+            date_creation=datetime.datetime(2026, 4, 1, 0, 0, 0),
+            date_update_file=datetime.datetime(2026, 4, 27, 0, 0, 0),
+            date_edit=datetime.datetime(2026, 4, 27, 0, 0, 0),
+            game=None,
+            downloads=0,
+        )
+        session = _MutableSession(get_map={sql_catalog.Mod: mod})
+
+        with patch.object(
+            api_mod.tools,
+            "access_mods",
+            AsyncMock(return_value=True),
+        ), patch.object(
+            api_mod.catalog,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
+            response = self.client.patch(
+                "/mods/7",
+                json={
+                    "short_description": None,
+                    "description": None,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(mod.short_description)
+        self.assertIsNone(mod.description)
+        body = response.json()
+        self.assertNotIn("short_description", body)
+        self.assertNotIn("description", body)
+
+    def test_patch_mod_updates_game_counts_when_moving_published_mod(self) -> None:
+        mod = SimpleNamespace(
+            id=7,
+            name="Mod",
+            short_description="Short",
+            description="Description",
+            source="local",
+            source_id=None,
+            size=0,
+            size_unpacked=None,
+            condition=0,
+            public=0,
+            adult=False,
+            date_creation=datetime.datetime(2026, 4, 1, 0, 0, 0),
+            date_update_file=datetime.datetime(2026, 4, 27, 0, 0, 0),
+            date_edit=datetime.datetime(2026, 4, 27, 0, 0, 0),
+            game=1,
+            downloads=0,
+        )
+        old_game = SimpleNamespace(id=1, mods_count=3)
+        new_game = SimpleNamespace(id=2, mods_count=4)
+        session = _MutableSession(
+            get_map={
+                sql_catalog.Mod: mod,
+                sql_catalog.Game: {
+                    1: old_game,
+                    2: new_game,
+                },
+            }
+        )
+
+        with patch.object(
+            api_mod.tools,
+            "access_mods",
+            AsyncMock(return_value=True),
+        ), patch.object(
+            api_mod.catalog,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
+            response = self.client.patch(
+                "/mods/7",
+                json={
+                    "game_id": 2,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mod.game, 2)
+        self.assertEqual(old_game.mods_count, 2)
+        self.assertEqual(new_game.mods_count, 5)
+        self.assertEqual(session.commit_count, 1)
+
+    def test_cleanup_expired_upload_jobs_removes_empty_resource_image_resources(self) -> None:
+        upload_row = SimpleNamespace(
+            id="job-resource",
+            kind="resource_image",
+            status="created",
+            transfer_url="https://storage.example/transfer/upload",
+            ws_url="wss://storage.example/transfer/ws/job-resource",
+            expires_at=datetime.datetime(2026, 4, 1, 0, 0, 0, tzinfo=datetime.timezone.utc),
+            owner_type="resource",
+            owner_id=7,
+            mode="create",
+            resource_id=10,
+        )
+        resource = SimpleNamespace(
+            id=10,
+            type="screenshot",
+            url="",
+            size=None,
+            date_event=None,
+            owner_type="games",
+            owner_id=7,
+        )
+        session = _MutableSession(
+            execute_first_values=[[upload_row]],
+            get_map={sql_catalog.Resource: resource},
+        )
+        app_main.upload_api.UPLOAD_JOBS["job-resource"] = UploadRead(
+            id="job-resource",
+            kind="resource_image",
+            status="created",
+            transfer_url="https://storage.example/transfer/upload",
+            ws_url="wss://storage.example/transfer/ws/job-resource",
+            expires_at=upload_row.expires_at,
+            owner_type="resource",
+            owner_id=7,
+            mode="create",
+            resource_id=10,
+        )
+
+        with patch.object(
+            app_main.catalog,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
+            asyncio.run(app_main._cleanup_expired_upload_jobs_once())
+
+        self.assertNotIn("job-resource", app_main.upload_api.UPLOAD_JOBS)
+        self.assertTrue(
+            any(
+                isinstance(stmt, Delete)
+                and stmt.table.name == sql_catalog.Resource.__tablename__
+                for stmt in session.execute_statements
+            )
+        )
+        self.assertTrue(
+            any(
+                isinstance(stmt, Delete)
+                and stmt.table.name == sql_catalog.UploadJob.__tablename__
+                for stmt in session.execute_statements
+            )
+        )
+        self.assertEqual(session.commit_count, 1)
 
 
 if __name__ == "__main__":  # pragma: no cover
