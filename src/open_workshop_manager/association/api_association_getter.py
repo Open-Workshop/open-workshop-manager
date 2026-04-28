@@ -45,9 +45,12 @@ def _serialize_tags(rows) -> list[dict[str, object]]:
 @router.get(
     "/games/{game_id}/genres",
     tags=["Game", "Genre", "Association"],
+    summary="List game genres",
+    description="Returns all genres associated with a game.",
     status_code=200,
     response_model=GenreListResponse,
     response_model_exclude_none=True,
+    response_description="Paginated genre list.",
 )
 async def get_game_genres(request: Request, game_id: int) -> dict[str, object]:
     async with catalog.AsyncSessionLocal() as session:
@@ -71,9 +74,12 @@ async def get_game_genres(request: Request, game_id: int) -> dict[str, object]:
 @router.get(
     "/games/{game_id}/tags",
     tags=["Game", "Tag", "Association"],
+    summary="List game tags",
+    description="Returns all tags allowed for a game.",
     status_code=200,
     response_model=TagListResponse,
     response_model_exclude_none=True,
+    response_description="Paginated tag list.",
 )
 async def get_game_tags(request: Request, game_id: int) -> dict[str, object]:
     async with catalog.AsyncSessionLocal() as session:
@@ -97,13 +103,15 @@ async def get_game_tags(request: Request, game_id: int) -> dict[str, object]:
 @router.get(
     "/mods/tags",
     tags=["Mod", "Tag", "Association"],
+    summary="Map mod tags",
+    description="Returns tags grouped by mod ID, optionally filtered to specific tags.",
     status_code=200,
 )
 async def get_mod_tags_map(
     request: Request,
-    mod_ids: list[int] = Query(default_factory=list),
-    tag_ids: list[int] = Query(default_factory=list),
-    only_ids: bool = Query(default=False),
+    mod_ids: list[int] = Query(default_factory=list, description="Mod IDs to map."),
+    tag_ids: list[int] = Query(default_factory=list, description="Optional tag IDs to filter by."),
+    only_ids: bool = Query(default=False, description="Return only tag IDs instead of full tag objects."),
 ) -> dict[str, object]:
     mod_ids = unique_ints(mod_ids)
     tag_ids = unique_ints(tag_ids)
@@ -151,13 +159,15 @@ async def get_mod_tags_map(
 @router.get(
     "/games/genres",
     tags=["Game", "Genre", "Association"],
+    summary="Map game genres",
+    description="Returns genres grouped by game ID, optionally filtered to specific genres.",
     status_code=200,
 )
 async def get_game_genres_map(
     request: Request,
-    game_ids: list[int] = Query(default_factory=list),
-    genre_ids: list[int] = Query(default_factory=list),
-    only_ids: bool = Query(default=False),
+    game_ids: list[int] = Query(default_factory=list, description="Game IDs to map."),
+    genre_ids: list[int] = Query(default_factory=list, description="Optional genre IDs to filter by."),
+    only_ids: bool = Query(default=False, description="Return only genre IDs instead of full genre objects."),
 ) -> dict[str, object]:
     game_ids = unique_ints(game_ids)
     genre_ids = unique_ints(genre_ids)

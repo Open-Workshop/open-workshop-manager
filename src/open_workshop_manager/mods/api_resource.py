@@ -21,6 +21,26 @@ router = APIRouter()
 
 ALLOWED_OWNER_TYPES = {"mods", "games"}
 
+RESOURCE_BAD_REQUEST_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        400,
+        title="Bad Request",
+        detail="The resource request contains invalid owner data or URL.",
+        code="BAD_REQUEST",
+    ),
+    "Invalid request parameters.",
+)
+
+RESOURCE_NOT_FOUND_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        404,
+        title="Not Found",
+        detail="Resource not found.",
+        code="RESOURCE_NOT_FOUND",
+    ),
+    "Resource not found.",
+)
+
 
 def _raise_resource_not_found(request: Request) -> None:
     raise standarts.StandardAPIError(
@@ -66,24 +86,36 @@ async def _require_owner_access(request: Request, owner_type: str, owner_id: int
 @router.get(
     "/resources",
     tags=["Resource"],
+    summary="List resources",
+    description=(
+        "Returns a paginated list of resources for one owner type.\n\n"
+        "Use `only_urls=true` when the UI only needs the raw URLs."
+    ),
     status_code=200,
     response_model=ResourceListResponse,
     response_model_exclude_none=True,
+    response_description="Paginated resource list.",
+    responses={400: RESOURCE_BAD_REQUEST_RESPONSE},
 )
 async def list_resources(
     request: Request,
-    owner_type: str = Query(..., max_length=LIMITS.resource.owner_type_max),
-    owner_id: int | None = Query(default=None, ge=1),
-    owner_ids: list[int] = Query(default_factory=list),
-    resource_ids: list[int] = Query(default_factory=list),
-    types: list[str] = Query(default_factory=list),
-    only_urls: bool = Query(default=False),
+    owner_type: str = Query(
+        ...,
+        max_length=LIMITS.resource.owner_type_max,
+        description="Owner type to filter by (`mods` or `games`).",
+    ),
+    owner_id: int | None = Query(default=None, ge=1, description="Convenience filter for one owner ID."),
+    owner_ids: list[int] = Query(default_factory=list, description="Owner IDs to include."),
+    resource_ids: list[int] = Query(default_factory=list, description="Resource IDs to include."),
+    types: list[str] = Query(default_factory=list, description="Resource types to include."),
+    only_urls: bool = Query(default=False, description="Return only resource URLs."),
     page_size: int = Query(
         LIMITS.page.default,
         ge=LIMITS.page.min,
         le=LIMITS.page.max,
+        description="Maximum number of resources to return per page.",
     ),
-    page: int = Query(0, ge=0),
+    page: int = Query(0, ge=0, description="Zero-based page index."),
 ):
     _ensure_owner_type(request, owner_type)
 
@@ -138,9 +170,17 @@ async def list_resources(
 @router.get(
     "/resources/{resource_id}",
     tags=["Resource"],
+    summary="Get resource",
+    description="Returns a single resource by ID.",
     status_code=200,
     response_model=ResourceRead,
     response_model_exclude_none=True,
+    response_description="Resource object.",
+    responses={
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
+        404: RESOURCE_NOT_FOUND_RESPONSE,
+    },
 )
 async def get_resource(request: Request, resource_id: int) -> ResourceRead:
     async with catalog.AsyncSessionLocal() as session:
@@ -158,9 +198,17 @@ async def get_resource(request: Request, resource_id: int) -> ResourceRead:
 @router.post(
     "/resources",
     tags=["Resource"],
+    summary="Create resource",
+    description="Creates a new resource for a game or a mod owner.",
     status_code=201,
     response_model=ResourceRead,
     response_model_exclude_none=True,
+    response_description="Created resource object.",
+    responses={
+        400: RESOURCE_BAD_REQUEST_RESPONSE,
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
+    },
 )
 async def create_resource(
     response: Response,
@@ -197,9 +245,18 @@ async def create_resource(
 @router.patch(
     "/resources/{resource_id}",
     tags=["Resource"],
+    summary="Update resource",
+    description="Updates the resource URL or type.",
     status_code=200,
     response_model=ResourceRead,
     response_model_exclude_none=True,
+    response_description="Updated resource object.",
+    responses={
+        400: RESOURCE_BAD_REQUEST_RESPONSE,
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
+        404: RESOURCE_NOT_FOUND_RESPONSE,
+    },
 )
 async def patch_resource(
     request: Request,
@@ -253,7 +310,14 @@ async def patch_resource(
 @router.delete(
     "/resources/{resource_id}",
     tags=["Resource"],
+    summary="Delete resource",
+    description="Deletes a resource and its local storage file, if any.",
     status_code=204,
+    responses={
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
+        404: RESOURCE_NOT_FOUND_RESPONSE,
+    },
 )
 async def delete_resource(request: Request, resource_id: int) -> Response:
     async with catalog.AsyncSessionLocal() as session:

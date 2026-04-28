@@ -388,6 +388,39 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(session.commit_count, 0)
         self.assertEqual(session.flush_count, 0)
 
+    def test_openapi_documents_public_operations(self) -> None:
+        schema = self.client.app.openapi()
+        missing: list[str] = []
+        for path, path_item in schema.get("paths", {}).items():
+            for method, operation in path_item.items():
+                if method not in {"get", "post", "put", "patch", "delete", "options", "head", "trace"}:
+                    continue
+                if not operation.get("summary") or not operation.get("description"):
+                    missing.append(f"{method.upper()} {path}")
+
+        self.assertEqual(missing, [])
+
+        def include_enum(path: str, method: str) -> set[str]:
+            for parameter in schema["paths"][path][method]["parameters"]:
+                if parameter["name"] == "include":
+                    return set(parameter["schema"]["items"]["enum"])
+            self.fail(f"include parameter missing for {method.upper()} {path}")
+
+        self.assertEqual(include_enum("/games", "get"), {"description", "dates", "statistics", "genres", "tags", "resources"})
+        self.assertEqual(include_enum("/games/{game_id}", "get"), {"description", "dates", "statistics", "genres", "tags", "resources"})
+        self.assertEqual(
+            include_enum("/mods", "get"),
+            {"short_description", "description", "dates", "game", "tags", "dependencies", "authors", "resources"},
+        )
+        self.assertEqual(
+            include_enum("/mods/{mod_id}", "get"),
+            {"short_description", "description", "dates", "game", "tags", "dependencies", "authors", "resources"},
+        )
+        self.assertEqual(
+            include_enum("/profiles/{user_id}", "get"),
+            {"general", "rights", "private"},
+        )
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

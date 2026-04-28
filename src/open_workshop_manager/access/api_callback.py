@@ -210,6 +210,8 @@ async def callback_context(
     refresh_token: str | None = Cookie(None, alias="refreshToken"),
     authorization: str = Header("", alias="Authorization"),
 ):
+    """Returns a trusted static access context for internal services."""
+
     if not await tools.check_token(
         "ACCESS_CALLBACK_TOKEN", _bearer_token(authorization)
     ):

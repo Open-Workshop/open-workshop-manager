@@ -181,9 +181,12 @@ def _session_summary(row: account.Session) -> SessionRead | SessionRefreshRead:
 @router.post(
     "/sessions",
     tags=["Session"],
+    summary="Create session",
+    description="Authenticates with username and password and issues session cookies.",
     status_code=201,
     response_model=SessionRead,
     response_model_exclude_none=True,
+    response_description="Created session metadata.",
 )
 async def create_session(response: Response, request: Request, payload: SessionCreate) -> SessionRead:
     if payload.method != "password":
@@ -277,9 +280,12 @@ async def create_session(response: Response, request: Request, payload: SessionC
 @router.post(
     "/sessions/current/refresh",
     tags=["Session"],
+    summary="Refresh session",
+    description="Rotates the current access and refresh cookies.",
     status_code=200,
     response_model=SessionRefreshRead,
     response_model_exclude_none=True,
+    response_description="Refreshed session metadata.",
 )
 async def refresh_session(response: Response, request: Request) -> SessionRefreshRead:
     access_token = request.cookies.get("accessToken", "")
@@ -332,6 +338,8 @@ async def refresh_session(response: Response, request: Request) -> SessionRefres
 @router.delete(
     "/sessions/current",
     tags=["Session"],
+    summary="Logout",
+    description="Terminates the current session and clears the auth cookies.",
     status_code=204,
 )
 async def logout(response: Response, request: Request) -> Response:
@@ -366,6 +374,8 @@ async def logout(response: Response, request: Request) -> Response:
 @router.get(
     "/oauth/{service}/authorize",
     tags=["OAuth"],
+    summary="Start OAuth",
+    description="Redirects the user to the selected OAuth provider.",
     status_code=307,
 )
 async def oauth_authorize(request: Request, service: str):
@@ -737,15 +747,17 @@ async def _oauth_yandex_callback(
     "/oauth/{service}/callback",
     response_class=HTMLResponse,
     tags=["OAuth"],
+    summary="Finish OAuth",
+    description="Handles the OAuth callback and finishes the login flow.",
     status_code=200,
 )
 async def oauth_callback(
     request: Request,
     response: Response,
     service: str,
-    code: str = Query(...),
-    state: str | None = Query(default=None),
-    cid: str | None = Query(default=None),
+    code: str = Query(..., description="Authorization code returned by the provider."),
+    state: str | None = Query(default=None, description="OAuth state token for CSRF protection."),
+    cid: str | None = Query(default=None, description="Provider-specific client identifier."),
 ):
     service = service.lower()
     if service == "google":

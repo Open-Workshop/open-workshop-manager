@@ -10,7 +10,8 @@ router = APIRouter()
 @router.get(
     "/catalog/statistics",
     tags=["Catalog Statistics"],
-    summary="Anonymous aggregated catalog statistics",
+    summary="Get catalog statistics",
+    description="Returns anonymous aggregated catalog statistics for the UI.",
     status_code=200,
 )
 async def get_catalog_statistics():

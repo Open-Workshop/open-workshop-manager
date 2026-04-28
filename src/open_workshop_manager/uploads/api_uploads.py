@@ -21,6 +21,36 @@ logger = logging.getLogger(__name__)
 
 UPLOAD_JOBS: dict[str, UploadRead] = {}
 
+UPLOAD_BAD_REQUEST_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        400,
+        title="Bad Request",
+        detail="The upload request contains invalid kind, mode, or payload data.",
+        code="BAD_REQUEST",
+    ),
+    "Invalid upload request.",
+)
+
+UPLOAD_NOT_FOUND_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        404,
+        title="Not Found",
+        detail="Upload not found.",
+        code="UPLOAD_NOT_FOUND",
+    ),
+    "Upload job not found.",
+)
+
+UPLOAD_REFERENCE_NOT_FOUND_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        404,
+        title="Not Found",
+        detail="Referenced owner or resource was not found.",
+        code="NOT_FOUND",
+    ),
+    "Referenced owner or resource not found.",
+)
+
 VALID_UPLOAD_KINDS = {"mod_archive", "resource_image", "profile_avatar"}
 VALID_UPLOAD_MODES = {"create", "replace"}
 VALID_RESOURCE_OWNER_TYPES = {"mods", "games"}
@@ -608,9 +638,25 @@ async def _handle_image_completion(
 @router.post(
     "/uploads",
     tags=["Upload"],
+    summary="Create upload job",
+    description=(
+        "Creates a temporary upload job and returns Storage transfer URLs.\n\n"
+        "Supported kinds:\n"
+        "- `mod_archive`\n"
+        "- `resource_image`\n"
+        "- `profile_avatar`\n\n"
+        "Supported modes:\n"
+        "- `create`\n"
+        "- `replace`"
+    ),
     status_code=201,
     response_model=UploadRead,
     response_model_exclude_none=True,
+    response_description="Created upload job with Storage URLs.",
+    responses={
+        400: UPLOAD_BAD_REQUEST_RESPONSE,
+        404: UPLOAD_REFERENCE_NOT_FOUND_RESPONSE,
+    },
 )
 async def create_upload(response: Response, request: Request, payload: UploadCreate) -> UploadRead:
     if not getattr(config, "TRANSFER_JWT_SECRET", ""):
@@ -865,9 +911,13 @@ async def create_upload(response: Response, request: Request, payload: UploadCre
 @router.get(
     "/uploads/{upload_id}",
     tags=["Upload"],
+    summary="Get upload status",
+    description="Returns the current upload job status and its expiration time.",
     status_code=200,
     response_model=UploadStatusRead,
     response_model_exclude_none=True,
+    response_description="Upload job status.",
+    responses={404: UPLOAD_NOT_FOUND_RESPONSE},
 )
 async def get_upload(request: Request, upload_id: str) -> UploadStatusRead:
     job = await _load_job(upload_id)
@@ -887,6 +937,8 @@ async def storage_transfer_completion(
     request: Request,
     authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> Response:
+    """Completes a transfer job after Storage confirms the upload."""
+
     token = _completion_bearer_token(authorization)
     if not token:
         raise standarts.UnauthorizedError(instance=str(request.url))

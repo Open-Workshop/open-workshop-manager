@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy import delete, func, select
@@ -26,6 +27,38 @@ from open_workshop_manager.limits import LIMITS
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
+
+GameIncludeField = Literal["description", "dates", "statistics", "genres", "tags", "resources"]
+
+GAME_BAD_REQUEST_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        400,
+        title="Bad Request",
+        detail="The request contains invalid filters or include fields.",
+        code="BAD_REQUEST",
+    ),
+    "Invalid request parameters.",
+)
+
+GAME_NOT_FOUND_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        404,
+        title="Not Found",
+        detail="Game not found.",
+        code="GAME_NOT_FOUND",
+    ),
+    "Game not found.",
+)
+
+GAME_CONFLICT_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        409,
+        title="Conflict",
+        detail="Game source already exists.",
+        code="GAME_SOURCE_ALREADY_EXISTS",
+    ),
+    "Game source already exists.",
+)
 
 GAME_INCLUDE_FIELDS = {
     "description",
@@ -152,9 +185,23 @@ async def _serialize_game_with_includes(
 @router.get(
     "/games",
     tags=["Game"],
+    summary="List games",
+    description=(
+        "Returns a paginated list of games.\n\n"
+        "Use `include` to opt in to extra fields:\n"
+        "- `description`\n"
+        "- `dates`\n"
+        "- `statistics`\n"
+        "- `genres`\n"
+        "- `tags`\n"
+        "- `resources`\n\n"
+        "Use `sort` with `-` for descending order."
+    ),
     status_code=200,
     response_model=GameListResponse,
     response_model_exclude_none=True,
+    response_description="Paginated game list.",
+    responses={400: GAME_BAD_REQUEST_RESPONSE},
 )
 async def list_games(
     request: Request,
@@ -162,16 +209,33 @@ async def list_games(
         LIMITS.page.default,
         ge=LIMITS.page.min,
         le=LIMITS.page.max,
+        description="Maximum number of games to return per page.",
     ),
-    page: int = Query(0, ge=0),
-    sort: str = Query(default="-mods_downloads"),
-    name: str | None = Query(default=None, max_length=LIMITS.game.name_max),
-    types: list[str] = Query(default_factory=list),
-    genre_ids: list[int] = Query(default_factory=list),
-    sources: list[str] = Query(default_factory=list),
-    source_ids: list[int] = Query(default_factory=list),
-    ids: list[int] = Query(default_factory=list),
-    include: list[str] = Query(default_factory=list),
+    page: int = Query(0, ge=0, description="Zero-based page index."),
+    sort: str = Query(
+        default="-mods_downloads",
+        description="Sort field, optionally prefixed with `-` for descending order.",
+    ),
+    name: str | None = Query(
+        default=None,
+        max_length=LIMITS.game.name_max,
+        description="Case-insensitive substring filter for the game name.",
+    ),
+    types: list[str] = Query(default_factory=list, description="Game types to include."),
+    genre_ids: list[int] = Query(
+        default_factory=list,
+        description="Only return games linked to all of these genre IDs.",
+    ),
+    sources: list[str] = Query(default_factory=list, description="Source names to filter by."),
+    source_ids: list[int] = Query(
+        default_factory=list,
+        description="Source-specific IDs to filter by.",
+    ),
+    ids: list[int] = Query(default_factory=list, description="Limit results to these game IDs."),
+    include: list[GameIncludeField] = Query(
+        default_factory=list,
+        description="Additional fields to include in each game object.",
+    ),
 ):
     include_set = _normalize_includes(request, include)
     sort_clause = None
@@ -237,14 +301,30 @@ async def list_games(
 @router.get(
     "/games/{game_id}",
     tags=["Game"],
+    summary="Get game",
+    description=(
+        "Returns a single game by ID.\n\n"
+        "Use `include` to opt in to extra fields:\n"
+        "- `description`\n"
+        "- `dates`\n"
+        "- `statistics`\n"
+        "- `genres`\n"
+        "- `tags`\n"
+        "- `resources`"
+    ),
     status_code=200,
     response_model=GameRead,
     response_model_exclude_none=True,
+    response_description="Game resource.",
+    responses={400: GAME_BAD_REQUEST_RESPONSE, 404: GAME_NOT_FOUND_RESPONSE},
 )
 async def get_game(
     request: Request,
     game_id: int,
-    include: list[str] = Query(default_factory=list),
+    include: list[GameIncludeField] = Query(
+        default_factory=list,
+        description="Additional fields to include in the game object.",
+    ),
 ) -> GameRead:
     include_set = _normalize_includes(request, include)
 
@@ -263,9 +343,13 @@ async def get_game(
 @router.post(
     "/games",
     tags=["Game"],
+    summary="Create game",
+    description="Creates a new game record. Admin privileges are required.",
     status_code=201,
     response_model=GameRead,
     response_model_exclude_none=True,
+    response_description="Created game resource.",
+    responses={403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC},
 )
 async def create_game(
     response: Response,
@@ -296,9 +380,21 @@ async def create_game(
 @router.patch(
     "/games/{game_id}",
     tags=["Game"],
+    summary="Update game",
+    description=(
+        "Updates a game record.\n\n"
+        "The `source` and `source_id` pair must remain unique across games. "
+        "Admin privileges are required."
+    ),
     status_code=200,
     response_model=GameRead,
     response_model_exclude_none=True,
+    response_description="Updated game resource.",
+    responses={
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
+        404: GAME_NOT_FOUND_RESPONSE,
+        409: GAME_CONFLICT_RESPONSE,
+    },
 )
 async def patch_game(
     request: Request,
@@ -359,7 +455,13 @@ async def patch_game(
 @router.delete(
     "/games/{game_id}",
     tags=["Game"],
+    summary="Delete game",
+    description="Deletes a game and removes its association records and resources.",
     status_code=204,
+    responses={
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
+        404: GAME_NOT_FOUND_RESPONSE,
+    },
 )
 async def delete_game(request: Request, game_id: int) -> Response:
     await tools.access_admin(request=request)

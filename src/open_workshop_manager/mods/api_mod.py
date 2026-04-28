@@ -6,6 +6,7 @@ import re
 import uuid
 from datetime import datetime
 from urllib.parse import quote
+from typing import Literal
 
 from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import RedirectResponse
@@ -37,6 +38,67 @@ from open_workshop_manager.sql_logic import sql_account as account
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
+
+ModIncludeField = Literal[
+    "short_description",
+    "description",
+    "dates",
+    "game",
+    "tags",
+    "dependencies",
+    "authors",
+    "resources",
+]
+
+MOD_BAD_REQUEST_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        400,
+        title="Bad Request",
+        detail="The mod request contains invalid filters, include fields, or payload values.",
+        code="BAD_REQUEST",
+    ),
+    "Invalid request parameters.",
+)
+
+MOD_NOT_FOUND_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        404,
+        title="Not Found",
+        detail="Mod not found.",
+        code="MOD_NOT_FOUND",
+    ),
+    "Mod not found.",
+)
+
+GAME_NOT_FOUND_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        404,
+        title="Not Found",
+        detail="Game not found.",
+        code="GAME_NOT_FOUND",
+    ),
+    "Game not found.",
+)
+
+MOD_TARGET_NOT_FOUND_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        404,
+        title="Not Found",
+        detail="Referenced mod or game was not found.",
+        code="NOT_FOUND",
+    ),
+    "Referenced mod or game not found.",
+)
+
+MOD_CONFLICT_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        409,
+        title="Conflict",
+        detail="Mod source already exists.",
+        code="MOD_SOURCE_ALREADY_EXISTS",
+    ),
+    "Mod source already exists.",
+)
 
 MOD_INCLUDE_FIELDS = {"short_description", "description", "dates", "game", "tags", "dependencies", "authors", "resources"}
 
@@ -249,9 +311,18 @@ async def _update_game_mod_count(session, game_id: int, delta: int) -> None:
 @router.get(
     "/mods",
     tags=["Mod"],
+    summary="List mods",
+    description=(
+        "Returns a paginated list of public mods.\n\n"
+        "Use filters for IDs, tags, dependencies, source fields, game, size ranges, "
+        "and `include` to opt into extra fields such as `description`, `dates`, `game`, "
+        "`tags`, `dependencies`, `authors`, and `resources`."
+    ),
     status_code=200,
     response_model=ModListResponse,
     response_model_exclude_none=True,
+    response_description="Paginated mod list.",
+    responses={400: MOD_BAD_REQUEST_RESPONSE},
 )
 async def list_mods(
     request: Request,
@@ -259,24 +330,31 @@ async def list_mods(
         LIMITS.page.default,
         ge=LIMITS.page.min,
         le=LIMITS.page.max,
+        description="Maximum number of mods to return per page.",
     ),
-    page: int = Query(0, ge=0),
-    sort: str = Query(default="-downloads"),
-    ids: list[int] = Query(default_factory=list),
-    tags: list[int] = Query(default_factory=list),
-    excluded_tags: list[int] = Query(default_factory=list),
-    dependencies: list[int] = Query(default_factory=list),
-    excluded_dependencies: list[int] = Query(default_factory=list),
-    game_id: int | None = Query(default=None, ge=1),
-    adult: int = Query(default=-1, ge=-1, le=1),
-    sources: list[str] = Query(default_factory=list),
-    source_ids: list[int] = Query(default_factory=list),
-    size_min: int | None = Query(default=None, ge=0),
-    size_max: int | None = Query(default=None, ge=0),
-    size_unpacked_min: int | None = Query(default=None, ge=0),
-    size_unpacked_max: int | None = Query(default=None, ge=0),
-    name: str | None = Query(default=None, max_length=LIMITS.mod.name_max),
-    include: list[str] = Query(default_factory=list),
+    page: int = Query(0, ge=0, description="Zero-based page index."),
+    sort: str = Query(
+        default="-downloads",
+        description="Sort field, optionally prefixed with `-` for descending order.",
+    ),
+    ids: list[int] = Query(default_factory=list, description="Limit results to these mod IDs."),
+    tags: list[int] = Query(default_factory=list, description="Require all of these tag IDs."),
+    excluded_tags: list[int] = Query(default_factory=list, description="Exclude any mod that has one of these tags."),
+    dependencies: list[int] = Query(default_factory=list, description="Require all of these dependency IDs."),
+    excluded_dependencies: list[int] = Query(default_factory=list, description="Exclude mods that depend on any of these IDs."),
+    game_id: int | None = Query(default=None, ge=1, description="Filter by game ID."),
+    adult: int = Query(default=-1, ge=-1, le=1, description="Adult content filter: -1 any, 0 false, 1 true."),
+    sources: list[str] = Query(default_factory=list, description="Source names to filter by."),
+    source_ids: list[int] = Query(default_factory=list, description="Source-specific IDs to filter by."),
+    size_min: int | None = Query(default=None, ge=0, description="Minimum archive size in bytes."),
+    size_max: int | None = Query(default=None, ge=0, description="Maximum archive size in bytes."),
+    size_unpacked_min: int | None = Query(default=None, ge=0, description="Minimum unpacked size in bytes."),
+    size_unpacked_max: int | None = Query(default=None, ge=0, description="Maximum unpacked size in bytes."),
+    name: str | None = Query(default=None, max_length=LIMITS.mod.name_max, description="Case-insensitive substring filter for the mod name."),
+    include: list[ModIncludeField] = Query(
+        default_factory=list,
+        description="Additional fields to include in each mod object.",
+    ),
 ):
     include_set = _normalize_include(request, include)
     if size_min is not None and size_max is not None and size_min > size_max:
@@ -408,18 +486,18 @@ async def list_mods(
     "/mods/feed",
     tags=["Mod"],
     summary="Contextual size hints for the mod catalog",
+    description=(
+        "Returns contextual size hints for the public mod catalog.\n\n"
+        "The UI uses this to configure range sliders without loading the full list."
+    ),
     status_code=200,
     response_model=ModFeedRead,
     response_model_exclude_none=True,
+    response_description="Catalog size hints.",
 )
 async def get_mod_feed(
-    game: int = Query(-1, description="ID игры."),
+    game: int = Query(-1, description="Optional game ID to scope the size hints."),
 ):
-    """
-    Возвращает диапазоны размеров публичных модов и их распакованных версий
-    для настройки фильтров и слайдеров. Если модов в каталоге нет, все min/max
-    поля будут `null`.
-    """
     async with catalog.AsyncSessionLocal() as session:
         visibility_clause = (catalog.Mod.condition == 0) & (catalog.Mod.public == 0)
         count_stmt = select(func.count()).select_from(catalog.Mod).where(visibility_clause)
@@ -457,11 +535,26 @@ async def get_mod_feed(
 @router.get(
     "/mods/{mod_id}",
     tags=["Mod"],
+    summary="Get mod",
+    description=(
+        "Returns a mod by ID.\n\n"
+        "Use `include` to opt into extra fields such as `description`, `dates`, "
+        "`game`, `tags`, `dependencies`, `authors`, and `resources`."
+    ),
     status_code=200,
     response_model=ModRead,
     response_model_exclude_none=True,
+    response_description="Mod resource.",
+    responses={400: MOD_BAD_REQUEST_RESPONSE, 404: MOD_NOT_FOUND_RESPONSE},
 )
-async def get_mod(request: Request, mod_id: int, include: list[str] = Query(default_factory=list)) -> ModRead:
+async def get_mod(
+    request: Request,
+    mod_id: int,
+    include: list[ModIncludeField] = Query(
+        default_factory=list,
+        description="Additional fields to include in the mod object.",
+    ),
+) -> ModRead:
     include_set = _normalize_include(request, include)
 
     async with catalog.AsyncSessionLocal() as session:
@@ -480,9 +573,18 @@ async def get_mod(request: Request, mod_id: int, include: list[str] = Query(defa
 @router.post(
     "/mods",
     tags=["Mod"],
+    summary="Create mod",
+    description="Creates a new draft mod. Authentication and add permissions are required.",
     status_code=201,
     response_model=ModRead,
     response_model_exclude_none=True,
+    response_description="Created mod resource.",
+    responses={
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
+        404: MOD_TARGET_NOT_FOUND_RESPONSE,
+        409: MOD_CONFLICT_RESPONSE,
+    },
 )
 async def create_mod(
     response: Response,
@@ -560,9 +662,22 @@ async def create_mod(
 @router.patch(
     "/mods/{mod_id}",
     tags=["Mod"],
+    summary="Update mod",
+    description=(
+        "Updates an existing mod.\n\n"
+        "When `game_id` changes for a published mod, the game counters are updated "
+        "to keep `mods_count` and `mods_downloads` consistent."
+    ),
     status_code=200,
     response_model=ModRead,
     response_model_exclude_none=True,
+    response_description="Updated mod resource.",
+    responses={
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
+        404: MOD_TARGET_NOT_FOUND_RESPONSE,
+        409: MOD_CONFLICT_RESPONSE,
+    },
 )
 async def patch_mod(
     request: Request,
@@ -676,7 +791,14 @@ async def patch_mod(
 @router.delete(
     "/mods/{mod_id}",
     tags=["Mod"],
+    summary="Delete mod",
+    description="Deletes a mod and all related storage resources and associations.",
     status_code=204,
+    responses={
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
+        404: MOD_NOT_FOUND_RESPONSE,
+    },
 )
 async def delete_mod(request: Request, mod_id: int) -> Response:
     mod_access = await tools.access_mod_action(request=request, mod_id=mod_id)
@@ -736,9 +858,17 @@ async def delete_mod(request: Request, mod_id: int) -> Response:
 @router.post(
     "/mods/{mod_id}/downloads",
     tags=["Mod"],
+    summary="Register mod download",
+    description="Registers a download event and returns a storage download URL.",
     status_code=201,
     response_model=ModDownloadRead,
     response_model_exclude_none=True,
+    response_description="Download metadata and storage URL.",
+    responses={
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
+        404: MOD_NOT_FOUND_RESPONSE,
+    },
 )
 async def create_download(request: Request, mod_id: int) -> ModDownloadRead:
     await tools.access_mods(request=request, mods_ids=[mod_id])
@@ -783,6 +913,8 @@ async def create_download(request: Request, mod_id: int) -> ModDownloadRead:
 @router.post(
     "/mods/{mod_id}/downloads/redirect",
     tags=["Mod"],
+    summary="Redirect to mod download",
+    description="Redirects the client to the mod archive download URL.",
     status_code=303,
 )
 async def redirect_download(request: Request, mod_id: int) -> RedirectResponse:
@@ -793,9 +925,17 @@ async def redirect_download(request: Request, mod_id: int) -> RedirectResponse:
 @router.get(
     "/mods/{mod_id}/download-url",
     tags=["Mod"],
+    summary="Get mod download URL",
+    description="Returns a one-shot storage download URL for the mod archive.",
     status_code=200,
     response_model=ModDownloadUrlRead,
     response_model_exclude_none=True,
+    response_description="Mod archive download URL.",
+    responses={
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
+        404: MOD_NOT_FOUND_RESPONSE,
+    },
 )
 async def get_download_url(request: Request, mod_id: int) -> ModDownloadUrlRead:
     await tools.access_mods(request=request, mods_ids=[mod_id])
@@ -817,9 +957,17 @@ async def get_download_url(request: Request, mod_id: int) -> ModDownloadUrlRead:
 @router.get(
     "/mods/{mod_id}/tags",
     tags=["Mod", "Tag"],
+    summary="List mod tags",
+    description="Returns all tags attached to a mod.",
     status_code=200,
     response_model=TagListResponse,
     response_model_exclude_none=True,
+    response_description="Paginated tag list.",
+    responses={
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
+        404: MOD_NOT_FOUND_RESPONSE,
+    },
 )
 async def get_mod_tags(request: Request, mod_id: int) -> dict[str, object]:
     await tools.access_mods(request=request, mods_ids=[mod_id])
@@ -844,9 +992,17 @@ async def get_mod_tags(request: Request, mod_id: int) -> dict[str, object]:
 @router.get(
     "/mods/{mod_id}/dependencies",
     tags=["Mod"],
+    summary="List mod dependencies",
+    description="Returns all dependency IDs attached to a mod.",
     status_code=200,
     response_model=IntListResponse,
     response_model_exclude_none=True,
+    response_description="Paginated dependency ID list.",
+    responses={
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
+        404: MOD_NOT_FOUND_RESPONSE,
+    },
 )
 async def get_mod_dependencies(request: Request, mod_id: int) -> dict[str, object]:
     await tools.access_mods(request=request, mods_ids=[mod_id])

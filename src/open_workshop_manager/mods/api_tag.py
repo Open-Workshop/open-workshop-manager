@@ -17,6 +17,16 @@ from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
 
+TAG_NOT_FOUND_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        404,
+        title="Not Found",
+        detail="Tag not found.",
+        code="TAG_NOT_FOUND",
+    ),
+    "Tag not found.",
+)
+
 
 def _serialize_tag(tag: catalog.Tag) -> TagRead:
     return TagRead(id=int(tag.id), name=str(tag.name))
@@ -35,9 +45,12 @@ def _raise_tag_not_found(request: Request) -> None:
 @router.get(
     "/tags",
     tags=["Tag"],
+    summary="List tags",
+    description="Returns a paginated list of tags with optional name, ID, and game filters.",
     status_code=200,
     response_model=TagListResponse,
     response_model_exclude_none=True,
+    response_description="Paginated tag list.",
 )
 async def list_tags(
     request: Request,
@@ -45,11 +58,16 @@ async def list_tags(
         LIMITS.page.default,
         ge=LIMITS.page.min,
         le=LIMITS.page.max,
+        description="Maximum number of tags to return per page.",
     ),
-    page: int = Query(0, ge=0),
-    name: str | None = Query(default=None, max_length=LIMITS.tag.name_max),
-    ids: list[int] = Query(default_factory=list),
-    game_id: int | None = Query(default=None, ge=1),
+    page: int = Query(0, ge=0, description="Zero-based page index."),
+    name: str | None = Query(
+        default=None,
+        max_length=LIMITS.tag.name_max,
+        description="Case-insensitive substring filter for the tag name.",
+    ),
+    ids: list[int] = Query(default_factory=list, description="Limit results to these tag IDs."),
+    game_id: int | None = Query(default=None, ge=1, description="Filter by game ID."),
 ):
     async with catalog.AsyncSessionLocal() as session:
         count_stmt = select(func.count()).select_from(catalog.Tag)
@@ -80,9 +98,13 @@ async def list_tags(
 @router.get(
     "/tags/{tag_id}",
     tags=["Tag"],
+    summary="Get tag",
+    description="Returns a single tag by ID.",
     status_code=200,
     response_model=TagRead,
     response_model_exclude_none=True,
+    response_description="Tag resource.",
+    responses={404: TAG_NOT_FOUND_RESPONSE},
 )
 async def get_tag(request: Request, tag_id: int) -> TagRead:
     async with catalog.AsyncSessionLocal() as session:
@@ -97,9 +119,13 @@ async def get_tag(request: Request, tag_id: int) -> TagRead:
 @router.post(
     "/tags",
     tags=["Tag"],
+    summary="Create tag",
+    description="Creates a new tag. Admin privileges are required.",
     status_code=201,
     response_model=TagRead,
     response_model_exclude_none=True,
+    response_description="Created tag resource.",
+    responses={403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC},
 )
 async def create_tag(response: Response, request: Request, payload: TagCreate) -> TagRead:
     await tools.access_admin(request=request)
@@ -116,9 +142,16 @@ async def create_tag(response: Response, request: Request, payload: TagCreate) -
 @router.patch(
     "/tags/{tag_id}",
     tags=["Tag"],
+    summary="Update tag",
+    description="Updates the tag name. Admin privileges are required.",
     status_code=200,
     response_model=TagRead,
     response_model_exclude_none=True,
+    response_description="Updated tag resource.",
+    responses={
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
+        404: TAG_NOT_FOUND_RESPONSE,
+    },
 )
 async def patch_tag(
     request: Request,
@@ -150,7 +183,13 @@ async def patch_tag(
 @router.delete(
     "/tags/{tag_id}",
     tags=["Tag"],
+    summary="Delete tag",
+    description="Deletes a tag and detaches it from all games and mods. Admin privileges are required.",
     status_code=204,
+    responses={
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
+        404: TAG_NOT_FOUND_RESPONSE,
+    },
 )
 async def delete_tag(request: Request, tag_id: int) -> Response:
     await tools.access_admin(request=request)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+from typing import Literal
 from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import insert, select, update
@@ -24,6 +25,7 @@ from open_workshop_manager.sql_logic import sql_account as account
 router = APIRouter()
 
 PROFILE_INCLUDE_FIELDS = {"general", "rights", "private"}
+ProfileIncludeField = Literal["general", "rights", "private"]
 
 
 def _raise_profile_not_found(request: Request) -> None:
@@ -123,14 +125,23 @@ def _raise_profile_right_denied(request: Request, right) -> None:
 @router.get(
     "/profiles/{user_id}",
     tags=["Profile"],
+    summary="Get profile",
+    description=(
+        "Returns a profile by user ID.\n\n"
+        "Use `include` to opt in to the `general`, `private`, and `rights` sections."
+    ),
     status_code=200,
     response_model=ProfileRead,
     response_model_exclude_none=True,
+    response_description="Profile object.",
 )
 async def get_profile(
     request: Request,
     user_id: int,
-    include: list[str] = Query(default_factory=lambda: ["general"]),
+    include: list[ProfileIncludeField] = Query(
+        default_factory=lambda: ["general"],
+        description="Profile sections to include in the response.",
+    ),
 ) -> ProfileRead:
     include_set = _normalize_include(request, include)
     async with account.AsyncSessionLocal() as session:
@@ -166,6 +177,8 @@ async def get_profile(
 @router.get(
     "/profiles/{user_id}/avatar",
     tags=["Profile"],
+    summary="Get profile avatar",
+    description="Redirects to the current profile avatar URL.",
     status_code=307,
 )
 async def get_avatar(request: Request, user_id: int):
@@ -191,6 +204,8 @@ async def get_avatar(request: Request, user_id: int):
 @router.delete(
     "/profiles/{user_id}/avatar",
     tags=["Profile"],
+    summary="Delete profile avatar",
+    description="Deletes the current profile avatar.",
     status_code=204,
 )
 async def delete_avatar(request: Request, user_id: int) -> Response:
@@ -223,9 +238,12 @@ async def delete_avatar(request: Request, user_id: int) -> Response:
 @router.patch(
     "/profiles/{user_id}",
     tags=["Profile"],
+    summary="Update profile",
+    description="Updates the editable general profile fields.",
     status_code=200,
     response_model=ProfileGeneralRead,
     response_model_exclude_none=True,
+    response_description="Updated general profile data.",
 )
 async def patch_profile(
     request: Request,
@@ -334,9 +352,12 @@ async def patch_profile(
 @router.patch(
     "/profiles/{user_id}/rights",
     tags=["Profile"],
+    summary="Update profile rights",
+    description="Updates the profile moderation and permission flags.",
     status_code=200,
     response_model=ProfileRightsRead,
     response_model_exclude_none=True,
+    response_description="Updated profile rights.",
 )
 async def patch_profile_rights(
     request: Request,
@@ -376,6 +397,8 @@ async def patch_profile_rights(
 @router.patch(
     "/profiles/{user_id}/password",
     tags=["Profile"],
+    summary="Update profile password",
+    description="Changes the profile password.",
     status_code=204,
 )
 async def patch_profile_password(
@@ -416,6 +439,8 @@ async def patch_profile_password(
 @router.delete(
     "/profiles/{user_id}/password",
     tags=["Profile"],
+    summary="Delete profile password",
+    description="Removes the profile password hash.",
     status_code=204,
 )
 async def delete_profile_password(request: Request, user_id: int) -> Response:
@@ -439,6 +464,8 @@ async def delete_profile_password(request: Request, user_id: int) -> Response:
 @router.delete(
     "/profiles/{user_id}",
     tags=["Profile"],
+    summary="Delete profile",
+    description="Deletes the profile and its attached avatar, if any.",
     status_code=204,
 )
 async def delete_profile(request: Request, user_id: int) -> Response:

@@ -86,6 +86,8 @@ async def _delete_assoc(request: Request, *, table, delete_where) -> None:
 @router.post(
     "/games/{game_id}/genres/{genre_id}",
     tags=["Association", "Game", "Genre"],
+    summary="Add game genre",
+    description="Associates a genre with a game.",
     status_code=204,
 )
 async def add_game_genre(request: Request, game_id: int, genre_id: int):
@@ -113,6 +115,8 @@ async def add_game_genre(request: Request, game_id: int, genre_id: int):
 @router.delete(
     "/games/{game_id}/genres/{genre_id}",
     tags=["Association", "Game", "Genre"],
+    summary="Remove game genre",
+    description="Removes a genre association from a game.",
     status_code=204,
 )
 async def delete_game_genre(request: Request, game_id: int, genre_id: int):
@@ -135,6 +139,8 @@ async def delete_game_genre(request: Request, game_id: int, genre_id: int):
 @router.post(
     "/games/{game_id}/tags/{tag_id}",
     tags=["Association", "Game", "Tag"],
+    summary="Allow game tag",
+    description="Allows a tag for a game.",
     status_code=204,
 )
 async def add_game_tag(request: Request, game_id: int, tag_id: int):
@@ -162,6 +168,8 @@ async def add_game_tag(request: Request, game_id: int, tag_id: int):
 @router.delete(
     "/games/{game_id}/tags/{tag_id}",
     tags=["Association", "Game", "Tag"],
+    summary="Disallow game tag",
+    description="Removes a tag allowance from a game.",
     status_code=204,
 )
 async def delete_game_tag(request: Request, game_id: int, tag_id: int):
@@ -184,6 +192,8 @@ async def delete_game_tag(request: Request, game_id: int, tag_id: int):
 @router.post(
     "/mods/{mod_id}/dependencies/{dependency_mod_id}",
     tags=["Association", "Mod"],
+    summary="Add mod dependency",
+    description="Adds a dependency between two mods.",
     status_code=204,
 )
 async def add_mod_dependency(request: Request, mod_id: int, dependency_mod_id: int):
@@ -214,6 +224,8 @@ async def add_mod_dependency(request: Request, mod_id: int, dependency_mod_id: i
 @router.delete(
     "/mods/{mod_id}/dependencies/{dependency_mod_id}",
     tags=["Association", "Mod"],
+    summary="Remove mod dependency",
+    description="Removes a dependency between two mods.",
     status_code=204,
 )
 async def delete_mod_dependency(request: Request, mod_id: int, dependency_mod_id: int):
@@ -236,6 +248,8 @@ async def delete_mod_dependency(request: Request, mod_id: int, dependency_mod_id
 @router.post(
     "/mods/{mod_id}/tags/{tag_id}",
     tags=["Association", "Mod", "Tag"],
+    summary="Add mod tag",
+    description="Associates a tag with a mod.",
     status_code=204,
 )
 async def add_mod_tag(request: Request, mod_id: int, tag_id: int):
@@ -263,6 +277,8 @@ async def add_mod_tag(request: Request, mod_id: int, tag_id: int):
 @router.delete(
     "/mods/{mod_id}/tags/{tag_id}",
     tags=["Association", "Mod", "Tag"],
+    summary="Remove mod tag",
+    description="Removes a tag association from a mod.",
     status_code=204,
 )
 async def delete_mod_tag(request: Request, mod_id: int, tag_id: int):
