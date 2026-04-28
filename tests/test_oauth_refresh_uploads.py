@@ -461,6 +461,14 @@ class OAuthRefreshUploadTests(unittest.TestCase):
 
         access_admin = AsyncMock(return_value=True)
         access_mods = AsyncMock(side_effect=AssertionError("access_mods must not be called"))
+        captured_payload: dict[str, object] = {}
+
+        def fake_create_transfer_jwt(payload, audience, ttl_seconds, issuer="manager"):
+            captured_payload.update(payload)
+            captured_payload["audience"] = audience
+            captured_payload["ttl_seconds"] = ttl_seconds
+            captured_payload["issuer"] = issuer
+            return "upload-token"
 
         with patch.object(api_uploads.config, "TRANSFER_JWT_SECRET", "secret", create=True), patch.object(
             api_uploads.tools,
@@ -473,7 +481,7 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         ), patch.object(
             api_uploads.tools,
             "create_transfer_jwt",
-            return_value="upload-token",
+            side_effect=fake_create_transfer_jwt,
         ), patch.object(
             api_uploads.catalog,
             "AsyncSessionLocal",
@@ -501,8 +509,70 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         self.assertEqual(len(session.added), 2)
         self.assertTrue(any(isinstance(obj, sql_catalog.Resource) for obj in session.added))
         self.assertTrue(any(isinstance(obj, sql_catalog.UploadJob) for obj in session.added))
+        self.assertEqual(captured_payload["transfer_kind"], "img")
+        self.assertEqual(captured_payload["storage_type"], "resource")
+        self.assertEqual(captured_payload["file_kind"], "img")
+        self.assertEqual(captured_payload["callback_action"], "resource_add")
+        self.assertEqual(captured_payload["target_path"], "games/7/555.webp")
         access_admin.assert_awaited_once()
         access_mods.assert_not_awaited()
+
+    def test_profile_avatar_create_uses_avatar_file_kind(self) -> None:
+        session = _MutableSession(next_id=777)
+        access_profile = AsyncMock(
+            return_value=SimpleNamespace(
+                authenticated=True,
+                edit=SimpleNamespace(
+                    avatar=SimpleNamespace(value=True, reason="", reason_code=""),
+                ),
+            )
+        )
+        captured_payload: dict[str, object] = {}
+
+        def fake_create_transfer_jwt(payload, audience, ttl_seconds, issuer="manager"):
+            captured_payload.update(payload)
+            captured_payload["audience"] = audience
+            captured_payload["ttl_seconds"] = ttl_seconds
+            captured_payload["issuer"] = issuer
+            return "upload-token"
+
+        with patch.object(api_uploads.config, "TRANSFER_JWT_SECRET", "secret", create=True), patch.object(
+            api_uploads.tools,
+            "access_profile",
+            access_profile,
+        ), patch.object(
+            api_uploads.tools,
+            "create_transfer_jwt",
+            side_effect=fake_create_transfer_jwt,
+        ), patch.object(
+            api_uploads.catalog,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
+            response = self.client.post(
+                "/uploads",
+                json={
+                    "kind": "profile_avatar",
+                    "owner_type": "profile",
+                    "owner_id": 7,
+                    "mode": "create",
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertEqual(body["kind"], "profile_avatar")
+        self.assertEqual(body["owner_id"], 7)
+        self.assertEqual(body["mode"], "create")
+        self.assertEqual(session.commit_count, 1)
+        self.assertEqual(len(session.added), 1)
+        self.assertTrue(any(isinstance(obj, sql_catalog.UploadJob) for obj in session.added))
+        self.assertEqual(captured_payload["transfer_kind"], "img")
+        self.assertEqual(captured_payload["storage_type"], "avatar")
+        self.assertEqual(captured_payload["file_kind"], "img")
+        self.assertEqual(captured_payload["callback_action"], "avatar_set")
+        self.assertEqual(captured_payload["target_path"], "7.webp")
+        access_profile.assert_awaited_once()
 
     def test_mod_archive_create_rejects_published_mod(self) -> None:
         mod = SimpleNamespace(
