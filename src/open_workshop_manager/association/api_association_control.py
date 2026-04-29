@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Request, Response
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, func, insert, select, update
 
 from open_workshop_manager import standarts, tools
+from open_workshop_manager.api_models import ModAuthorUpsert
+from open_workshop_manager.sql_logic import sql_account as account
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
@@ -293,6 +295,104 @@ async def delete_mod_tag(request: Request, mod_id: int, tag_id: int):
                 catalog.mods_tags.c.tag_id == tag_id,
             )
         )
+        await session.commit()
+
+    return Response(status_code=204)
+
+
+@router.put(
+    "/mods/{mod_id}/authors/{author_id}",
+    tags=["Association", "Mod", "Author"],
+    summary="Set mod author",
+    description="Creates or updates a mod author assignment. When owner is true, this author becomes the owner and other authors are demoted.",
+    status_code=204,
+)
+async def put_mod_author(request: Request, mod_id: int, author_id: int, payload: ModAuthorUpsert):
+    await tools.access_mods(request=request, mods_ids=[mod_id], edit=True)
+    await _ensure_mod_exists(request, mod_id)
+
+    async with account.AsyncSessionLocal() as session:
+        user = await session.get(account.Account, author_id)
+        if user is None:
+            raise standarts.NotFoundError(detail="User not found", instance=str(request.url))
+
+        relation_owner = await session.scalar(
+            select(account.mod_and_author.c.owner).where(
+                account.mod_and_author.c.mod_id == mod_id,
+                account.mod_and_author.c.user_id == author_id,
+            )
+        )
+
+        if payload.owner:
+            await session.execute(
+                update(account.mod_and_author)
+                .where(account.mod_and_author.c.mod_id == mod_id)
+                .where(account.mod_and_author.c.user_id != author_id)
+                .values(owner=False)
+            )
+
+        if relation_owner is None:
+            await session.execute(
+                insert(account.mod_and_author).values(
+                    mod_id=mod_id,
+                    user_id=author_id,
+                    owner=bool(payload.owner),
+                )
+            )
+            await session.execute(
+                update(account.Account)
+                .where(account.Account.id == author_id)
+                .values(author_mods=func.coalesce(account.Account.author_mods, 0) + 1)
+            )
+        else:
+            await session.execute(
+                update(account.mod_and_author)
+                .where(account.mod_and_author.c.mod_id == mod_id)
+                .where(account.mod_and_author.c.user_id == author_id)
+                .values(owner=bool(payload.owner))
+            )
+
+        await session.commit()
+
+    return Response(status_code=204)
+
+
+@router.delete(
+    "/mods/{mod_id}/authors/{author_id}",
+    tags=["Association", "Mod", "Author"],
+    summary="Remove mod author",
+    description="Removes a mod author assignment.",
+    status_code=204,
+)
+async def delete_mod_author(request: Request, mod_id: int, author_id: int):
+    await tools.access_mods(request=request, mods_ids=[mod_id], edit=True)
+    await _ensure_mod_exists(request, mod_id)
+
+    async with account.AsyncSessionLocal() as session:
+        user = await session.get(account.Account, author_id)
+        if user is None:
+            raise standarts.NotFoundError(detail="User not found", instance=str(request.url))
+
+        relation_owner = await session.scalar(
+            select(account.mod_and_author.c.owner).where(
+                account.mod_and_author.c.mod_id == mod_id,
+                account.mod_and_author.c.user_id == author_id,
+            )
+        )
+
+        if relation_owner is not None:
+            await session.execute(
+                delete(account.mod_and_author).where(
+                    account.mod_and_author.c.mod_id == mod_id,
+                    account.mod_and_author.c.user_id == author_id,
+                )
+            )
+            await session.execute(
+                update(account.Account)
+                .where(account.Account.id == author_id)
+                .values(author_mods=func.coalesce(account.Account.author_mods, 0) - 1)
+            )
+
         await session.commit()
 
     return Response(status_code=204)

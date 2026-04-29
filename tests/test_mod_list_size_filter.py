@@ -143,6 +143,39 @@ def _mod(
     )
 
 
+def _account(
+    *,
+    account_id: int = 123,
+    username: str = "Author",
+    author_mods: int = 0,
+) -> types.SimpleNamespace:
+    return types.SimpleNamespace(
+        id=account_id,
+        username=username,
+        author_mods=author_mods,
+    )
+
+
+def _profile(
+    *,
+    profile_id: int = 123,
+    username: str = "Author",
+    grade: str = "VIP",
+) -> types.SimpleNamespace:
+    return types.SimpleNamespace(
+        id=profile_id,
+        username=username,
+        about="About",
+        avatar_url="local.webp",
+        grade=grade,
+        comments=7,
+        author_mods=3,
+        registration_date=datetime.datetime(2026, 4, 27, 12, 0, 0),
+        reputation=42,
+        mute_until=None,
+    )
+
+
 def _game(
     *,
     game_id: int = 1,
@@ -193,6 +226,7 @@ class ModListSizeFilterTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         standarts = import_module("open_workshop_manager.standarts")
         cls.api_mod = import_module("open_workshop_manager.mods.api_mod")
+        cls.api_association = import_module("open_workshop_manager.association.api_association_control")
         cls.api_game = import_module("open_workshop_manager.games.api_game")
         cls.api_resource = import_module("open_workshop_manager.mods.api_resource")
         cls.api_profile = import_module("open_workshop_manager.social.api_profile")
@@ -204,6 +238,7 @@ class ModListSizeFilterTests(unittest.TestCase):
         app = FastAPI()
         standarts.install_exception_handlers(app)
         app.include_router(cls.api_mod.router)
+        app.include_router(cls.api_association.router)
         app.include_router(cls.api_game.router)
         app.include_router(cls.api_resource.router)
         app.include_router(cls.api_profile.router)
@@ -323,6 +358,82 @@ class ModListSizeFilterTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body, {"count": 3, "items": [1, 2, 3]})
         access_mods.assert_awaited_once()
+
+    def test_mod_authors_put_adds_author(self) -> None:
+        catalog_session = _RecordingSession(get_value=_mod())
+        account_session = _RecordingSession(
+            get_value=_account(),
+            scalar_values=[None],
+            allow_writes=True,
+        )
+        access_mods = AsyncMock(return_value=True)
+
+        with patch.object(self.api_association.catalog, "AsyncSessionLocal", return_value=catalog_session), patch.object(
+            self.api_association.account,
+            "AsyncSessionLocal",
+            return_value=account_session,
+        ), patch.object(self.api_association.tools, "access_mods", access_mods):
+            response = self.client.put(
+                f"{self.main_url}/mods/7/authors/123",
+                json={"owner": False},
+            )
+
+        self.assertEqual(response.status_code, 204)
+        access_mods.assert_awaited_once()
+        self.assertEqual(catalog_session.commit_count, 0)
+        self.assertEqual(account_session.commit_count, 1)
+        self.assertEqual(len(account_session.execute_statements), 2)
+        self.assertTrue(any(isinstance(stmt, Insert) for stmt in account_session.execute_statements))
+        self.assertTrue(any(isinstance(stmt, Update) for stmt in account_session.execute_statements))
+
+    def test_mod_authors_put_sets_owner(self) -> None:
+        catalog_session = _RecordingSession(get_value=_mod())
+        account_session = _RecordingSession(
+            get_value=_account(),
+            scalar_values=[None],
+            allow_writes=True,
+        )
+        access_mods = AsyncMock(return_value=True)
+
+        with patch.object(self.api_association.catalog, "AsyncSessionLocal", return_value=catalog_session), patch.object(
+            self.api_association.account,
+            "AsyncSessionLocal",
+            return_value=account_session,
+        ), patch.object(self.api_association.tools, "access_mods", access_mods):
+            response = self.client.put(
+                f"{self.main_url}/mods/7/authors/123",
+                json={"owner": True},
+            )
+
+        self.assertEqual(response.status_code, 204)
+        access_mods.assert_awaited_once()
+        self.assertEqual(account_session.commit_count, 1)
+        self.assertEqual(len(account_session.execute_statements), 3)
+        self.assertEqual(sum(isinstance(stmt, Insert) for stmt in account_session.execute_statements), 1)
+        self.assertEqual(sum(isinstance(stmt, Update) for stmt in account_session.execute_statements), 2)
+
+    def test_mod_authors_delete_removes_author(self) -> None:
+        catalog_session = _RecordingSession(get_value=_mod())
+        account_session = _RecordingSession(
+            get_value=_account(),
+            scalar_values=[True],
+            allow_writes=True,
+        )
+        access_mods = AsyncMock(return_value=True)
+
+        with patch.object(self.api_association.catalog, "AsyncSessionLocal", return_value=catalog_session), patch.object(
+            self.api_association.account,
+            "AsyncSessionLocal",
+            return_value=account_session,
+        ), patch.object(self.api_association.tools, "access_mods", access_mods):
+            response = self.client.delete(f"{self.main_url}/mods/7/authors/123")
+
+        self.assertEqual(response.status_code, 204)
+        access_mods.assert_awaited_once()
+        self.assertEqual(account_session.commit_count, 1)
+        self.assertEqual(len(account_session.execute_statements), 2)
+        self.assertTrue(any(isinstance(stmt, Delete) for stmt in account_session.execute_statements))
+        self.assertTrue(any(isinstance(stmt, Update) for stmt in account_session.execute_statements))
 
     def test_mod_download_url_registers_download_and_returns_storage_url(self) -> None:
         session = _RecordingSession(get_value=_mod(name="Downloadable Mod"), allow_writes=True)
@@ -457,6 +568,41 @@ class ModListSizeFilterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 307)
         self.assertIn(f"{self.storage_url}/download/avatar/123.webp", response.headers["location"])
+        self.assertEqual(session.commit_count, 0)
+        self.assertEqual(session.flush_count, 0)
+
+    def test_profile_list_searches_by_username(self) -> None:
+        session = _RecordingSession(rows=[_profile()], scalar_values=[1])
+
+        with patch.object(self.api_profile.account, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(
+                f"{self.main_url}/profiles",
+                params={"page": 0, "page_size": 10, "username": "Auth"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["pagination"], {
+            "page": 0,
+            "page_size": 10,
+            "offset": 0,
+            "total": 1,
+            "has_next": False,
+            "has_previous": False,
+        })
+        self.assertEqual(body["items"][0]["id"], 123)
+        self.assertEqual(body["items"][0]["username"], "Author")
+        self.assertEqual(body["items"][0]["grade"], "VIP")
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 1)
+        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        self.assertIn("accounts", count_sql)
+        self.assertIn("accounts.username", count_sql.lower())
+        self.assertIn("%auth%", count_sql.lower())
+        self.assertIn("accounts", list_sql)
+        self.assertIn("accounts.username", list_sql.lower())
+        self.assertIn("%auth%", list_sql.lower())
         self.assertEqual(session.commit_count, 0)
         self.assertEqual(session.flush_count, 0)
 

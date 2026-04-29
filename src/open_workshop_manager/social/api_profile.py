@@ -6,15 +6,21 @@ import datetime
 from typing import Literal
 from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import RedirectResponse
-from sqlalchemy import insert, select, update
+from sqlalchemy import func, insert, select, update
 
 from open_workshop_manager import settings as config, standarts, tools
-from open_workshop_manager.api_helpers import ensure_fields_not_none, ensure_non_empty_patch
+from open_workshop_manager.api_helpers import (
+    ensure_fields_not_none,
+    ensure_non_empty_patch,
+    make_list_response,
+)
 from open_workshop_manager.api_models import (
     ProfileGeneralRead,
     ProfilePatch,
     ProfilePasswordPatch,
     ProfilePrivateRead,
+    ProfileSearchListResponse,
+    ProfileSearchRead,
     ProfileRead,
     ProfileRightsPatch,
     ProfileRightsRead,
@@ -51,6 +57,14 @@ def _profile_general_payload(row: account.Account, now: datetime.datetime) -> Pr
         reputation=int(getattr(row, "reputation", 0) or 0),
         mute=bool(getattr(row, "mute_until", None) and getattr(row, "mute_until") > now),
         mute_until=getattr(row, "mute_until", None),
+    )
+
+
+def _profile_search_payload(row: account.Account) -> ProfileSearchRead:
+    return ProfileSearchRead(
+        id=int(row.id),
+        username=str(getattr(row, "username", "")),
+        grade=str(getattr(row, "grade", "") or ""),
     )
 
 
@@ -120,6 +134,63 @@ def _raise_profile_right_denied(request: Request, right) -> None:
         instance=str(request.url),
         context={"reason_code": reason_code},
     )
+
+
+@router.get(
+    "/profiles",
+    tags=["Profile"],
+    summary="Search profiles",
+    description=(
+        "Returns a paginated list of profiles filtered by nickname substring.\n\n"
+        "Use this endpoint to look up users by nickname when adding authors."
+    ),
+    status_code=200,
+    response_model=ProfileSearchListResponse,
+    response_model_exclude_none=True,
+    response_description="Paginated profile search results.",
+)
+async def list_profiles(
+    request: Request,
+    page_size: int = Query(
+        default=10,
+        ge=1,
+        le=100,
+        description="Maximum number of profiles to return per page.",
+    ),
+    page: int = Query(0, ge=0, description="Zero-based page index."),
+    username: str = Query(
+        ...,
+        min_length=1,
+        max_length=LIMITS.profile.username_max,
+        description="Case-insensitive substring filter for the profile nickname.",
+    ),
+):
+    username_query = username.strip()
+    if not username_query:
+        return make_list_response([], page=page, page_size=page_size, total=0)
+
+    async with account.AsyncSessionLocal() as session:
+        base_stmt = (
+            select(account.Account)
+            .where(account.Account.username.is_not(None))
+            .where(account.Account.username != "")
+        )
+        count_stmt = select(func.count()).select_from(account.Account).where(
+            account.Account.username.is_not(None),
+            account.Account.username != "",
+            account.Account.username.ilike(f"%{username_query}%"),
+        )
+        list_stmt = (
+            base_stmt.where(account.Account.username.ilike(f"%{username_query}%"))
+            .order_by(account.Account.username.asc(), account.Account.id.asc())
+        )
+
+        total = int((await session.scalar(count_stmt)) or 0)
+        offset = page * page_size
+        rows = (await session.execute(list_stmt.offset(offset).limit(page_size))).scalars().all()
+
+    items = [_profile_search_payload(row).model_dump(mode="json", exclude_none=True) for row in rows]
+    return make_list_response(items, page=page, page_size=page_size, total=total)
 
 
 @router.get(

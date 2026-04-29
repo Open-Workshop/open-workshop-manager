@@ -186,6 +186,10 @@ class ModPatch(ApiModel):
     adult: bool | None = None
 
 
+class ModAuthorUpsert(ApiModel):
+    owner: bool = False
+
+
 class ModListResponse(ListResponse[ModRead]):
     pass
 
@@ -283,6 +287,16 @@ class ProfilePrivateRead(ReadModel):
     last_password_reset: datetime.datetime | None = None
     yandex: bool
     google: bool
+
+
+class ProfileSearchRead(ReadModel):
+    id: int
+    username: str
+    grade: str
+
+
+class ProfileSearchListResponse(ListResponse[ProfileSearchRead]):
+    pass
 
 
 class ProfileGeneralRead(ReadModel):
