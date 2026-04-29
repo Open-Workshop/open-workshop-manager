@@ -351,6 +351,26 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertNotIn("mods.public = 0", candidate_sql)
         self.assertNotIn("mods.public = 0", list_sql)
 
+    def test_mod_list_applies_adult_filters_for_false_and_true(self) -> None:
+        for adult_value, expected_sql_value in ((0, "false"), (1, "true")):
+            with self.subTest(adult_value=adult_value):
+                session = _RecordingSession(rows=[_mod()], scalar_values=[1])
+
+                with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+                    response = self.client.get(
+                        f"{self.main_url}/mods",
+                        params={"page": 0, "page_size": 20, "sort": "-downloads", "adult": adult_value},
+                    )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(len(session.scalar_statements), 1)
+                self.assertEqual(len(session.execute_statements), 1)
+
+                count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+                list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+                self.assertIn(f"mods.adult = {expected_sql_value}", count_sql)
+                self.assertIn(f"mods.adult = {expected_sql_value}", list_sql)
+
     def test_mod_list_rejects_invalid_size_range(self) -> None:
         response = self.client.get(
             f"{self.main_url}/mods",

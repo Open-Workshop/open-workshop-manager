@@ -420,10 +420,8 @@ async def list_mods(
             stmt = stmt.where(catalog.Mod.id.in_(ids))
         if game_id is not None:
             stmt = stmt.where(catalog.Mod.game == game_id)
-        if adult == 1:
-            stmt = stmt.where(catalog.Mod.adult.is_(True))
-        elif adult == 0:
-            stmt = stmt.where(catalog.Mod.adult.is_(False))
+        if adult in (0, 1):
+            stmt = stmt.where(catalog.Mod.adult == bool(adult))
         if sources:
             stmt = stmt.where(catalog.Mod.source.in_(sources))
         if source_ids:
