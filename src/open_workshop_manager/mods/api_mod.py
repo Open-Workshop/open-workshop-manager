@@ -534,7 +534,9 @@ async def list_mods(
     summary="Contextual size hints for the mod catalog",
     description=(
         "Returns contextual size hints for the public mod catalog.\n\n"
-        "The UI uses this to configure range sliders without loading the full list."
+        "The UI uses this to configure range sliders without loading the full list.\n\n"
+        "When `show_not_public=true` is combined with an author filter, the feed "
+        "matches the visibility rules used by `/mods`."
     ),
     status_code=200,
     response_model=ModFeedRead,
@@ -542,22 +544,73 @@ async def list_mods(
     response_description="Catalog size hints.",
 )
 async def get_mod_feed(
+    request: Request,
     game: int = Query(-1, description="Optional game ID to scope the size hints."),
+    author_id: int | None = Query(default=None, ge=1, description="Filter by author user ID."),
+    user: int | None = Query(default=None, ge=1, description="Backward-compatible alias for `author_id`."),
+    show_not_public: bool = Query(
+        default=False,
+        description="Include non-public mods for the selected author when access allows it.",
+    ),
 ):
+    if author_id is None:
+        author_id = user
+    show_not_public = bool(show_not_public and author_id is not None)
+
     async with catalog.AsyncSessionLocal() as session:
-        visibility_clause = (catalog.Mod.condition == 0) & (catalog.Mod.public == 0)
-        count_stmt = select(func.count()).select_from(catalog.Mod).where(visibility_clause)
-        min_stmt = select(func.min(catalog.Mod.size)).where(visibility_clause)
-        max_stmt = select(func.max(catalog.Mod.size)).where(visibility_clause)
-        unpacked_min_stmt = select(func.min(catalog.Mod.size_unpacked)).where(visibility_clause)
-        unpacked_max_stmt = select(func.max(catalog.Mod.size_unpacked)).where(visibility_clause)
+        stmt = select(catalog.Mod).where(catalog.Mod.condition == 0)
+
+        if author_id is not None:
+            stmt = stmt.where(
+                catalog.Mod.id.in_(
+                    select(account.mod_and_author.c.mod_id).where(
+                        account.mod_and_author.c.user_id == author_id
+                    )
+                )
+            )
 
         if game > 0:
-            count_stmt = count_stmt.where(catalog.Mod.game == game)
-            min_stmt = min_stmt.where(catalog.Mod.game == game)
-            max_stmt = max_stmt.where(catalog.Mod.game == game)
-            unpacked_min_stmt = unpacked_min_stmt.where(catalog.Mod.game == game)
-            unpacked_max_stmt = unpacked_max_stmt.where(catalog.Mod.game == game)
+            stmt = stmt.where(catalog.Mod.game == game)
+
+        if show_not_public:
+            candidate_ids = [
+                int(mod_id)
+                for mod_id in (
+                    await session.execute(
+                        stmt.with_only_columns(catalog.Mod.id).order_by(None)
+                    )
+                ).scalars().all()
+            ]
+            if not candidate_ids:
+                return {
+                    "count": 0,
+                    "size": {"min": None, "max": None},
+                    "size_unpacked": {"min": None, "max": None},
+                }
+
+            allowed_ids = await tools.access_mods(
+                request=request,
+                mods_ids=candidate_ids,
+                author_id=author_id,
+                check_mode=True,
+            )
+            if not allowed_ids:
+                return {
+                    "count": 0,
+                    "size": {"min": None, "max": None},
+                    "size_unpacked": {"min": None, "max": None},
+                }
+
+            stmt = stmt.where(catalog.Mod.id.in_(allowed_ids))
+        else:
+            stmt = stmt.where(catalog.Mod.public == 0)
+
+        filtered = stmt.order_by(None).subquery()
+        count_stmt = select(func.count()).select_from(filtered)
+        min_stmt = select(func.min(filtered.c.size))
+        max_stmt = select(func.max(filtered.c.size))
+        unpacked_min_stmt = select(func.min(filtered.c.size_unpacked))
+        unpacked_max_stmt = select(func.max(filtered.c.size_unpacked))
 
         mods_count = int((await session.scalar(count_stmt)) or 0)
         size_min = await session.scalar(min_stmt)

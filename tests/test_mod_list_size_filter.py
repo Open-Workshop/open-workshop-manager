@@ -385,6 +385,36 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(session.commit_count, 0)
         self.assertEqual(session.flush_count, 0)
 
+    def test_mod_feed_can_include_non_public_author_mods(self) -> None:
+        session = _RecordingSession(
+            rows=[_mod(mod_id=11, public=1), _mod(mod_id=12, public=0)],
+            scalar_values=[2, 100, 200, 300, 400],
+        )
+        access_mock = AsyncMock(return_value=[11, 12])
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_mod.tools,
+            "access_mods",
+            access_mock,
+        ):
+            response = self.client.get(
+                f"{self.main_url}/mods/feed",
+                params={"user": 7, "show_not_public": "true"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["count"], 2)
+        self.assertEqual(body["size"], {"min": 100, "max": 200})
+        self.assertEqual(body["size_unpacked"], {"min": 300, "max": 400})
+        self.assertEqual(len(session.execute_statements), 1)
+        self.assertEqual(len(session.scalar_statements), 5)
+        access_mock.assert_awaited_once()
+        access_call = access_mock.await_args.kwargs
+        self.assertEqual(access_call["mods_ids"], [11, 12])
+        self.assertEqual(access_call["author_id"], 7)
+        self.assertTrue(access_call["check_mode"])
+
     def test_mod_info_includes_dependency_collection(self) -> None:
         session = _RecordingSession(rows=[1, 2, 3], get_value=_mod())
 
@@ -703,6 +733,9 @@ class ModListSizeFilterTests(unittest.TestCase):
         )
         self.assertIn("adult", parameter_names("/mods", "get"))
         self.assertIn("show_not_public", parameter_names("/mods", "get"))
+        self.assertIn("show_not_public", parameter_names("/mods/feed", "get"))
+        self.assertIn("author_id", parameter_names("/mods/feed", "get"))
+        self.assertIn("user", parameter_names("/mods/feed", "get"))
         mod_read = schema["components"]["schemas"]["ModRead"]
         self.assertIn("adult", mod_read["properties"])
         self.assertIn("adult", mod_read["required"])
