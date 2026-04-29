@@ -268,6 +268,8 @@ class ModListSizeFilterTests(unittest.TestCase):
             "has_previous": False,
         })
         self.assertEqual(body["items"][0]["id"], 7)
+        self.assertIn("adult", body["items"][0])
+        self.assertFalse(body["items"][0]["adult"])
         self.assertEqual(body["items"][0]["size"], 150)
         self.assertEqual(session.commit_count, 0)
         self.assertEqual(session.flush_count, 0)
@@ -340,6 +342,8 @@ class ModListSizeFilterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
+        self.assertIn("adult", body)
+        self.assertFalse(body["adult"])
         self.assertEqual(body["dependencies"], {"count": 3, "items": [1, 2, 3]})
         self.assertNotIn("dependencies_count", body)
 
@@ -624,6 +628,9 @@ class ModListSizeFilterTests(unittest.TestCase):
                     return set(parameter["schema"]["items"]["enum"])
             self.fail(f"include parameter missing for {method.upper()} {path}")
 
+        def parameter_names(path: str, method: str) -> set[str]:
+            return {parameter["name"] for parameter in schema["paths"][path][method]["parameters"]}
+
         self.assertEqual(
             include_enum("/games", "get"),
             {"short_description", "description", "dates", "statistics", "genres", "tags", "resources"},
@@ -640,6 +647,11 @@ class ModListSizeFilterTests(unittest.TestCase):
             include_enum("/mods/{mod_id}", "get"),
             {"short_description", "description", "dates", "game", "tags", "dependencies", "authors", "resources"},
         )
+        self.assertIn("adult", parameter_names("/mods", "get"))
+        mod_read = schema["components"]["schemas"]["ModRead"]
+        self.assertIn("adult", mod_read["properties"])
+        self.assertIn("adult", mod_read["required"])
+        self.assertEqual(mod_read["properties"]["adult"]["type"], "boolean")
         self.assertEqual(
             include_enum("/profiles/{user_id}", "get"),
             {"general", "rights", "private"},
