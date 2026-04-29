@@ -133,7 +133,7 @@ class Mod(Base):  # Таблица "моды"
         foreign_keys=[mods_dependencies.c.mod_id, mods_dependencies.c.dependence],
     )
     game: Mapped[int | None] = mapped_column(Integer, ForeignKey("games.id"))
-    adult: Mapped[bool] = mapped_column(Boolean, default=False)
+    adult: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class Resource(Base):  # Ресурсы (скриншоты и лого)
