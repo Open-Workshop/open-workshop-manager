@@ -135,9 +135,16 @@ def _raise_access_service_error(
     ) from exc
 
 
-def _mod_status_allowed(status: access_client.ModResponse, *, edit: bool) -> bool:
+def _mod_status_allowed(
+    status: access_client.ModResponse,
+    *,
+    edit: bool,
+    catalog: bool,
+) -> bool:
     if edit:
         return bool(status.edit.title.value)
+    if catalog:
+        return bool(status.catalog.value)
     return bool(status.download.value)
 
 
@@ -146,13 +153,14 @@ def _allowed_mod_ids(
     normalized_mod_ids: list[int],
     *,
     edit: bool,
+    catalog: bool,
 ) -> list[int]:
     allowed_ids: list[int] = []
     for mod_id in normalized_mod_ids:
         status = access_result.get(mod_id)
         if status is None:
             continue
-        if _mod_status_allowed(status, edit=edit):
+        if _mod_status_allowed(status, edit=edit, catalog=catalog):
             allowed_ids.append(mod_id)
     return allowed_ids
 
@@ -243,6 +251,7 @@ async def anonymous_access_mods(
     mods_ids: list[int] | int,
     edit: bool = False,
     author_id: int | None = None,
+    catalog: bool = False,
     *,
     check_mode: Literal[True],
 ) -> list[int]: ...
@@ -254,6 +263,7 @@ async def anonymous_access_mods(
     mods_ids: list[int] | int,
     edit: bool = False,
     author_id: int | None = None,
+    catalog: bool = False,
     *,
     check_mode: Literal[False] = False,
 ) -> bool: ...
@@ -264,6 +274,7 @@ async def anonymous_access_mods(
     mods_ids: list[int] | int,
     edit: bool = False,
     author_id: int | None = None,
+    catalog: bool = False,
     *,
     check_mode: bool = False,
 ) -> bool | list[int]:
@@ -290,7 +301,12 @@ async def anonymous_access_mods(
     except access_client.AccessServiceError as exc:
         _raise_access_service_error("anonymous_access_mods", exc)
 
-    allowed_ids = _allowed_mod_ids(access_result, normalized_mod_ids, edit=edit)
+    allowed_ids = _allowed_mod_ids(
+        access_result,
+        normalized_mod_ids,
+        edit=edit,
+        catalog=catalog,
+    )
 
     if check_mode:
         return allowed_ids
@@ -304,6 +320,7 @@ async def access_mods(
     mods_ids: list[int] | int,
     edit: bool = False,
     author_id: int | None = None,
+    catalog: bool = False,
     *,
     check_mode: Literal[True],
 ) -> list[int]: ...
@@ -315,6 +332,7 @@ async def access_mods(
     mods_ids: list[int] | int,
     edit: bool = False,
     author_id: int | None = None,
+    catalog: bool = False,
     *,
     check_mode: Literal[False] = False,
 ) -> bool: ...
@@ -325,6 +343,7 @@ async def access_mods(
     mods_ids: list[int] | int,
     edit: bool = False,
     author_id: int | None = None,
+    catalog: bool = False,
     *,
     check_mode: bool = False,
 ) -> bool | list[int]:
@@ -336,6 +355,7 @@ async def access_mods(
         mods_ids (list[int]): The list of mod IDs to check access for.
         edit (bool, optional): Whether to check for edit access. Defaults to False (read access).
         author_id (int | None, optional): Optional author context forwarded to the access service.
+        catalog (bool, optional): When True, filter by catalog visibility instead of read access.
         check_mode (bool, optional): Whether to check in check mode. Defaults to False.
 
     Returns:
@@ -367,7 +387,12 @@ async def access_mods(
     except access_client.AccessServiceError as exc:
         _raise_access_service_error(str(request.url), exc)
 
-    allowed_ids = _allowed_mod_ids(access_result, normalized_mod_ids, edit=edit)
+    allowed_ids = _allowed_mod_ids(
+        access_result,
+        normalized_mod_ids,
+        edit=edit,
+        catalog=catalog,
+    )
 
     if check_mode:
         return allowed_ids

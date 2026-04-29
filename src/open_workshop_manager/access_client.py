@@ -88,6 +88,7 @@ class ModEditResponse(AccessModel):
 
 class ModResponse(AccessState):
     info: BaseRight
+    catalog: BaseRight
     edit: ModEditResponse
     delete: BaseRight
     download: BaseRight

@@ -316,7 +316,8 @@ async def _update_game_mod_count(session, game_id: int, delta: int) -> None:
     description=(
         "Returns a paginated list of public mods by default.\n\n"
         "Set `show_not_public=true` together with `author_id` or `user` to include "
-        "non-public mods for that author when access allows it.\n\n"
+        "non-public mods for that author when access allows it and the mod can still "
+        "be shown in the catalog.\n\n"
         "Use filters for IDs, tags, dependencies, source fields, game, size ranges, "
         "and `include` to opt into extra fields such as `description`, `dates`, `game`, "
         "`tags`, `dependencies`, `authors`, and `resources`."
@@ -353,7 +354,10 @@ async def list_mods(
     user: int | None = Query(default=None, ge=1, description="Backward-compatible alias for `author_id`."),
     show_not_public: bool = Query(
         default=False,
-        description="Include non-public mods for the selected author when access allows it.",
+        description=(
+            "Include non-public mods for the selected author when access allows it "
+            "and the mod remains catalog-visible."
+        ),
     ),
     size_min: int | None = Query(default=None, ge=0, description="Minimum archive size in bytes."),
     size_max: int | None = Query(default=None, ge=0, description="Maximum archive size in bytes."),
@@ -494,6 +498,7 @@ async def list_mods(
                 request=request,
                 mods_ids=candidate_ids,
                 author_id=author_id,
+                catalog=True,
                 check_mode=True,
             )
             if not allowed_ids:
@@ -550,7 +555,10 @@ async def get_mod_feed(
     user: int | None = Query(default=None, ge=1, description="Backward-compatible alias for `author_id`."),
     show_not_public: bool = Query(
         default=False,
-        description="Include non-public mods for the selected author when access allows it.",
+        description=(
+            "Include non-public mods for the selected author when access allows it "
+            "and the mod remains catalog-visible."
+        ),
     ),
 ):
     if author_id is None:
@@ -592,6 +600,7 @@ async def get_mod_feed(
                 request=request,
                 mods_ids=candidate_ids,
                 author_id=author_id,
+                catalog=True,
                 check_mode=True,
             )
             if not allowed_ids:

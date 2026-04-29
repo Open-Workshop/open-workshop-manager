@@ -341,6 +341,7 @@ class ModListSizeFilterTests(unittest.TestCase):
         access_call = access_mock.await_args.kwargs
         self.assertEqual(access_call["mods_ids"], [11, 12])
         self.assertEqual(access_call["author_id"], 3)
+        self.assertTrue(access_call["catalog"])
         self.assertTrue(access_call["check_mode"])
 
         count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True}))
@@ -413,6 +414,7 @@ class ModListSizeFilterTests(unittest.TestCase):
         access_call = access_mock.await_args.kwargs
         self.assertEqual(access_call["mods_ids"], [11, 12])
         self.assertEqual(access_call["author_id"], 7)
+        self.assertTrue(access_call["catalog"])
         self.assertTrue(access_call["check_mode"])
 
     def test_mod_info_includes_dependency_collection(self) -> None:

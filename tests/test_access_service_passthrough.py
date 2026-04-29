@@ -121,6 +121,78 @@ class _DeleteResourcesSession:
         self.commit_count += 1
 
 
+def _mod_response(catalog: bool, download: bool) -> access_client.ModResponse:
+    return access_client.ModResponse.model_validate(
+        {
+            "authenticated": True,
+            "owner_id": 42,
+            "login_method": "password",
+            "info": {
+                "value": True,
+                "reason": "ok",
+                "reason_code": "public",
+            },
+            "catalog": {
+                "value": catalog,
+                "reason": "catalog" if catalog else "hidden",
+                "reason_code": "catalog" if catalog else "hidden",
+            },
+            "edit": {
+                "title": {
+                    "value": False,
+                    "reason": "edit",
+                    "reason_code": "forbidden",
+                },
+                "description": {
+                    "value": False,
+                    "reason": "edit",
+                    "reason_code": "forbidden",
+                },
+                "short_description": {
+                    "value": False,
+                    "reason": "edit",
+                    "reason_code": "forbidden",
+                },
+                "screenshots": {
+                    "value": False,
+                    "reason": "edit",
+                    "reason_code": "forbidden",
+                },
+                "new_version": {
+                    "value": False,
+                    "reason": "edit",
+                    "reason_code": "forbidden",
+                },
+                "authors": {
+                    "value": False,
+                    "reason": "edit",
+                    "reason_code": "forbidden",
+                },
+                "tags": {
+                    "value": False,
+                    "reason": "edit",
+                    "reason_code": "forbidden",
+                },
+                "dependencies": {
+                    "value": False,
+                    "reason": "edit",
+                    "reason_code": "forbidden",
+                },
+            },
+            "delete": {
+                "value": False,
+                "reason": "delete",
+                "reason_code": "forbidden",
+            },
+            "download": {
+                "value": download,
+                "reason": "download" if download else "hidden",
+                "reason_code": "public" if download else "hidden",
+            },
+        }
+    )
+
+
 class AccessServicePassThroughTests(unittest.TestCase):
     def test_resolve_mod_add_uses_access_put_endpoint(self) -> None:
         access_payload = {
@@ -150,6 +222,24 @@ class AccessServicePassThroughTests(unittest.TestCase):
         )
         self.assertTrue(result.add.value)
         self.assertFalse(result.anonymous_add.value)
+
+    def test_access_mods_uses_catalog_right_for_catalog_mode(self) -> None:
+        request = types.SimpleNamespace(cookies={})
+        access_result = {
+            11: _mod_response(catalog=False, download=True),
+            12: _mod_response(catalog=True, download=False),
+        }
+
+        with patch.object(access_client, "resolve_mods", AsyncMock(return_value=access_result)):
+            public_ids = asyncio.run(
+                tools.access_mods(request, mods_ids=[11, 12], check_mode=True)
+            )
+            catalog_ids = asyncio.run(
+                tools.access_mods(request, mods_ids=[11, 12], check_mode=True, catalog=True)
+            )
+
+        self.assertEqual(public_ids, [11])
+        self.assertEqual(catalog_ids, [12])
 
     def test_access_service_timeout_becomes_gateway_timeout_error(self) -> None:
         with patch.object(access_client.aiohttp, "ClientSession", _TimeoutSession):
