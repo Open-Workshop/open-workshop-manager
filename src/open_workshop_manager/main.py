@@ -210,6 +210,11 @@ app = FastAPI(
 standarts.install_exception_handlers(app)
 
 
+@app.get("/healthz", include_in_schema=False)
+async def healthz() -> dict[str, str]:
+    return {"status": "ok"}
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = time.perf_counter()
