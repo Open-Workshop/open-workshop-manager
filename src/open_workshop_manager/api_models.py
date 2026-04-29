@@ -108,6 +108,7 @@ class ResourceRead(ReadModel):
     owner_type: str
     owner_id: int
     type: str
+    sort_order: int
     url: str
     size: int | None = None
     created_at: datetime.datetime | None = None
@@ -118,6 +119,12 @@ class ResourceCreate(ApiModel):
     owner_type: Literal["mods", "games"]
     owner_id: int = Field(ge=1)
     type: str = Field(min_length=LIMITS.resource.type_min, max_length=LIMITS.resource.type_max)
+    sort_order: int = Field(
+        default=0,
+        ge=LIMITS.resource.sort_order_min,
+        le=LIMITS.resource.sort_order_max,
+        description="Manual ordering key for resource lists.",
+    )
     url: str = Field(min_length=LIMITS.resource.url_min, max_length=LIMITS.resource.url_max)
 
 
@@ -131,6 +138,12 @@ class ResourcePatch(ApiModel):
         default=None,
         min_length=LIMITS.resource.url_min,
         max_length=LIMITS.resource.url_max,
+    )
+    sort_order: int | None = Field(
+        default=None,
+        ge=LIMITS.resource.sort_order_min,
+        le=LIMITS.resource.sort_order_max,
+        description="Manual ordering key for resource lists.",
     )
 
 
@@ -255,6 +268,12 @@ class UploadCreate(ApiModel):
         default=None,
         min_length=LIMITS.resource.type_min,
         max_length=LIMITS.resource.type_max,
+    )
+    resource_sort_order: int | None = Field(
+        default=None,
+        ge=LIMITS.resource.sort_order_min,
+        le=LIMITS.resource.sort_order_max,
+        description="Sort order for `resource_image` uploads.",
     )
 
 

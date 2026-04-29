@@ -494,6 +494,7 @@ async def _handle_image_completion(
 
     resource_id_value = _coerce_int(callback_context.get("resource_id"), default=0)
     user_id_value = _coerce_int(callback_context.get("user_id"), default=0)
+    resource_sort_order_value = _coerce_optional_int(payload.get("resource_sort_order"))
 
     if status != "success":
         logger.warning(
@@ -624,6 +625,8 @@ async def _handle_image_completion(
         resource.url = f"local/{target_path}"
         resource.date_event = datetime.datetime.now()
         resource.size = resource_size_value
+        if resource_sort_order_value is not None:
+            resource.sort_order = resource_sort_order_value
         await session.commit()
 
     if callback_action == "resource_edit" and old_url.startswith("local/"):
@@ -647,7 +650,8 @@ async def _handle_image_completion(
         "- `profile_avatar`\n\n"
         "Supported modes:\n"
         "- `create`\n"
-        "- `replace`"
+        "- `replace`\n\n"
+        "When `kind=resource_image`, set `resource_sort_order` to control the final resource order."
     ),
     status_code=201,
     response_model=UploadRead,
@@ -671,6 +675,8 @@ async def create_upload(response: Response, request: Request, payload: UploadCre
     if kind not in VALID_UPLOAD_KINDS:
         _unsupported_upload_kind(request)
     if mode not in VALID_UPLOAD_MODES:
+        _invalid_upload_payload(request)
+    if kind != "resource_image" and payload.resource_sort_order is not None:
         _invalid_upload_payload(request)
 
     job_id = uuid.uuid4().hex
@@ -756,6 +762,9 @@ async def create_upload(response: Response, request: Request, payload: UploadCre
                     url="",
                     size=None,
                     date_event=datetime.datetime.now(),
+                    sort_order=(
+                        payload.resource_sort_order if payload.resource_sort_order is not None else 0
+                    ),
                     owner_type=payload.resource_owner_type,
                     owner_id=payload.resource_owner_id,
                 )
@@ -769,6 +778,7 @@ async def create_upload(response: Response, request: Request, payload: UploadCre
                         "file_kind": "img",
                         "callback_action": "resource_add",
                         "callback_context": {"resource_id": resource.id},
+                        "resource_sort_order": payload.resource_sort_order,
                         "target_path": f"{payload.resource_owner_type}/{payload.resource_owner_id}/{resource.id}.webp",
                     },
                     audience="storage",
@@ -836,6 +846,7 @@ async def create_upload(response: Response, request: Request, payload: UploadCre
                     "file_kind": "img",
                     "callback_action": "resource_edit",
                     "callback_context": {"resource_id": resource_id},
+                    "resource_sort_order": payload.resource_sort_order,
                     "target_path": f"{target_owner_type}/{target_owner_id}/{resource_id}.webp",
                 },
                 audience="storage",

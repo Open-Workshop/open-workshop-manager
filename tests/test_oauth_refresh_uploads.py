@@ -454,6 +454,7 @@ class OAuthRefreshUploadTests(unittest.TestCase):
             url="",
             size=None,
             date_event=None,
+            sort_order=0,
             owner_type="games",
             owner_id=7,
         )
@@ -496,6 +497,7 @@ class OAuthRefreshUploadTests(unittest.TestCase):
                     "resource_owner_type": "games",
                     "resource_owner_id": 7,
                     "resource_type": "screenshot",
+                    "resource_sort_order": 17,
                 },
             )
 
@@ -507,12 +509,15 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         self.assertEqual(session.commit_count, 1)
         self.assertEqual(session.flush_count, 1)
         self.assertEqual(len(session.added), 2)
+        resource_row = next(obj for obj in session.added if isinstance(obj, sql_catalog.Resource))
+        self.assertEqual(resource_row.sort_order, 17)
         self.assertTrue(any(isinstance(obj, sql_catalog.Resource) for obj in session.added))
         self.assertTrue(any(isinstance(obj, sql_catalog.UploadJob) for obj in session.added))
         self.assertEqual(captured_payload["transfer_kind"], "img")
         self.assertEqual(captured_payload["storage_type"], "resource")
         self.assertEqual(captured_payload["file_kind"], "img")
         self.assertEqual(captured_payload["callback_action"], "resource_add")
+        self.assertEqual(captured_payload["resource_sort_order"], 17)
         self.assertEqual(captured_payload["target_path"], "games/7/555.webp")
         access_admin.assert_awaited_once()
         access_mods.assert_not_awaited()
@@ -1258,6 +1263,7 @@ class OAuthRefreshUploadTests(unittest.TestCase):
             type="screenshot",
             url="",
             size=None,
+            sort_order=0,
             date_event=None,
             owner_type="games",
             owner_id=7,
@@ -1302,6 +1308,74 @@ class OAuthRefreshUploadTests(unittest.TestCase):
             )
         )
         self.assertEqual(session.commit_count, 1)
+
+    def test_resource_image_completion_updates_sort_order_on_success(self) -> None:
+        upload_row = SimpleNamespace(
+            id="job-resource",
+            kind="resource_image",
+            status="created",
+            transfer_url="https://storage.example/transfer/upload",
+            ws_url="wss://storage.example/transfer/ws/job-resource",
+            expires_at=datetime.datetime(2026, 4, 1, 0, 0, 0, tzinfo=datetime.timezone.utc),
+            owner_type="resource",
+            owner_id=7,
+            mode="replace",
+            resource_id=10,
+        )
+        resource = SimpleNamespace(
+            id=10,
+            type="screenshot",
+            url="",
+            size=None,
+            sort_order=1,
+            date_event=None,
+            owner_type="games",
+            owner_id=7,
+        )
+        session = _MutableSession(get_map={sql_catalog.Resource: resource})
+        app_main.upload_api.UPLOAD_JOBS["job-resource"] = UploadRead(
+            id="job-resource",
+            kind="resource_image",
+            status="created",
+            transfer_url="https://storage.example/transfer/upload",
+            ws_url="wss://storage.example/transfer/ws/job-resource",
+            expires_at=upload_row.expires_at,
+            owner_type="resource",
+            owner_id=7,
+            mode="replace",
+            resource_id=10,
+        )
+
+        with patch.object(
+            api_uploads.tools,
+            "decode_transfer_jwt",
+            return_value={
+                "job_id": "job-resource",
+                "transfer_kind": "img",
+                "status": "success",
+                "storage_type": "resource",
+                "callback_action": "resource_edit",
+                "callback_context": {"resource_id": 10},
+                "resource_sort_order": 33,
+                "target_path": "games/7/10.webp",
+            },
+        ), patch.object(
+            api_uploads.tools,
+            "storage_job_move",
+            AsyncMock(return_value=(200, {"final_bytes": 123}, True)),
+        ), patch.object(
+            api_uploads.catalog,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
+            response = self.client.post(
+                "/internal/storage/transfer-completions",
+                headers={"Authorization": "Bearer callback-token"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(resource.sort_order, 33)
+        self.assertEqual(resource.url, "local/games/7/10.webp")
 
 
 if __name__ == "__main__":  # pragma: no cover

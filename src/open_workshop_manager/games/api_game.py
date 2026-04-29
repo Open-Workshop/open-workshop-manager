@@ -177,7 +177,7 @@ async def _serialize_game_with_includes(
                     catalog.Resource.owner_type == "games",
                     catalog.Resource.owner_id == row.id,
                 )
-                .order_by(catalog.Resource.id)
+                .order_by(catalog.Resource.sort_order, catalog.Resource.id)
             )
         ).scalars().all()
         payload["resources"] = await tools.resources_serialize(resources)

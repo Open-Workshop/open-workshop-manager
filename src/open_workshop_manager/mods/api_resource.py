@@ -25,7 +25,7 @@ RESOURCE_BAD_REQUEST_RESPONSE = standarts.response_spec(
     standarts.build_problem(
         400,
         title="Bad Request",
-        detail="The resource request contains invalid owner data or URL.",
+        detail="The resource request contains invalid owner data, URL, or sort order.",
         code="BAD_REQUEST",
     ),
     "Invalid request parameters.",
@@ -60,6 +60,7 @@ def _serialize_resource(resource: catalog.Resource) -> ResourceRead:
         owner_type=str(getattr(resource, "owner_type", "")),
         owner_id=int(getattr(resource, "owner_id", 0)),
         type=str(getattr(resource, "type", "")),
+        sort_order=int(getattr(resource, "sort_order", 0) or 0),
         url=real_url,
         size=int(size_value) if size_value is not None else None,
         created_at=getattr(resource, "date_event", None),
@@ -89,6 +90,7 @@ async def _require_owner_access(request: Request, owner_type: str, owner_id: int
     summary="List resources",
     description=(
         "Returns a paginated list of resources for one owner type.\n\n"
+        "Use `sort=sort_order` or `sort=-sort_order` to control ordering.\n\n"
         "Use `only_urls=true` when the UI only needs the raw URLs."
     ),
     status_code=200,
@@ -108,6 +110,10 @@ async def list_resources(
     owner_ids: list[int] = Query(default_factory=list, description="Owner IDs to include."),
     resource_ids: list[int] = Query(default_factory=list, description="Resource IDs to include."),
     types: list[str] = Query(default_factory=list, description="Resource types to include."),
+    sort: str = Query(
+        default="sort_order",
+        description="Sort field, optionally prefixed with `-` for descending order. Only `sort_order` is supported.",
+    ),
     only_urls: bool = Query(default=False, description="Return only resource URLs."),
     page_size: int = Query(
         LIMITS.page.default,
@@ -122,13 +128,25 @@ async def list_resources(
     if owner_id is not None and not owner_ids:
         owner_ids = [owner_id]
 
+    try:
+        sort_clause = tools.sort_resources(sort)
+    except KeyError as exc:
+        raise standarts.StandardAPIError(
+            status_code=400,
+            title="Bad Request",
+            detail="Unsupported sort field.",
+            code="UNSUPPORTED_SORT_FIELD",
+            instance=str(request.url),
+            context={"field": exc.args[0] if exc.args else str(exc), "allowed": ["sort_order"]},
+        ) from exc
+
     async with catalog.AsyncSessionLocal() as session:
         count_stmt = select(func.count()).select_from(catalog.Resource).where(
             catalog.Resource.owner_type == owner_type,
         )
         list_stmt = select(catalog.Resource).where(
             catalog.Resource.owner_type == owner_type,
-        )
+        ).order_by(sort_clause, catalog.Resource.id.asc())
 
         if owner_ids:
             count_stmt = count_stmt.where(catalog.Resource.owner_id.in_(owner_ids))
@@ -199,7 +217,10 @@ async def get_resource(request: Request, resource_id: int) -> ResourceRead:
     "/resources",
     tags=["Resource"],
     summary="Create resource",
-    description="Creates a new resource for a game or a mod owner.",
+    description=(
+        "Creates a new resource for a game or a mod owner.\n\n"
+        "Set `sort_order` to control where the resource appears in list responses."
+    ),
     status_code=201,
     response_model=ResourceRead,
     response_model_exclude_none=True,
@@ -229,6 +250,7 @@ async def create_resource(
     async with catalog.AsyncSessionLocal() as session:
         resource = catalog.Resource(
             type=payload.type,
+            sort_order=payload.sort_order,
             url=payload.url,
             size=None,
             date_event=datetime.now(),
@@ -246,7 +268,7 @@ async def create_resource(
     "/resources/{resource_id}",
     tags=["Resource"],
     summary="Update resource",
-    description="Updates the resource URL or type.",
+    description="Updates the resource URL, type, or sort order.",
     status_code=200,
     response_model=ResourceRead,
     response_model_exclude_none=True,
@@ -268,7 +290,7 @@ async def patch_resource(
     ensure_fields_not_none(
         request,
         data,
-        ("type", "url"),
+        ("type", "url", "sort_order"),
         detail="Resource patch fields cannot be null.",
     )
 
@@ -301,6 +323,8 @@ async def patch_resource(
 
         if "type" in data:
             resource.type = str(data["type"])
+        if "sort_order" in data:
+            resource.sort_order = int(data["sort_order"])
 
         resource.date_event = datetime.now()
         await session.commit()

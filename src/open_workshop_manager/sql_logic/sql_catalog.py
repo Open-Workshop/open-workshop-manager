@@ -141,6 +141,7 @@ class Resource(Base):  # Ресурсы (скриншоты и лого)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     type: Mapped[str] = mapped_column(String(64))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
     # Если начинается с local/, то по факту можно заменить на {config.STORAGE_URL}/(действие)/resource/...
     # При возвращении юзеру обязательно перерабатывать url в фактический (с точки зрения юзера)
@@ -160,9 +161,11 @@ class Resource(Base):  # Ресурсы (скриншоты и лого)
 
 
 Index(
-    "ix_resources_owner_type_owner_id",
+    "ix_resources_owner_type_owner_id_sort_order",
     Resource.owner_type,
     Resource.owner_id,
+    Resource.sort_order,
+    Resource.id,
 )
 
 

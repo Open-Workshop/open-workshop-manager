@@ -209,6 +209,7 @@ def _resource(
     owner_type: str = "games",
     owner_id: int = 1,
     type_: str = "screenshot",
+    sort_order: int = 0,
     url: str = "https://example.com/image.webp",
     size: int | None = None,
 ) -> types.SimpleNamespace:
@@ -217,6 +218,7 @@ def _resource(
         owner_type=owner_type,
         owner_id=owner_id,
         type=type_,
+        sort_order=sort_order,
         url=url,
         size=size,
         date_event=datetime.datetime(2026, 4, 27, 12, 0, 0),
@@ -649,7 +651,7 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertNotIn("created_at", body)
 
     def test_resources_list_is_get_safe(self) -> None:
-        session = _RecordingSession(rows=[_resource()], scalar_values=[1])
+        session = _RecordingSession(rows=[_resource(sort_order=5)], scalar_values=[1])
 
         with patch.object(self.api_resource.catalog, "AsyncSessionLocal", return_value=session):
             response = self.client.get(
@@ -667,8 +669,37 @@ class ModListSizeFilterTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["items"][0]["owner_type"], "games")
         self.assertEqual(body["items"][0]["url"], "https://example.com/image.webp")
+        self.assertEqual(body["items"][0]["sort_order"], 5)
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 1)
+        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        self.assertIn("ORDER BY resources.sort_order", list_sql)
         self.assertEqual(session.commit_count, 0)
         self.assertEqual(session.flush_count, 0)
+
+    def test_resources_list_supports_descending_sort_order(self) -> None:
+        session = _RecordingSession(
+            rows=[_resource(sort_order=9), _resource(resource_id=56, sort_order=3)],
+            scalar_values=[2],
+        )
+
+        with patch.object(self.api_resource.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(
+                f"{self.main_url}/resources",
+                params={
+                    "owner_type": "games",
+                    "owner_ids": [1],
+                    "page": 0,
+                    "page_size": 20,
+                    "sort": "-sort_order",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual([item["sort_order"] for item in body["items"]], [9, 3])
+        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        self.assertIn("ORDER BY resources.sort_order DESC", list_sql)
 
     def test_profile_avatar_get_is_get_safe(self) -> None:
         session = _RecordingSession(scalar_values=["local/avatar.webp"])
@@ -758,10 +789,14 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("show_not_public", parameter_names("/mods/feed", "get"))
         self.assertIn("author_id", parameter_names("/mods/feed", "get"))
         self.assertIn("user", parameter_names("/mods/feed", "get"))
+        self.assertIn("sort", parameter_names("/resources", "get"))
         mod_read = schema["components"]["schemas"]["ModRead"]
         self.assertIn("adult", mod_read["properties"])
         self.assertIn("adult", mod_read["required"])
         self.assertEqual(mod_read["properties"]["adult"]["type"], "boolean")
+        resource_read = schema["components"]["schemas"]["ResourceRead"]
+        self.assertIn("sort_order", resource_read["properties"])
+        self.assertIn("sort_order", resource_read["required"])
         self.assertEqual(
             include_enum("/profiles/{user_id}", "get"),
             {"general", "rights", "private"},

@@ -34,6 +34,8 @@ class ResourceLimits:
     url_min_create: int = 0
     url_min: int = 7
     url_max: int = 256
+    sort_order_min: int = -(2**31)
+    sort_order_max: int = 2**31 - 1
     filters_max: int = 120
 
 

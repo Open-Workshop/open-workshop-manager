@@ -234,6 +234,7 @@ async def resources_serialize(
             {
                 "id": resource.id,
                 "type": resource.type,
+                "sort_order": resource.sort_order,
                 "url": resource.real_url,
                 "size": resource.size,
                 "owner_id": resource.owner_id,
@@ -739,3 +740,10 @@ def sort_games(sort_by: str):
         "mods_count": catalog.Game.mods_count,
     }
     return _sort_clause(sort_by, mapping, default="name")
+
+
+def sort_resources(sort_by: str):
+    mapping = {
+        "sort_order": catalog.Resource.sort_order,
+    }
+    return _sort_clause(sort_by, mapping, default="sort_order")
