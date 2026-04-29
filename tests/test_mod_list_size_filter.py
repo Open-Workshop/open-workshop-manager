@@ -91,6 +91,9 @@ class _RecordingSession:
         if isinstance(stmt, (Insert, Update, Delete)) and not self.allow_writes:
             raise AssertionError(f"Unexpected write statement: {stmt!r}")
         self.execute_statements.append(stmt)
+        selected_columns = list(getattr(stmt, "selected_columns", []))
+        if len(selected_columns) == 1 and getattr(selected_columns[0], "name", None) == "id":
+            return _DummyResult([int(getattr(row, "id", row)) for row in self.rows])
         return _DummyResult(self.rows)
 
     async def get(self, *args, **kwargs) -> object | None:
@@ -273,6 +276,13 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(body["items"][0]["size"], 150)
         self.assertEqual(session.commit_count, 0)
         self.assertEqual(session.flush_count, 0)
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 1)
+
+        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        self.assertIn("mods.public = 0", count_sql)
+        self.assertIn("mods.public = 0", list_sql)
 
     def test_mod_list_filters_by_author_alias(self) -> None:
         session = _RecordingSession(rows=[_mod(mod_id=11)], scalar_values=[1])
@@ -293,8 +303,52 @@ class ModListSizeFilterTests(unittest.TestCase):
         list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
         self.assertIn("mods_and_authors", count_sql)
         self.assertIn("user_id = 3", count_sql)
+        self.assertIn("mods.public = 0", count_sql)
         self.assertIn("mods_and_authors", list_sql)
         self.assertIn("user_id = 3", list_sql)
+        self.assertIn("mods.public = 0", list_sql)
+
+    def test_mod_list_can_include_non_public_author_mods(self) -> None:
+        session = _RecordingSession(
+            rows=[_mod(mod_id=11, public=1), _mod(mod_id=12, public=0)],
+            scalar_values=[2],
+        )
+        access_mock = AsyncMock(return_value=[11, 12])
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_mod.tools,
+            "access_mods",
+            access_mock,
+        ):
+            response = self.client.get(
+                f"{self.main_url}/mods",
+                params={
+                    "page": 0,
+                    "page_size": 20,
+                    "sort": "-created_at",
+                    "user": 3,
+                    "show_not_public": "true",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual([item["id"] for item in body["items"]], [11, 12])
+        self.assertEqual(body["pagination"]["total"], 2)
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 2)
+        access_mock.assert_awaited_once()
+        access_call = access_mock.await_args.kwargs
+        self.assertEqual(access_call["mods_ids"], [11, 12])
+        self.assertEqual(access_call["author_id"], 3)
+        self.assertTrue(access_call["check_mode"])
+
+        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        candidate_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        list_sql = str(session.execute_statements[1].compile(compile_kwargs={"literal_binds": True}))
+        self.assertNotIn("mods.public = 0", count_sql)
+        self.assertNotIn("mods.public = 0", candidate_sql)
+        self.assertNotIn("mods.public = 0", list_sql)
 
     def test_mod_list_rejects_invalid_size_range(self) -> None:
         response = self.client.get(
@@ -648,6 +702,7 @@ class ModListSizeFilterTests(unittest.TestCase):
             {"short_description", "description", "dates", "game", "tags", "dependencies", "authors", "resources"},
         )
         self.assertIn("adult", parameter_names("/mods", "get"))
+        self.assertIn("show_not_public", parameter_names("/mods", "get"))
         mod_read = schema["components"]["schemas"]["ModRead"]
         self.assertIn("adult", mod_read["properties"])
         self.assertIn("adult", mod_read["required"])

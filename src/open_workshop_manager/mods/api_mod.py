@@ -314,7 +314,9 @@ async def _update_game_mod_count(session, game_id: int, delta: int) -> None:
     tags=["Mod"],
     summary="List mods",
     description=(
-        "Returns a paginated list of public mods.\n\n"
+        "Returns a paginated list of public mods by default.\n\n"
+        "Set `show_not_public=true` together with `author_id` or `user` to include "
+        "non-public mods for that author when access allows it.\n\n"
         "Use filters for IDs, tags, dependencies, source fields, game, size ranges, "
         "and `include` to opt into extra fields such as `description`, `dates`, `game`, "
         "`tags`, `dependencies`, `authors`, and `resources`."
@@ -349,6 +351,10 @@ async def list_mods(
     source_ids: list[int] = Query(default_factory=list, description="Source-specific IDs to filter by."),
     author_id: int | None = Query(default=None, ge=1, description="Filter by author user ID."),
     user: int | None = Query(default=None, ge=1, description="Backward-compatible alias for `author_id`."),
+    show_not_public: bool = Query(
+        default=False,
+        description="Include non-public mods for the selected author when access allows it.",
+    ),
     size_min: int | None = Query(default=None, ge=0, description="Minimum archive size in bytes."),
     size_max: int | None = Query(default=None, ge=0, description="Maximum archive size in bytes."),
     size_unpacked_min: int | None = Query(default=None, ge=0, description="Minimum unpacked size in bytes."),
@@ -378,6 +384,7 @@ async def list_mods(
         )
     if author_id is None:
         author_id = user
+    show_not_public = bool(show_not_public and author_id is not None)
 
     dependent_mod = aliased(catalog.Mod)
     dependents_count_stmt = (
@@ -402,7 +409,9 @@ async def list_mods(
         _raise_unsupported_sort(request, exc.args[0] if exc.args else str(exc))
 
     async with catalog.AsyncSessionLocal() as session:
-        stmt = select(catalog.Mod).where(catalog.Mod.condition == 0, catalog.Mod.public == 0)
+        stmt = select(catalog.Mod).where(catalog.Mod.condition == 0)
+        if author_id is None:
+            stmt = stmt.where(catalog.Mod.public == 0)
         if ids:
             stmt = stmt.where(catalog.Mod.id.in_(ids))
         if game_id is not None:
@@ -469,6 +478,30 @@ async def list_mods(
                 )
                 .exists()
             )
+        if show_not_public:
+            candidate_ids = [
+                int(mod_id)
+                for mod_id in (
+                    await session.execute(
+                        stmt.with_only_columns(catalog.Mod.id).order_by(None)
+                    )
+                ).scalars().all()
+            ]
+            if not candidate_ids:
+                return make_list_response([], page=page, page_size=page_size, total=0)
+
+            allowed_ids = await tools.access_mods(
+                request=request,
+                mods_ids=candidate_ids,
+                author_id=author_id,
+                check_mode=True,
+            )
+            if not allowed_ids:
+                return make_list_response([], page=page, page_size=page_size, total=0)
+
+            stmt = stmt.where(catalog.Mod.id.in_(allowed_ids))
+        else:
+            stmt = stmt.where(catalog.Mod.public == 0)
 
         count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
         total = int((await session.scalar(count_stmt)) or 0)

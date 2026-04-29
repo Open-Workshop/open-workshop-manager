@@ -242,6 +242,7 @@ async def anonymous_access_mods(
     user_id: int,
     mods_ids: list[int] | int,
     edit: bool = False,
+    author_id: int | None = None,
     *,
     check_mode: Literal[True],
 ) -> list[int]: ...
@@ -252,6 +253,7 @@ async def anonymous_access_mods(
     user_id: int,
     mods_ids: list[int] | int,
     edit: bool = False,
+    author_id: int | None = None,
     *,
     check_mode: Literal[False] = False,
 ) -> bool: ...
@@ -261,6 +263,7 @@ async def anonymous_access_mods(
     user_id: int,
     mods_ids: list[int] | int,
     edit: bool = False,
+    author_id: int | None = None,
     *,
     check_mode: bool = False,
 ) -> bool | list[int]:
@@ -271,6 +274,7 @@ async def anonymous_access_mods(
         user_id (int): The ID of the user.
         mods_ids (list[int]): A list of mod IDs.
         edit (bool, optional): Whether the user is allowed to edit the mods. Defaults to False.
+        author_id (int | None, optional): Optional author context forwarded to the access service.
         check_mode (bool, optional): Whether to return a list of mod IDs that the user has access to. Defaults to False.
 
     Returns:
@@ -281,6 +285,7 @@ async def anonymous_access_mods(
     try:
         access_result = await access_client.resolve_mods(
             mods_ids=normalized_mod_ids,
+            author_id=author_id,
         )
     except access_client.AccessServiceError as exc:
         _raise_access_service_error("anonymous_access_mods", exc)
@@ -298,6 +303,7 @@ async def access_mods(
     request: Request,
     mods_ids: list[int] | int,
     edit: bool = False,
+    author_id: int | None = None,
     *,
     check_mode: Literal[True],
 ) -> list[int]: ...
@@ -308,6 +314,7 @@ async def access_mods(
     request: Request,
     mods_ids: list[int] | int,
     edit: bool = False,
+    author_id: int | None = None,
     *,
     check_mode: Literal[False] = False,
 ) -> bool: ...
@@ -317,6 +324,7 @@ async def access_mods(
     request: Request,
     mods_ids: list[int] | int,
     edit: bool = False,
+    author_id: int | None = None,
     *,
     check_mode: bool = False,
 ) -> bool | list[int]:
@@ -327,6 +335,7 @@ async def access_mods(
         request (Request): The request object.
         mods_ids (list[int]): The list of mod IDs to check access for.
         edit (bool, optional): Whether to check for edit access. Defaults to False (read access).
+        author_id (int | None, optional): Optional author context forwarded to the access service.
         check_mode (bool, optional): Whether to check in check mode. Defaults to False.
 
     Returns:
@@ -353,6 +362,7 @@ async def access_mods(
         access_result = await access_client.resolve_mods(
             request=request,
             mods_ids=normalized_mod_ids,
+            author_id=author_id,
         )
     except access_client.AccessServiceError as exc:
         _raise_access_service_error(str(request.url), exc)
