@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request, Response
 from sqlalchemy import delete, func, insert, select, update
 
 from open_workshop_manager import standarts, tools
-from open_workshop_manager.api_models import ModAuthorUpsert
+from open_workshop_manager.api_models import ModAuthorUpsert, ModDependencyUpsert
 from open_workshop_manager.sql_logic import sql_account as account
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 
@@ -195,27 +195,104 @@ async def delete_game_tag(request: Request, game_id: int, tag_id: int):
     "/mods/{mod_id}/dependencies/{dependency_mod_id}",
     tags=["Association", "Mod"],
     summary="Add mod dependency",
-    description="Adds a dependency between two mods.",
+    description="Adds a dependency between two mods. Optional dependencies can be updated with PUT on the same resource.",
     status_code=204,
 )
-async def add_mod_dependency(request: Request, mod_id: int, dependency_mod_id: int):
+@router.put(
+    "/mods/{mod_id}/dependencies/{dependency_mod_id}",
+    tags=["Association", "Mod"],
+    summary="Update mod dependency",
+    description="Creates or updates a dependency between two mods and stores whether it is optional.",
+    status_code=204,
+)
+async def upsert_mod_dependency(
+    request: Request,
+    mod_id: int,
+    dependency_mod_id: int,
+    payload: ModDependencyUpsert | None = None,
+):
     await tools.access_mods(request=request, mods_ids=[mod_id], edit=True)
     await _ensure_mod_exists(request, mod_id)
     await _ensure_mod_exists(request, dependency_mod_id)
+    optional = bool(payload.optional) if payload is not None else False
 
     async with catalog.AsyncSessionLocal() as session:
         exists = await session.execute(
-            select(catalog.mods_dependencies).where(
+            select(catalog.mods_dependencies.c.optional).where(
                 catalog.mods_dependencies.c.mod_id == mod_id,
                 catalog.mods_dependencies.c.dependence == dependency_mod_id,
             )
         )
-        if exists.first() is not None:
-            _raise_conflict(request, "ASSOCIATION_ALREADY_EXISTS", "The association is already present.")
+        existing_row = exists.first()
+        if existing_row is not None:
+            if request.method == "POST":
+                _raise_conflict(request, "ASSOCIATION_ALREADY_EXISTS", "The association is already present.")
+            current_optional = bool(
+                getattr(
+                    existing_row,
+                    "optional",
+                    existing_row[0] if hasattr(existing_row, "__getitem__") else existing_row,
+                )
+            )
+            if current_optional != optional:
+                await session.execute(
+                    update(catalog.mods_dependencies)
+                    .where(
+                        catalog.mods_dependencies.c.mod_id == mod_id,
+                        catalog.mods_dependencies.c.dependence == dependency_mod_id,
+                    )
+                    .values(optional=optional)
+                )
+            await session.commit()
+            return Response(status_code=204)
+
         await session.execute(
             insert(catalog.mods_dependencies).values(
                 mod_id=mod_id,
                 dependence=dependency_mod_id,
+                optional=optional,
+            )
+        )
+        await session.commit()
+
+    return Response(status_code=204)
+
+
+@router.post(
+    "/mods/{mod_id}/conflicts/{conflict_mod_id}",
+    tags=["Association", "Mod"],
+    summary="Add mod conflict",
+    description="Adds a conflicting relation between two mods.",
+    status_code=204,
+)
+@router.put(
+    "/mods/{mod_id}/conflicts/{conflict_mod_id}",
+    tags=["Association", "Mod"],
+    summary="Update mod conflict",
+    description="Creates a conflicting relation between two mods and keeps the operation idempotent.",
+    status_code=204,
+)
+async def upsert_mod_conflict(request: Request, mod_id: int, conflict_mod_id: int):
+    await tools.access_mods(request=request, mods_ids=[mod_id], edit=True)
+    await _ensure_mod_exists(request, mod_id)
+    await _ensure_mod_exists(request, conflict_mod_id)
+
+    async with catalog.AsyncSessionLocal() as session:
+        exists = await session.execute(
+            select(catalog.mods_conflicts.c.conflict).where(
+                catalog.mods_conflicts.c.mod_id == mod_id,
+                catalog.mods_conflicts.c.conflict == conflict_mod_id,
+            )
+        )
+        if exists.first() is not None:
+            if request.method == "POST":
+                _raise_conflict(request, "ASSOCIATION_ALREADY_EXISTS", "The association is already present.")
+            return Response(status_code=204)
+
+        await session.execute(
+            insert(catalog.mods_conflicts).values(
+                mod_id=mod_id,
+                conflict=conflict_mod_id,
             )
         )
         await session.commit()
@@ -224,22 +301,22 @@ async def add_mod_dependency(request: Request, mod_id: int, dependency_mod_id: i
 
 
 @router.delete(
-    "/mods/{mod_id}/dependencies/{dependency_mod_id}",
+    "/mods/{mod_id}/conflicts/{conflict_mod_id}",
     tags=["Association", "Mod"],
-    summary="Remove mod dependency",
-    description="Removes a dependency between two mods.",
+    summary="Remove mod conflict",
+    description="Removes a conflicting relation between two mods.",
     status_code=204,
 )
-async def delete_mod_dependency(request: Request, mod_id: int, dependency_mod_id: int):
+async def delete_mod_conflict(request: Request, mod_id: int, conflict_mod_id: int):
     await tools.access_mods(request=request, mods_ids=[mod_id], edit=True)
     await _ensure_mod_exists(request, mod_id)
-    await _ensure_mod_exists(request, dependency_mod_id)
+    await _ensure_mod_exists(request, conflict_mod_id)
 
     async with catalog.AsyncSessionLocal() as session:
         await session.execute(
-            delete(catalog.mods_dependencies).where(
-                catalog.mods_dependencies.c.mod_id == mod_id,
-                catalog.mods_dependencies.c.dependence == dependency_mod_id,
+            delete(catalog.mods_conflicts).where(
+                catalog.mods_conflicts.c.mod_id == mod_id,
+                catalog.mods_conflicts.c.conflict == conflict_mod_id,
             )
         )
         await session.commit()

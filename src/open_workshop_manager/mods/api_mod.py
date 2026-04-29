@@ -26,6 +26,8 @@ from open_workshop_manager.api_models import (
     ModListResponse,
     ModPatch,
     ModRead,
+    ModDependencyCollectionRead,
+    ModDependencyRead,
     TagListResponse,
     TagRead,
 )
@@ -43,6 +45,7 @@ ModIncludeField = Literal[
     "game",
     "tags",
     "dependencies",
+    "conflicts",
     "authors",
     "resources",
 ]
@@ -97,7 +100,17 @@ MOD_CONFLICT_RESPONSE = standarts.response_spec(
     "Mod source already exists.",
 )
 
-MOD_INCLUDE_FIELDS = {"short_description", "description", "dates", "game", "tags", "dependencies", "authors", "resources"}
+MOD_INCLUDE_FIELDS = {
+    "short_description",
+    "description",
+    "dates",
+    "game",
+    "tags",
+    "dependencies",
+    "conflicts",
+    "authors",
+    "resources",
+}
 
 
 def _raise_mod_not_found(request: Request) -> None:
@@ -182,6 +195,20 @@ def _serialize_mod_base(row: catalog.Mod) -> dict[str, object]:
     }
 
 
+def _serialize_dependency_row(row: object) -> dict[str, object]:
+    dependency_id = getattr(row, "dependence", getattr(row, "mod_id", row))
+    optional = bool(getattr(row, "optional", False))
+    return ModDependencyRead(
+        mod_id=int(dependency_id),
+        optional=optional,
+    ).model_dump(mode="json", exclude_none=True)
+
+
+def _serialize_conflict_row(row: object) -> int:
+    conflict_id = getattr(row, "conflict", getattr(row, "mod_id", row))
+    return int(conflict_id)
+
+
 async def _serialize_mod_with_includes(
     session,
     request: Request,
@@ -236,15 +263,32 @@ async def _serialize_mod_with_includes(
     if "dependencies" in include:
         dependencies = (
             await session.execute(
-                select(catalog.mods_dependencies.c.dependence).where(
+                select(
+                    catalog.mods_dependencies.c.dependence,
+                    catalog.mods_dependencies.c.optional,
+                )
+                .where(
                     catalog.mods_dependencies.c.mod_id == row.id
                 )
+                .order_by(catalog.mods_dependencies.c.dependence)
+            )
+        ).all()
+        payload["dependencies"] = {
+            "count": len(dependencies),
+            "items": [_serialize_dependency_row(dep) for dep in dependencies],
+        }
+
+    if "conflicts" in include:
+        conflicts = (
+            await session.execute(
+                select(catalog.mods_conflicts.c.conflict)
+                .where(catalog.mods_conflicts.c.mod_id == row.id)
+                .order_by(catalog.mods_conflicts.c.conflict)
             )
         ).scalars().all()
-        dependency_items = [int(dep) for dep in dependencies]
-        payload["dependencies"] = {
-            "count": len(dependency_items),
-            "items": dependency_items,
+        payload["conflicts"] = {
+            "count": len(conflicts),
+            "items": [_serialize_conflict_row(conflict) for conflict in conflicts],
         }
 
     if "authors" in include:
@@ -320,7 +364,7 @@ async def _update_game_mod_count(session, game_id: int, delta: int) -> None:
         "be shown in the catalog.\n\n"
         "Use filters for IDs, tags, dependencies, source fields, game, size ranges, "
         "and `include` to opt into extra fields such as `description`, `dates`, `game`, "
-        "`tags`, `dependencies`, `authors`, and `resources`."
+        "`tags`, `dependencies`, `conflicts`, `authors`, and `resources`."
     ),
     status_code=200,
     response_model=ModListResponse,
@@ -645,7 +689,7 @@ async def get_mod_feed(
     description=(
         "Returns a mod by ID.\n\n"
         "Use `include` to opt into extra fields such as `description`, `dates`, "
-        "`game`, `tags`, `dependencies`, `authors`, and `resources`."
+        "`game`, `tags`, `dependencies`, `conflicts`, `authors`, and `resources`."
     ),
     status_code=200,
     response_model=ModRead,
@@ -941,7 +985,18 @@ async def delete_mod(request: Request, mod_id: int) -> Response:
                 code="STORAGE_DELETE_FAILED",
             )
 
-        await session.execute(delete(catalog.mods_dependencies).where(catalog.mods_dependencies.c.mod_id == mod_id))
+        await session.execute(
+            delete(catalog.mods_dependencies).where(
+                (catalog.mods_dependencies.c.mod_id == mod_id)
+                | (catalog.mods_dependencies.c.dependence == mod_id)
+            )
+        )
+        await session.execute(
+            delete(catalog.mods_conflicts).where(
+                (catalog.mods_conflicts.c.mod_id == mod_id)
+                | (catalog.mods_conflicts.c.conflict == mod_id)
+            )
+        )
         await session.execute(delete(catalog.mods_tags).where(catalog.mods_tags.c.mod_id == mod_id))
         await session.execute(
             delete(account.mod_and_author).where(account.mod_and_author.c.mod_id == mod_id)
@@ -1067,11 +1122,11 @@ async def get_mod_tags(request: Request, mod_id: int) -> dict[str, object]:
     "/mods/{mod_id}/dependencies",
     tags=["Mod"],
     summary="List mod dependencies",
-    description="Returns all dependency IDs attached to a mod.",
+    description="Returns all dependency relations attached to a mod, including optional ones.",
     status_code=200,
-    response_model=IntCollectionRead,
+    response_model=ModDependencyCollectionRead,
     response_model_exclude_none=True,
-    response_description="Dependency collection.",
+    response_description="Dependency collection with optional flags.",
     responses={
         401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
         403: standarts.FORBIDDEN_RESPONSE_SPEC,
@@ -1087,14 +1142,50 @@ async def get_mod_dependencies(request: Request, mod_id: int) -> dict[str, objec
             _raise_mod_not_found(request)
         dependencies = (
             await session.execute(
-                select(catalog.mods_dependencies.c.dependence).where(
+                select(
+                    catalog.mods_dependencies.c.dependence,
+                    catalog.mods_dependencies.c.optional,
+                )
+                .where(
                     catalog.mods_dependencies.c.mod_id == mod_id
                 )
+                .order_by(catalog.mods_dependencies.c.dependence)
+            )
+        ).all()
+
+    items = [_serialize_dependency_row(dep) for dep in dependencies]
+    return {"count": len(items), "items": items}
+
+
+@router.get(
+    "/mods/{mod_id}/conflicts",
+    tags=["Mod"],
+    summary="List mod conflicts",
+    description="Returns all conflicting mod IDs attached to a mod.",
+    status_code=200,
+    response_model=IntCollectionRead,
+    response_model_exclude_none=True,
+    response_description="Conflict collection.",
+    responses={
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
+        404: MOD_NOT_FOUND_RESPONSE,
+    },
+)
+async def get_mod_conflicts(request: Request, mod_id: int) -> dict[str, object]:
+    await tools.access_mods(request=request, mods_ids=[mod_id])
+
+    async with catalog.AsyncSessionLocal() as session:
+        mod = await session.get(catalog.Mod, mod_id)
+        if mod is None:
+            _raise_mod_not_found(request)
+        conflicts = (
+            await session.execute(
+                select(catalog.mods_conflicts.c.conflict)
+                .where(catalog.mods_conflicts.c.mod_id == mod_id)
+                .order_by(catalog.mods_conflicts.c.conflict)
             )
         ).scalars().all()
 
-    items = [int(dep) for dep in dependencies]
-    return {
-        "count": len(items),
-        "items": items,
-    }
+    items = [_serialize_conflict_row(conflict) for conflict in conflicts]
+    return {"count": len(items), "items": items}

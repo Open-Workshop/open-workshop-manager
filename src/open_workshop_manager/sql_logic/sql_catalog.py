@@ -13,6 +13,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    text,
 )
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -58,6 +59,7 @@ mods_dependencies = Table(
     Base.metadata,  # Зависимости мода
     Column("mod_id", Integer, ForeignKey("mods.id")),
     Column("dependence", Integer, ForeignKey("mods.id")),
+    Column("optional", Boolean, nullable=False, server_default=text("0")),
     extend_existing=True,
 )
 
@@ -70,6 +72,24 @@ Index(
     "ix_unity_mods_dependencies_dependence_mod",
     mods_dependencies.c.dependence,
     mods_dependencies.c.mod_id,
+)
+
+mods_conflicts = Table(
+    "unity_mods_conflicts",
+    Base.metadata,  # Конфликты мода
+    Column("mod_id", Integer, ForeignKey("mods.id")),
+    Column("conflict", Integer, ForeignKey("mods.id")),
+)
+
+Index(
+    "ix_unity_mods_conflicts_mod_conflict",
+    mods_conflicts.c.mod_id,
+    mods_conflicts.c.conflict,
+)
+Index(
+    "ix_unity_mods_conflicts_conflict_mod",
+    mods_conflicts.c.conflict,
+    mods_conflicts.c.mod_id,
 )
 
 
@@ -131,6 +151,14 @@ class Mod(Base):  # Таблица "моды"
         secondaryjoin=(mods_dependencies.c.dependence == id),
         backref="mods",
         foreign_keys=[mods_dependencies.c.mod_id, mods_dependencies.c.dependence],
+    )
+    conflicts: Mapped[list["Mod"]] = relationship(
+        "Mod",
+        secondary=mods_conflicts,
+        primaryjoin=(mods_conflicts.c.mod_id == id),
+        secondaryjoin=(mods_conflicts.c.conflict == id),
+        backref="conflicted_by",
+        foreign_keys=[mods_conflicts.c.mod_id, mods_conflicts.c.conflict],
     )
     game: Mapped[int | None] = mapped_column(Integer, ForeignKey("games.id"))
     adult: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

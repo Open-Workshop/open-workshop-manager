@@ -415,6 +415,12 @@ async def _handle_archive_completion(
                     )
                 )
                 await session.execute(
+                    delete(catalog.mods_conflicts).where(
+                        (catalog.mods_conflicts.c.mod_id == mod_id)
+                        | (catalog.mods_conflicts.c.conflict == mod_id)
+                    )
+                )
+                await session.execute(
                     delete(catalog.mods_tags).where(catalog.mods_tags.c.mod_id == mod_id)
                 )
                 await session.execute(delete(catalog.Mod).where(catalog.Mod.id == mod_id))

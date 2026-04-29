@@ -63,15 +63,22 @@ async def _cleanup_stale_mods_once() -> None:
         return
 
     async with catalog.AsyncSessionLocal() as session:
-        await session.execute(delete(catalog.Mod).where(catalog.Mod.id.in_(stale_ids)))
         await session.execute(
             delete(catalog.mods_dependencies).where(
-                catalog.mods_dependencies.c.mod_id.in_(stale_ids)
+                (catalog.mods_dependencies.c.mod_id.in_(stale_ids))
+                | (catalog.mods_dependencies.c.dependence.in_(stale_ids))
+            )
+        )
+        await session.execute(
+            delete(catalog.mods_conflicts).where(
+                (catalog.mods_conflicts.c.mod_id.in_(stale_ids))
+                | (catalog.mods_conflicts.c.conflict.in_(stale_ids))
             )
         )
         await session.execute(
             delete(catalog.mods_tags).where(catalog.mods_tags.c.mod_id.in_(stale_ids))
         )
+        await session.execute(delete(catalog.Mod).where(catalog.Mod.id.in_(stale_ids)))
         await session.commit()
 
     async with account.AsyncSessionLocal() as session:

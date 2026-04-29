@@ -452,8 +452,19 @@ class ModListSizeFilterTests(unittest.TestCase):
         body = response.json()
         self.assertIn("adult", body)
         self.assertFalse(body["adult"])
-        self.assertEqual(body["dependencies"], {"count": 3, "items": [1, 2, 3]})
+        self.assertEqual(
+            body["dependencies"],
+            {
+                "count": 3,
+                "items": [
+                    {"mod_id": 1, "optional": False},
+                    {"mod_id": 2, "optional": False},
+                    {"mod_id": 3, "optional": False},
+                ],
+            },
+        )
         self.assertNotIn("dependencies_count", body)
+        self.assertNotIn("conflicts", body)
 
     def test_mod_dependencies_endpoint_returns_count_and_items(self) -> None:
         session = _RecordingSession(rows=[1, 2, 3], get_value=_mod())
@@ -468,8 +479,126 @@ class ModListSizeFilterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(body, {"count": 3, "items": [1, 2, 3]})
+        self.assertEqual(
+            body,
+            {
+                "count": 3,
+                "items": [
+                    {"mod_id": 1, "optional": False},
+                    {"mod_id": 2, "optional": False},
+                    {"mod_id": 3, "optional": False},
+                ],
+            },
+        )
         access_mods.assert_awaited_once()
+
+    def test_mod_dependencies_endpoint_serializes_optional_flags(self) -> None:
+        session = _RecordingSession(
+            rows=[
+                types.SimpleNamespace(dependence=1, optional=True),
+                types.SimpleNamespace(dependence=2, optional=False),
+            ],
+            get_value=_mod(),
+        )
+        access_mods = AsyncMock(return_value=True)
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_mod.tools,
+            "access_mods",
+            access_mods,
+        ):
+            response = self.client.get(f"{self.main_url}/mods/7/dependencies")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(
+            body,
+            {
+                "count": 2,
+                "items": [
+                    {"mod_id": 1, "optional": True},
+                    {"mod_id": 2, "optional": False},
+                ],
+            },
+        )
+
+    def test_mod_conflicts_endpoint_returns_count_and_items(self) -> None:
+        session = _RecordingSession(rows=[1, 5], get_value=_mod())
+        access_mods = AsyncMock(return_value=True)
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_mod.tools,
+            "access_mods",
+            access_mods,
+        ):
+            response = self.client.get(f"{self.main_url}/mods/7/conflicts")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body, {"count": 2, "items": [1, 5]})
+        access_mods.assert_awaited_once()
+
+    def test_mod_dependency_post_creates_optional_false_by_default(self) -> None:
+        session = _RecordingSession(get_value=_mod(), allow_writes=True)
+        access_mods = AsyncMock(return_value=True)
+
+        with patch.object(self.api_association.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_association.tools,
+            "access_mods",
+            access_mods,
+        ):
+            response = self.client.post(f"{self.main_url}/mods/7/dependencies/13")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(sum(isinstance(stmt, Insert) for stmt in session.execute_statements), 1)
+        insert_stmt = next(stmt for stmt in session.execute_statements if isinstance(stmt, Insert))
+        insert_sql = str(insert_stmt.compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("unity_mods_dependencies", insert_sql)
+        self.assertIn("optional", insert_sql)
+        self.assertIn("false", insert_sql)
+
+    def test_mod_dependency_put_updates_optional_flag(self) -> None:
+        session = _RecordingSession(
+            rows=[types.SimpleNamespace(optional=False)],
+            get_value=_mod(),
+            allow_writes=True,
+        )
+        access_mods = AsyncMock(return_value=True)
+
+        with patch.object(self.api_association.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_association.tools,
+            "access_mods",
+            access_mods,
+        ):
+            response = self.client.put(
+                f"{self.main_url}/mods/7/dependencies/13",
+                json={"optional": True},
+            )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(sum(isinstance(stmt, Update) for stmt in session.execute_statements), 1)
+        update_stmt = next(stmt for stmt in session.execute_statements if isinstance(stmt, Update))
+        update_sql = str(update_stmt.compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("unity_mods_dependencies", update_sql)
+        self.assertIn("optional", update_sql)
+        self.assertIn("true", update_sql)
+
+    def test_mod_conflict_post_creates_relation(self) -> None:
+        session = _RecordingSession(get_value=_mod(), allow_writes=True)
+        access_mods = AsyncMock(return_value=True)
+
+        with patch.object(self.api_association.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_association.tools,
+            "access_mods",
+            access_mods,
+        ):
+            response = self.client.post(f"{self.main_url}/mods/7/conflicts/13")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(sum(isinstance(stmt, Insert) for stmt in session.execute_statements), 1)
+        insert_stmt = next(stmt for stmt in session.execute_statements if isinstance(stmt, Insert))
+        insert_sql = str(insert_stmt.compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("unity_mods_conflicts", insert_sql)
 
     def test_mod_authors_put_adds_author(self) -> None:
         catalog_session = _RecordingSession(get_value=_mod())
@@ -778,11 +907,11 @@ class ModListSizeFilterTests(unittest.TestCase):
         )
         self.assertEqual(
             include_enum("/mods", "get"),
-            {"short_description", "description", "dates", "game", "tags", "dependencies", "authors", "resources"},
+            {"short_description", "description", "dates", "game", "tags", "dependencies", "conflicts", "authors", "resources"},
         )
         self.assertEqual(
             include_enum("/mods/{mod_id}", "get"),
-            {"short_description", "description", "dates", "game", "tags", "dependencies", "authors", "resources"},
+            {"short_description", "description", "dates", "game", "tags", "dependencies", "conflicts", "authors", "resources"},
         )
         self.assertIn("adult", parameter_names("/mods", "get"))
         self.assertIn("show_not_public", parameter_names("/mods", "get"))

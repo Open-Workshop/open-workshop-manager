@@ -171,7 +171,8 @@ class ModRead(ReadModel):
     file: dict[str, Any] | str | None = None
     game: GameRead | None = None
     tags: list[TagRead] | None = None
-    dependencies: IntCollectionRead | None = None
+    dependencies: ModDependencyCollectionRead | None = None
+    conflicts: IntCollectionRead | None = None
     authors: dict[int, dict[str, bool]] | None = None
     resources: list[ResourceRead] | None = None
 
@@ -201,6 +202,20 @@ class ModPatch(ApiModel):
 
 class ModAuthorUpsert(ApiModel):
     owner: bool = False
+
+
+class ModDependencyRead(ReadModel):
+    mod_id: int
+    optional: bool = False
+
+
+class ModDependencyCollectionRead(ReadModel):
+    count: int
+    items: list[ModDependencyRead]
+
+
+class ModDependencyUpsert(ApiModel):
+    optional: bool = False
 
 
 class ModListResponse(ListResponse[ModRead]):
