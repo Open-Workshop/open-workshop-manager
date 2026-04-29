@@ -373,6 +373,170 @@ class ModListSizeFilterTests(unittest.TestCase):
                 self.assertIn(f"mods.adult = {expected_sql_value}", count_sql)
                 self.assertIn(f"mods.adult = {expected_sql_value}", list_sql)
 
+    def test_mod_list_treats_bare_dependency_as_any(self) -> None:
+        bare_session = _RecordingSession(rows=[_mod()], scalar_values=[1])
+        explicit_session = _RecordingSession(rows=[_mod()], scalar_values=[1])
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=bare_session):
+            bare_response = self.client.get(
+                f"{self.main_url}/mods",
+                params={
+                    "page": 0,
+                    "page_size": 20,
+                    "dependencies": [14],
+                },
+            )
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=explicit_session):
+            explicit_response = self.client.get(
+                f"{self.main_url}/mods",
+                params={
+                    "page": 0,
+                    "page_size": 20,
+                    "dependencies": ["14:any"],
+                },
+            )
+
+        self.assertEqual(bare_response.status_code, 200)
+        self.assertEqual(explicit_response.status_code, 200)
+        self.assertEqual(len(bare_session.scalar_statements), 1)
+        self.assertEqual(len(explicit_session.scalar_statements), 1)
+        self.assertEqual(len(bare_session.execute_statements), 1)
+        self.assertEqual(len(explicit_session.execute_statements), 1)
+
+        bare_count_sql = str(bare_session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        explicit_count_sql = str(explicit_session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        bare_list_sql = str(bare_session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        explicit_list_sql = str(explicit_session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertEqual(bare_count_sql, explicit_count_sql)
+        self.assertEqual(bare_list_sql, explicit_list_sql)
+        self.assertIn("mods_dependencies", bare_count_sql)
+        self.assertIn("mods_dependencies", bare_list_sql)
+
+    def test_mod_list_filters_dependencies_by_per_item_modes(self) -> None:
+        session = _RecordingSession(rows=[_mod()], scalar_values=[1])
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(
+                f"{self.main_url}/mods",
+                params={
+                    "page": 0,
+                    "page_size": 20,
+                    "dependencies": ["1:required", "2:optional"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 1)
+
+        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("mods_dependencies", count_sql)
+        self.assertIn("mods_dependencies", list_sql)
+        self.assertIn("optional", count_sql)
+        self.assertIn("optional", list_sql)
+        self.assertIn("is false", count_sql)
+        self.assertIn("is true", count_sql)
+        self.assertIn("is false", list_sql)
+        self.assertIn("is true", list_sql)
+
+    def test_mod_list_excludes_conflicting_mods(self) -> None:
+        session = _RecordingSession(rows=[_mod()], scalar_values=[1])
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(
+                f"{self.main_url}/mods",
+                params={
+                    "page": 0,
+                    "page_size": 20,
+                    "excluded_conflicts": [8, 9],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 1)
+
+        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("mods_conflicts", count_sql)
+        self.assertIn("mods_conflicts", list_sql)
+        self.assertIn("conflict", count_sql)
+        self.assertIn("conflict", list_sql)
+        self.assertIn("8", count_sql)
+        self.assertIn("9", count_sql)
+        self.assertIn("8", list_sql)
+        self.assertIn("9", list_sql)
+
+    def test_mod_list_treats_bare_excluded_dependency_as_any(self) -> None:
+        bare_session = _RecordingSession(rows=[_mod()], scalar_values=[1])
+        explicit_session = _RecordingSession(rows=[_mod()], scalar_values=[1])
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=bare_session):
+            bare_response = self.client.get(
+                f"{self.main_url}/mods",
+                params={
+                    "page": 0,
+                    "page_size": 20,
+                    "excluded_dependencies": [14],
+                },
+            )
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=explicit_session):
+            explicit_response = self.client.get(
+                f"{self.main_url}/mods",
+                params={
+                    "page": 0,
+                    "page_size": 20,
+                    "excluded_dependencies": ["14:any"],
+                },
+            )
+
+        self.assertEqual(bare_response.status_code, 200)
+        self.assertEqual(explicit_response.status_code, 200)
+        self.assertEqual(len(bare_session.scalar_statements), 1)
+        self.assertEqual(len(explicit_session.scalar_statements), 1)
+        self.assertEqual(len(bare_session.execute_statements), 1)
+        self.assertEqual(len(explicit_session.execute_statements), 1)
+
+        bare_count_sql = str(bare_session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        explicit_count_sql = str(explicit_session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        bare_list_sql = str(bare_session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        explicit_list_sql = str(explicit_session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertEqual(bare_count_sql, explicit_count_sql)
+        self.assertEqual(bare_list_sql, explicit_list_sql)
+        self.assertIn("mods_dependencies", bare_count_sql)
+        self.assertIn("mods_dependencies", bare_list_sql)
+
+    def test_mod_list_excludes_dependencies_by_per_item_modes(self) -> None:
+        session = _RecordingSession(rows=[_mod()], scalar_values=[1])
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(
+                f"{self.main_url}/mods",
+                params={
+                    "page": 0,
+                    "page_size": 20,
+                    "excluded_dependencies": ["4:required", "5:optional"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 1)
+
+        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("mods_dependencies", count_sql)
+        self.assertIn("mods_dependencies", list_sql)
+        self.assertIn("optional", count_sql)
+        self.assertIn("optional", list_sql)
+        self.assertIn("is false", count_sql)
+        self.assertIn("is true", count_sql)
+        self.assertIn("is false", list_sql)
+        self.assertIn("is true", list_sql)
+
     def test_mod_list_rejects_invalid_size_range(self) -> None:
         response = self.client.get(
             f"{self.main_url}/mods",
@@ -926,6 +1090,20 @@ class ModListSizeFilterTests(unittest.TestCase):
         resource_read = schema["components"]["schemas"]["ResourceRead"]
         self.assertIn("sort_order", resource_read["properties"])
         self.assertIn("sort_order", resource_read["required"])
+        mod_params = parameter_names("/mods", "get")
+        self.assertIn("excluded_conflicts", mod_params)
+        dependencies_param = next(
+            parameter
+            for parameter in schema["paths"]["/mods"]["get"]["parameters"]
+            if parameter["name"] == "dependencies"
+        )
+        self.assertEqual(dependencies_param["schema"]["items"]["type"], "string")
+        excluded_dependencies_param = next(
+            parameter
+            for parameter in schema["paths"]["/mods"]["get"]["parameters"]
+            if parameter["name"] == "excluded_dependencies"
+        )
+        self.assertEqual(excluded_dependencies_param["schema"]["items"]["type"], "string")
         self.assertEqual(
             include_enum("/profiles/{user_id}", "get"),
             {"general", "rights", "private"},

@@ -8,7 +8,7 @@ from urllib.parse import quote
 from typing import Literal
 
 from fastapi import APIRouter, Query, Request, Response
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.orm import aliased
 
 from open_workshop_manager import mod_events, standarts, tools
@@ -49,6 +49,8 @@ ModIncludeField = Literal[
     "authors",
     "resources",
 ]
+
+DependencyFilterMode = Literal["any", "required", "optional"]
 
 MOD_BAD_REQUEST_RESPONSE = standarts.response_spec(
     standarts.build_problem(
@@ -166,6 +168,177 @@ def _normalize_include(request: Request, include: list[str]) -> set[str]:
     if unknown:
         _raise_unsupported_include(request, sorted(unknown)[0])
     return normalized
+
+
+def _raise_invalid_dependency_filter(
+    request: Request,
+    *,
+    field: str,
+    value: str,
+    detail: str,
+    mod_id: int | None = None,
+) -> None:
+    context: dict[str, object] = {"field": field, "value": value}
+    if mod_id is not None:
+        context["mod_id"] = mod_id
+    raise standarts.BadRequestError(
+        detail=detail,
+        instance=str(request.url),
+        code="INVALID_DEPENDENCY_FILTER",
+        context=context,
+    )
+
+
+def _parse_dependency_filter_token(
+    request: Request,
+    *,
+    field: str,
+    token: str,
+) -> tuple[int, DependencyFilterMode]:
+    raw = str(token).strip()
+    if not raw:
+        _raise_invalid_dependency_filter(
+            request,
+            field=field,
+            value=token,
+            detail="Dependency filter cannot be empty.",
+        )
+
+    if ":" in raw:
+        mod_text, mode_text = raw.split(":", 1)
+    elif "|" in raw:
+        mod_text, mode_text = raw.split("|", 1)
+    else:
+        mod_text, mode_text = raw, None
+
+    try:
+        mod_id = int(mod_text)
+    except ValueError:
+        _raise_invalid_dependency_filter(
+            request,
+            field=field,
+            value=token,
+            detail="Dependency filter must start with a numeric mod ID.",
+        )
+
+    if mode_text is None:
+        return mod_id, "any"
+
+    mode = mode_text.strip().lower()
+    if mode in {"", "any"}:
+        return mod_id, "any"
+    if mode in {"required", "req"}:
+        return mod_id, "required"
+    if mode in {"optional", "opt"}:
+        return mod_id, "optional"
+
+    _raise_invalid_dependency_filter(
+        request,
+        field=field,
+        value=token,
+        detail="Unsupported dependency filter mode.",
+        mod_id=mod_id,
+    )
+
+
+def _merge_dependency_modes(existing: DependencyFilterMode, incoming: DependencyFilterMode) -> DependencyFilterMode | None:
+    if existing == incoming:
+        return existing
+    if existing == "any":
+        return incoming
+    if incoming == "any":
+        return existing
+    return None
+
+
+def _collect_dependency_filter_groups(
+    request: Request,
+    *,
+    field: str,
+    values: list[str],
+) -> dict[DependencyFilterMode, set[int]]:
+    modes_by_mod_id: dict[int, DependencyFilterMode] = {}
+    for token in values:
+        mod_id, mode = _parse_dependency_filter_token(request, field=field, token=token)
+        current_mode = modes_by_mod_id.get(mod_id)
+        if current_mode is None:
+            modes_by_mod_id[mod_id] = mode
+            continue
+        merged_mode = _merge_dependency_modes(current_mode, mode)
+        if merged_mode is None:
+            _raise_invalid_dependency_filter(
+                request,
+                field=field,
+                value=token,
+                detail="Conflicting dependency filter modes were supplied for the same mod ID.",
+                mod_id=mod_id,
+            )
+        modes_by_mod_id[mod_id] = merged_mode
+
+    grouped: dict[DependencyFilterMode, set[int]] = {
+        "any": set(),
+        "required": set(),
+        "optional": set(),
+    }
+    for mod_id, mode in modes_by_mod_id.items():
+        grouped[mode].add(mod_id)
+    return grouped
+
+
+def _join_dependency_requirement(
+    stmt,
+    *,
+    dependency_ids: set[int],
+    mode: DependencyFilterMode,
+):
+    if not dependency_ids:
+        return stmt
+
+    dependency_conditions = [catalog.mods_dependencies.c.dependence.in_(sorted(dependency_ids))]
+    if mode == "required":
+        dependency_conditions.append(catalog.mods_dependencies.c.optional.is_(False))
+    elif mode == "optional":
+        dependency_conditions.append(catalog.mods_dependencies.c.optional.is_(True))
+
+    mods_with_dependencies = (
+        select(catalog.mods_dependencies.c.mod_id)
+        .where(*dependency_conditions)
+        .group_by(catalog.mods_dependencies.c.mod_id)
+        .having(
+            func.count(func.distinct(catalog.mods_dependencies.c.dependence))
+            == len(dependency_ids)
+        )
+        .subquery()
+    )
+    return stmt.join(
+        mods_with_dependencies,
+        catalog.Mod.id == mods_with_dependencies.c.mod_id,
+    )
+
+
+def _exclude_dependency_requirement(
+    stmt,
+    *,
+    dependency_ids: set[int],
+    mode: DependencyFilterMode,
+):
+    if not dependency_ids:
+        return stmt
+
+    dependency_conditions = [
+        catalog.mods_dependencies.c.mod_id == catalog.Mod.id,
+        catalog.mods_dependencies.c.dependence.in_(sorted(dependency_ids)),
+    ]
+    if mode == "required":
+        dependency_conditions.append(catalog.mods_dependencies.c.optional.is_(False))
+    elif mode == "optional":
+        dependency_conditions.append(catalog.mods_dependencies.c.optional.is_(True))
+
+    return stmt.where(
+        ~select(1)
+        .where(*dependency_conditions)
+        .exists()
+    )
 
 
 def _serialize_mod_base(row: catalog.Mod) -> dict[str, object]:
@@ -362,9 +535,11 @@ async def _update_game_mod_count(session, game_id: int, delta: int) -> None:
         "Set `show_not_public=true` together with `author_id` or `user` to include "
         "non-public mods for that author when access allows it and the mod can still "
         "be shown in the catalog.\n\n"
-        "Use filters for IDs, tags, dependencies, source fields, game, size ranges, "
-        "and `include` to opt into extra fields such as `description`, `dates`, `game`, "
-        "`tags`, `dependencies`, `conflicts`, `authors`, and `resources`."
+        "Use filters for IDs, tags, dependency rules, conflict exclusions, source fields, "
+        "game, size ranges, and `include` to opt into extra fields such as `description`, `dates`, `game`, "
+        "`tags`, `dependencies`, `conflicts`, `authors`, and `resources`.\n\n"
+        "Dependency filters accept bare mod IDs as `any`, or explicit rules such as "
+        "`123:required`, `123:optional`, and `123:any` so each mod can be configured independently."
     ),
     status_code=200,
     response_model=ModListResponse,
@@ -388,8 +563,24 @@ async def list_mods(
     ids: list[int] = Query(default_factory=list, description="Limit results to these mod IDs."),
     tags: list[int] = Query(default_factory=list, description="Require all of these tag IDs."),
     excluded_tags: list[int] = Query(default_factory=list, description="Exclude any mod that has one of these tags."),
-    dependencies: list[int] = Query(default_factory=list, description="Require all of these dependency IDs."),
-    excluded_dependencies: list[int] = Query(default_factory=list, description="Exclude mods that depend on any of these IDs."),
+    dependencies: list[str] = Query(
+        default_factory=list,
+        description=(
+            "Dependency filters. Use bare mod IDs as `any`, or explicit rules like "
+            "`123:required`, `123:optional`, or `123:any`."
+        ),
+    ),
+    excluded_dependencies: list[str] = Query(
+        default_factory=list,
+        description=(
+            "Excluded dependency filters. Use bare mod IDs as `any`, or explicit rules like "
+            "`123:required`, `123:optional`, or `123:any`."
+        ),
+    ),
+    excluded_conflicts: list[int] = Query(
+        default_factory=list,
+        description="Exclude any mod that conflicts with one of these mod IDs.",
+    ),
     game_id: int | None = Query(default=None, ge=1, description="Filter by game ID."),
     adult: int = Query(default=-1, ge=-1, le=1, description="Adult content filter: -1 any, 0 false, 1 true."),
     sources: list[str] = Query(default_factory=list, description="Source names to filter by."),
@@ -500,27 +691,43 @@ async def list_mods(
                 )
                 .exists()
             )
-        if dependencies:
-            mods_with_dependencies = (
-                select(catalog.mods_dependencies.c.mod_id)
-                .where(catalog.mods_dependencies.c.dependence.in_(dependencies))
-                .group_by(catalog.mods_dependencies.c.mod_id)
-                .having(
-                    func.count(func.distinct(catalog.mods_dependencies.c.dependence))
-                    == len(dependencies)
-                )
-                .subquery()
+        dependency_groups = _collect_dependency_filter_groups(
+            request,
+            field="dependencies",
+            values=dependencies,
+        )
+        for mode, dependency_ids in dependency_groups.items():
+            stmt = _join_dependency_requirement(
+                stmt,
+                dependency_ids=dependency_ids,
+                mode=mode,
             )
-            stmt = stmt.join(
-                mods_with_dependencies,
-                catalog.Mod.id == mods_with_dependencies.c.mod_id,
+
+        excluded_dependency_groups = _collect_dependency_filter_groups(
+            request,
+            field="excluded_dependencies",
+            values=excluded_dependencies,
+        )
+        for mode, dependency_ids in excluded_dependency_groups.items():
+            stmt = _exclude_dependency_requirement(
+                stmt,
+                dependency_ids=dependency_ids,
+                mode=mode,
             )
-        if excluded_dependencies:
+        if excluded_conflicts:
             stmt = stmt.where(
                 ~select(1)
                 .where(
-                    catalog.mods_dependencies.c.mod_id == catalog.Mod.id,
-                    catalog.mods_dependencies.c.dependence.in_(excluded_dependencies),
+                    or_(
+                        and_(
+                            catalog.mods_conflicts.c.mod_id == catalog.Mod.id,
+                            catalog.mods_conflicts.c.conflict.in_(excluded_conflicts),
+                        ),
+                        and_(
+                            catalog.mods_conflicts.c.conflict == catalog.Mod.id,
+                            catalog.mods_conflicts.c.mod_id.in_(excluded_conflicts),
+                        ),
+                    )
                 )
                 .exists()
             )
