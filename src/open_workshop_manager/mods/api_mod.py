@@ -719,10 +719,13 @@ async def create_mod(
 
     async with catalog.AsyncSessionLocal() as session:
         if payload.source_id is not None and payload.source != "local":
+            # Draft mods are allowed to coexist while they are still uploading.
+            # Only a loaded mod should block a new source binding.
             existing = await session.scalar(
                 select(catalog.Mod.id).where(
                     catalog.Mod.source == payload.source,
                     catalog.Mod.source_id == payload.source_id,
+                    catalog.Mod.condition == 0,
                 )
             )
             if existing is not None:
@@ -846,11 +849,13 @@ async def patch_mod(
             candidate_source = data.get("source", row.source)
             candidate_source_id = data.get("source_id", row.source_id)
             if candidate_source_id is not None and candidate_source != "local":
+                # Keep uploading drafts flexible; loaded mods still remain unique per source.
                 existing = await session.scalar(
                     select(catalog.Mod.id).where(
                         catalog.Mod.id != mod_id,
                         catalog.Mod.source == candidate_source,
                         catalog.Mod.source_id == candidate_source_id,
+                        catalog.Mod.condition == 0,
                     )
                 )
                 if existing is not None:
