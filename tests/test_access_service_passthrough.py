@@ -66,6 +66,61 @@ class _TimeoutSession:
         return _TimeoutRequest()
 
 
+class _DeleteTimeoutResponse:
+    async def __aenter__(self):
+        raise asyncio.TimeoutError
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
+class _DeleteTimeoutSession:
+    last_kwargs: dict[str, object] | None = None
+
+    def __init__(self, *args, **kwargs) -> None:
+        _DeleteTimeoutSession.last_kwargs = dict(kwargs)
+
+    async def __aenter__(self) -> "_DeleteTimeoutSession":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    def delete(self, *args, **kwargs) -> _DeleteTimeoutResponse:
+        return _DeleteTimeoutResponse()
+
+
+class _DeleteResourcesResult:
+    def __init__(self, rows: list[object]) -> None:
+        self._rows = rows
+
+    def scalars(self) -> "_DeleteResourcesResult":
+        return self
+
+    def all(self) -> list[object]:
+        return list(self._rows)
+
+
+class _DeleteResourcesSession:
+    def __init__(self, rows: list[object]) -> None:
+        self.rows = rows
+        self.execute_statements: list[object] = []
+        self.commit_count = 0
+
+    async def __aenter__(self) -> "_DeleteResourcesSession":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    async def execute(self, stmt) -> _DeleteResourcesResult:
+        self.execute_statements.append(stmt)
+        return _DeleteResourcesResult(self.rows)
+
+    async def commit(self) -> None:
+        self.commit_count += 1
+
+
 class AccessServicePassThroughTests(unittest.TestCase):
     def test_resolve_mod_add_uses_access_put_endpoint(self) -> None:
         access_payload = {
@@ -214,6 +269,49 @@ class AccessServicePassThroughTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.status_code, 504)
         self.assertEqual(raised.exception.problem.detail, "Access service timeout")
+
+    def test_storage_file_delete_timeout_returns_false(self) -> None:
+        _DeleteTimeoutSession.last_kwargs = None
+        with patch.object(
+            tools.config,
+            "STORAGE_DELETE_TIMEOUT_SECONDS",
+            1,
+            create=True,
+        ), patch.object(
+            tools.aiohttp,
+            "ClientSession",
+            _DeleteTimeoutSession,
+        ):
+            self.assertFalse(asyncio.run(tools.storage_file_delete("resource", "mods/1/file.webp")))
+
+        self.assertIsNotNone(_DeleteTimeoutSession.last_kwargs)
+        assert _DeleteTimeoutSession.last_kwargs is not None
+        timeout = _DeleteTimeoutSession.last_kwargs.get("timeout")
+        self.assertIsNotNone(timeout)
+        self.assertEqual(getattr(timeout, "total", None), 1)
+
+    def test_delete_resources_returns_false_when_any_storage_delete_fails(self) -> None:
+        rows = [
+            types.SimpleNamespace(id=1, url="local/mods/1/one.webp"),
+            types.SimpleNamespace(id=2, url="local/mods/1/two.webp"),
+        ]
+        session = _DeleteResourcesSession(rows)
+        storage_delete = AsyncMock(side_effect=[True, False])
+
+        with patch.object(
+            tools.catalog,
+            "AsyncSessionLocal",
+            return_value=session,
+        ), patch.object(
+            tools,
+            "storage_file_delete",
+            storage_delete,
+        ):
+            result = asyncio.run(tools.delete_resources(owner_type="mods", owner_id=1))
+
+        self.assertFalse(result)
+        self.assertEqual(storage_delete.await_count, 2)
+        self.assertEqual(session.commit_count, 1)
 
 
 if __name__ == "__main__":  # pragma: no cover

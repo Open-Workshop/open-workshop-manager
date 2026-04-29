@@ -470,34 +470,58 @@ async def storage_file_delete(type: str, path: str) -> bool:
     """
 
     real_url = f"{config.STORAGE_URL}/delete"
+    timeout_raw = getattr(config, "STORAGE_DELETE_TIMEOUT_SECONDS", 30)
+    try:
+        timeout_seconds = int(timeout_raw)
+    except (TypeError, ValueError):
+        timeout_seconds = 30
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
 
-    async with aiohttp.ClientSession() as session:
-        async with session.delete(
-            real_url,
-            data={
-                "type": type,
-                "path": path,
-                "token": config.storage_delete_token,
-            },
-        ) as resp:
-            if resp.status in [404, 200]:
-                logger.info(
-                    "Storage delete result type=%s path=%s status=%s",
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.delete(
+                real_url,
+                data={
+                    "type": type,
+                    "path": path,
+                    "token": config.storage_delete_token,
+                },
+            ) as resp:
+                if resp.status in [404, 200]:
+                    logger.info(
+                        "Storage delete result type=%s path=%s status=%s",
+                        type,
+                        path,
+                        resp.status,
+                    )
+                    return True
+
+                body = await resp.text()
+                logger.warning(
+                    "Storage delete failed type=%s path=%s status=%s body=%s",
                     type,
                     path,
                     resp.status,
+                    body,
                 )
-                return True
-
-            body = await resp.text()
-            logger.warning(
-                "Storage delete failed type=%s path=%s status=%s body=%s",
-                type,
-                path,
-                resp.status,
-                body,
-            )
-            return False
+                return False
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Storage delete timeout type=%s path=%s timeout=%ss",
+            type,
+            path,
+            timeout_seconds,
+        )
+        return False
+    except aiohttp.ClientError as exc:
+        logger.warning(
+            "Storage delete client error type=%s path=%s timeout=%ss error=%s",
+            type,
+            path,
+            timeout_seconds,
+            exc,
+        )
+        return False
 
 
 async def storage_job_repack(
@@ -636,7 +660,7 @@ async def delete_resources(
         len(deleted),
         failed_count,
     )
-    return True
+    return failed_count == 0
 
 
 def _sort_clause(sort_by: str, mapping: dict[str, object], default: str):
