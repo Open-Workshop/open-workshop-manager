@@ -158,6 +158,7 @@ class ModRead(ReadModel):
     description: str | None = None
     source: str
     source_id: int | None = None
+    git_url: str | None = None
     game_id: int | None = None
     public: int
     adult: bool
@@ -183,6 +184,7 @@ class ModCreate(ApiModel):
     description: str | None = Field(default=None, max_length=LIMITS.mod.desc_max)
     source: str = Field(default="local", min_length=1, max_length=LIMITS.mod.source_max)
     source_id: int | None = Field(default=None, ge=1)
+    git_url: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.git_url_max)
     game_id: int = Field(ge=1)
     public: int = Field(default=0, ge=0, le=2)
     adult: bool = False
@@ -195,6 +197,7 @@ class ModPatch(ApiModel):
     description: str | None = Field(default=None, max_length=LIMITS.mod.desc_max)
     source: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.source_max)
     source_id: int | None = Field(default=None, ge=1)
+    git_url: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.git_url_max)
     game_id: int | None = Field(default=None, ge=1)
     public: int | None = Field(default=None, ge=0, le=2)
     adult: bool | None = None

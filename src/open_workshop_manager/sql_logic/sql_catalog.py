@@ -141,6 +141,7 @@ class Mod(Base):  # Таблица "моды"
 
     source: Mapped[str] = mapped_column(String(64))
     source_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    git_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     downloads: Mapped[int] = mapped_column(BigInteger)
 
     tags: Mapped[list["Tag"]] = relationship("Tag", secondary=mods_tags, backref="mods")

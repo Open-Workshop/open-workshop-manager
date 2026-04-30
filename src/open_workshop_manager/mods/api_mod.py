@@ -351,6 +351,7 @@ def _serialize_mod_base(row: catalog.Mod) -> dict[str, object]:
         "description": getattr(row, "description", None),
         "source": str(getattr(row, "source", "local")),
         "source_id": getattr(row, "source_id", None),
+        "git_url": getattr(row, "git_url", None),
         "game_id": int(game_id) if game_id is not None else None,
         "public": int(getattr(row, "public", 0) or 0),
         "adult": bool(getattr(row, "adult", False)),
@@ -1063,6 +1064,7 @@ async def create_mod(
             date_edit=datetime.now(),
             source=payload.source,
             source_id=payload.source_id,
+            git_url=payload.git_url,
             downloads=0,
             game=payload.game_id,
             adult=payload.adult,
@@ -1181,6 +1183,8 @@ async def patch_mod(
                     )
             row.source = candidate_source
             row.source_id = candidate_source_id
+        if "git_url" in data:
+            row.git_url = data["git_url"] if data["git_url"] is None else str(data["git_url"])
 
         for key, value in data.items():
             if key == "game_id":

@@ -118,6 +118,7 @@ def _mod(
     description: str = "Long",
     source: str = "local",
     source_id: int = 11,
+    git_url: str | None = None,
     game: int | None = None,
     public: int = 0,
     adult: bool = False,
@@ -133,6 +134,7 @@ def _mod(
         description=description,
         source=source,
         source_id=source_id,
+        git_url=git_url,
         game=game,
         public=public,
         adult=adult,
@@ -604,7 +606,10 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertTrue(access_call["check_mode"])
 
     def test_mod_info_includes_dependency_collection(self) -> None:
-        session = _RecordingSession(rows=[1, 2, 3], get_value=_mod())
+        session = _RecordingSession(
+            rows=[1, 2, 3],
+            get_value=_mod(git_url="https://github.com/Open-Workshop/example-mod"),
+        )
 
         with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
             response = self.client.get(
@@ -616,6 +621,7 @@ class ModListSizeFilterTests(unittest.TestCase):
         body = response.json()
         self.assertIn("adult", body)
         self.assertFalse(body["adult"])
+        self.assertEqual(body["git_url"], "https://github.com/Open-Workshop/example-mod")
         self.assertEqual(
             body["dependencies"],
             {
@@ -1165,6 +1171,7 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("adult", mod_read["properties"])
         self.assertIn("adult", mod_read["required"])
         self.assertEqual(mod_read["properties"]["adult"]["type"], "boolean")
+        self.assertIn("git_url", mod_read["properties"])
         resource_read = schema["components"]["schemas"]["ResourceRead"]
         self.assertIn("sort_order", resource_read["properties"])
         self.assertIn("sort_order", resource_read["required"])

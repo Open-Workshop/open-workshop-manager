@@ -87,6 +87,7 @@ def _mod(
     mod_id: int = 1,
     source: str = "steam",
     source_id: int = 2284478696,
+    git_url: str | None = None,
     condition: int = 1,
     game: int = 7,
     public: int = 0,
@@ -98,6 +99,7 @@ def _mod(
         description="Long",
         source=source,
         source_id=source_id,
+        git_url=git_url,
         game=game,
         public=public,
         adult=False,
@@ -188,6 +190,36 @@ class ModSourceConflictTests(unittest.TestCase):
         self.assertEqual(len(session.scalar_statements), 1)
         sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True}))
         self.assertIn("mods.condition = 0", sql)
+
+    def test_patch_mod_saves_git_url(self) -> None:
+        session = _SourceConflictSession(existing_mod=_mod(condition=1))
+        access_result = SimpleNamespace(
+            authenticated=True,
+            edit=SimpleNamespace(
+                title=SimpleNamespace(value=True, reason="ok", reason_code="ok"),
+                description=SimpleNamespace(value=True, reason="ok", reason_code="ok"),
+                short_description=SimpleNamespace(value=True, reason="ok", reason_code="ok"),
+                screenshots=SimpleNamespace(value=True, reason="ok", reason_code="ok"),
+                new_version=SimpleNamespace(value=True, reason="ok", reason_code="ok"),
+                authors=SimpleNamespace(value=True, reason="ok", reason_code="ok"),
+                tags=SimpleNamespace(value=True, reason="ok", reason_code="ok"),
+                dependencies=SimpleNamespace(value=True, reason="ok", reason_code="ok"),
+            ),
+        )
+        git_url = "https://github.com/Open-Workshop/example-mod"
+
+        with (
+            patch.object(api_mod.catalog, "AsyncSessionLocal", return_value=session),
+            patch.object(api_mod.tools, "access_mods", AsyncMock(return_value=access_result)),
+        ):
+            response = self.client.patch(
+                "/mods/1",
+                json={"git_url": git_url},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["git_url"], git_url)
+        self.assertEqual(getattr(session.existing_mod, "git_url", None), git_url)
 
 
 if __name__ == "__main__":  # pragma: no cover

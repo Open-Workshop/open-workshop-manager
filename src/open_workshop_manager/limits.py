@@ -20,6 +20,7 @@ class ModLimits:
     short_desc_max: int = 256
     desc_max: int = 10000
     source_max: int = 64
+    git_url_max: int = 512
     file_max_bytes: int = 838_860_800
     filters_max: int = 90
     public_ids_min: int = 1
