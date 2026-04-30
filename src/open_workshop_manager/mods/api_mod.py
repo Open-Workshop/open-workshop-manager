@@ -8,7 +8,7 @@ from urllib.parse import quote
 from typing import Literal
 
 from fastapi import APIRouter, Query, Request, Response
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.orm import aliased
 
 from open_workshop_manager import mod_events, standarts, tools
@@ -51,6 +51,7 @@ ModIncludeField = Literal[
 ]
 
 DependencyFilterMode = Literal["any", "required", "optional"]
+ConflictScope = Literal["outgoing", "incoming", "all"]
 
 MOD_BAD_REQUEST_RESPONSE = standarts.response_spec(
     standarts.build_problem(
@@ -382,11 +383,43 @@ def _serialize_conflict_row(row: object) -> int:
     return int(conflict_id)
 
 
+def _build_conflict_ids_stmt(mod_id: int, scope: ConflictScope):
+    if scope == "outgoing":
+        return (
+            select(catalog.mods_conflicts.c.conflict.label("mod_id"))
+            .where(catalog.mods_conflicts.c.mod_id == mod_id)
+            .order_by(catalog.mods_conflicts.c.conflict)
+        )
+    if scope == "incoming":
+        return (
+            select(catalog.mods_conflicts.c.mod_id.label("mod_id"))
+            .where(catalog.mods_conflicts.c.conflict == mod_id)
+            .order_by(catalog.mods_conflicts.c.mod_id)
+        )
+
+    conflict_mod_id = case(
+        (catalog.mods_conflicts.c.mod_id == mod_id, catalog.mods_conflicts.c.conflict),
+        else_=catalog.mods_conflicts.c.mod_id,
+    ).label("mod_id")
+    return (
+        select(conflict_mod_id)
+        .where(
+            or_(
+                catalog.mods_conflicts.c.mod_id == mod_id,
+                catalog.mods_conflicts.c.conflict == mod_id,
+            )
+        )
+        .distinct()
+        .order_by(conflict_mod_id)
+    )
+
+
 async def _serialize_mod_with_includes(
     session,
     request: Request,
     row: catalog.Mod,
     include: set[str],
+    conflicts_scope: ConflictScope,
 ) -> ModRead:
     payload = _serialize_mod_base(row)
     game_id = getattr(row, "game", None)
@@ -453,11 +486,7 @@ async def _serialize_mod_with_includes(
 
     if "conflicts" in include:
         conflicts = (
-            await session.execute(
-                select(catalog.mods_conflicts.c.conflict)
-                .where(catalog.mods_conflicts.c.mod_id == row.id)
-                .order_by(catalog.mods_conflicts.c.conflict)
-            )
+            await session.execute(_build_conflict_ids_stmt(row.id, conflicts_scope))
         ).scalars().all()
         payload["conflicts"] = {
             "count": len(conflicts),
@@ -538,6 +567,8 @@ async def _update_game_mod_count(session, game_id: int, delta: int) -> None:
         "Use filters for IDs, tags, dependency rules, conflict exclusions, source fields, "
         "game, size ranges, and `include` to opt into extra fields such as `description`, `dates`, `game`, "
         "`tags`, `dependencies`, `conflicts`, `authors`, and `resources`.\n\n"
+        "When `include=conflicts` is requested, `scope` controls whether the response includes "
+        "outgoing conflicts, incoming conflicts, or both directions merged together.\n\n"
         "Dependency filters accept bare mod IDs as `any`, or explicit rules such as "
         "`123:required`, `123:optional`, and `123:any` so each mod can be configured independently."
     ),
@@ -599,6 +630,14 @@ async def list_mods(
     size_unpacked_min: int | None = Query(default=None, ge=0, description="Minimum unpacked size in bytes."),
     size_unpacked_max: int | None = Query(default=None, ge=0, description="Maximum unpacked size in bytes."),
     name: str | None = Query(default=None, max_length=LIMITS.mod.name_max, description="Case-insensitive substring filter for the mod name."),
+    conflicts_scope: ConflictScope = Query(
+        default="all",
+        alias="scope",
+        description=(
+            "Controls which conflict directions are returned when `include=conflicts` is used: "
+            "outgoing, incoming, or the merged union of both."
+        ),
+    ),
     include: list[ModIncludeField] = Query(
         default_factory=list,
         description="Additional fields to include in each mod object.",
@@ -767,7 +806,13 @@ async def list_mods(
             if include_set:
                 items.append(
                     (
-                        await _serialize_mod_with_includes(session, request, row, include_set)
+                        await _serialize_mod_with_includes(
+                            session,
+                            request,
+                            row,
+                            include_set,
+                            conflicts_scope,
+                        )
                     ).model_dump(mode="json", exclude_none=True)
                 )
             else:
@@ -896,7 +941,9 @@ async def get_mod_feed(
     description=(
         "Returns a mod by ID.\n\n"
         "Use `include` to opt into extra fields such as `description`, `dates`, "
-        "`game`, `tags`, `dependencies`, `conflicts`, `authors`, and `resources`."
+        "`game`, `tags`, `dependencies`, `conflicts`, `authors`, and `resources`.\n\n"
+        "When `include=conflicts` is used, `scope` controls whether the response includes "
+        "outgoing conflicts, incoming conflicts, or both directions merged together."
     ),
     status_code=200,
     response_model=ModRead,
@@ -907,6 +954,14 @@ async def get_mod_feed(
 async def get_mod(
     request: Request,
     mod_id: int,
+    conflicts_scope: ConflictScope = Query(
+        default="all",
+        alias="scope",
+        description=(
+            "Controls which conflict directions are returned when `include=conflicts` is used: "
+            "outgoing, incoming, or the merged union of both."
+        ),
+    ),
     include: list[ModIncludeField] = Query(
         default_factory=list,
         description="Additional fields to include in the mod object.",
@@ -923,7 +978,13 @@ async def get_mod(
             await tools.access_mods(request=request, mods_ids=[mod_id])
 
         if include_set:
-            return await _serialize_mod_with_includes(session, request, row, include_set)
+            return await _serialize_mod_with_includes(
+                session,
+                request,
+                row,
+                include_set,
+                conflicts_scope,
+            )
         return ModRead.model_validate(_serialize_mod_base(row))
 
 
@@ -1368,7 +1429,10 @@ async def get_mod_dependencies(request: Request, mod_id: int) -> dict[str, objec
     "/mods/{mod_id}/conflicts",
     tags=["Mod"],
     summary="List mod conflicts",
-    description="Returns all conflicting mod IDs attached to a mod.",
+    description=(
+        "Returns conflicting mod IDs attached to a mod.\n\n"
+        "Use `scope` to choose outgoing conflicts, incoming conflicts, or both directions merged together."
+    ),
     status_code=200,
     response_model=IntCollectionRead,
     response_model_exclude_none=True,
@@ -1379,7 +1443,17 @@ async def get_mod_dependencies(request: Request, mod_id: int) -> dict[str, objec
         404: MOD_NOT_FOUND_RESPONSE,
     },
 )
-async def get_mod_conflicts(request: Request, mod_id: int) -> dict[str, object]:
+async def get_mod_conflicts(
+    request: Request,
+    mod_id: int,
+    conflicts_scope: ConflictScope = Query(
+        default="all",
+        alias="scope",
+        description=(
+            "Controls which conflict directions are returned: outgoing, incoming, or the merged union of both."
+        ),
+    ),
+) -> dict[str, object]:
     await tools.access_mods(request=request, mods_ids=[mod_id])
 
     async with catalog.AsyncSessionLocal() as session:
@@ -1388,9 +1462,7 @@ async def get_mod_conflicts(request: Request, mod_id: int) -> dict[str, object]:
             _raise_mod_not_found(request)
         conflicts = (
             await session.execute(
-                select(catalog.mods_conflicts.c.conflict)
-                .where(catalog.mods_conflicts.c.mod_id == mod_id)
-                .order_by(catalog.mods_conflicts.c.conflict)
+                _build_conflict_ids_stmt(mod_id, conflicts_scope)
             )
         ).scalars().all()
 

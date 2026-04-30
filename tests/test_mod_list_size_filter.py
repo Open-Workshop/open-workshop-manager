@@ -630,6 +630,22 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertNotIn("dependencies_count", body)
         self.assertNotIn("conflicts", body)
 
+    def test_mod_info_includes_conflicts_scope(self) -> None:
+        session = _RecordingSession(rows=[1, 5], get_value=_mod())
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(
+                f"{self.main_url}/mods/7",
+                params={"include": ["conflicts"], "scope": "incoming"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["conflicts"], {"count": 2, "items": [1, 5]})
+        sql = " ".join(str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower().split())
+        self.assertIn("unity_mods_conflicts.mod_id as mod_id", sql)
+        self.assertIn("unity_mods_conflicts.conflict = 7", sql)
+
     def test_mod_dependencies_endpoint_returns_count_and_items(self) -> None:
         session = _RecordingSession(rows=[1, 2, 3], get_value=_mod())
         access_mods = AsyncMock(return_value=True)
@@ -701,6 +717,37 @@ class ModListSizeFilterTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body, {"count": 2, "items": [1, 5]})
         access_mods.assert_awaited_once()
+
+    def test_mod_conflicts_endpoint_scope_controls_direction(self) -> None:
+        cases = {
+            "outgoing": ("unity_mods_conflicts.conflict as mod_id", "unity_mods_conflicts.mod_id = 7"),
+            "incoming": ("unity_mods_conflicts.mod_id as mod_id", "unity_mods_conflicts.conflict = 7"),
+            "all": ("select distinct case when", "unity_mods_conflicts.mod_id = 7 or unity_mods_conflicts.conflict = 7"),
+        }
+
+        for scope, expected_snippets in cases.items():
+            with self.subTest(scope=scope):
+                session = _RecordingSession(rows=[1, 5], get_value=_mod())
+                access_mods = AsyncMock(return_value=True)
+
+                with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+                    self.api_mod.tools,
+                    "access_mods",
+                    access_mods,
+                ):
+                    response = self.client.get(
+                        f"{self.main_url}/mods/7/conflicts",
+                        params={"scope": scope},
+                    )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json(), {"count": 2, "items": [1, 5]})
+                access_mods.assert_awaited_once()
+                sql = " ".join(
+                    str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower().split()
+                )
+                for expected_snippet in expected_snippets:
+                    self.assertIn(expected_snippet, sql)
 
     def test_mod_dependency_post_creates_optional_false_by_default(self) -> None:
         session = _RecordingSession(get_value=_mod(), allow_writes=True)
@@ -1077,8 +1124,19 @@ class ModListSizeFilterTests(unittest.TestCase):
             include_enum("/mods/{mod_id}", "get"),
             {"short_description", "description", "dates", "game", "tags", "dependencies", "conflicts", "authors", "resources"},
         )
+        scope_enum = lambda path, method: next(
+            parameter
+            for parameter in schema["paths"][path][method]["parameters"]
+            if parameter["name"] == "scope"
+        )["schema"]["enum"]
+        self.assertEqual(scope_enum("/mods", "get"), ["outgoing", "incoming", "all"])
+        self.assertEqual(scope_enum("/mods/{mod_id}", "get"), ["outgoing", "incoming", "all"])
+        self.assertEqual(scope_enum("/mods/{mod_id}/conflicts", "get"), ["outgoing", "incoming", "all"])
         self.assertIn("adult", parameter_names("/mods", "get"))
         self.assertIn("show_not_public", parameter_names("/mods", "get"))
+        self.assertIn("scope", parameter_names("/mods", "get"))
+        self.assertIn("scope", parameter_names("/mods/{mod_id}", "get"))
+        self.assertIn("scope", parameter_names("/mods/{mod_id}/conflicts", "get"))
         self.assertIn("show_not_public", parameter_names("/mods/feed", "get"))
         self.assertIn("author_id", parameter_names("/mods/feed", "get"))
         self.assertIn("user", parameter_names("/mods/feed", "get"))
