@@ -275,6 +275,7 @@ class ModListSizeFilterTests(unittest.TestCase):
             "has_previous": False,
         })
         self.assertEqual(body["items"][0]["id"], 7)
+        self.assertEqual(body["items"][0]["source_id"], "11")
         self.assertIn("adult", body["items"][0])
         self.assertFalse(body["items"][0]["adult"])
         self.assertEqual(body["items"][0]["size"], 150)
@@ -962,6 +963,7 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertNotIn("description", body["items"][0])
         self.assertEqual(body["items"][0]["mods_downloads"], 4567)
         self.assertEqual(body["items"][0]["source"], "steam")
+        self.assertEqual(body["items"][0]["source_id"], "108600")
         self.assertEqual(session.commit_count, 0)
 
     def test_games_list_omits_short_description_by_default(self) -> None:

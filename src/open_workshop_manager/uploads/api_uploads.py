@@ -12,7 +12,7 @@ from sqlalchemy import delete, func, select, update
 
 from open_workshop_manager import mod_events
 from open_workshop_manager import settings as config, standarts, tools
-from open_workshop_manager.api_models import UploadCreate, UploadRead, UploadStatusRead
+from open_workshop_manager.api_models import UploadCreate, UploadRead, UploadStatusRead, stringify_source_id
 from open_workshop_manager.sql_logic import sql_account as account
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 
@@ -307,7 +307,7 @@ async def _handle_archive_completion(
         mod_description = getattr(mod, "description", None)
         mod_public = int(getattr(mod, "public", 0) or 0)
         mod_source = str(getattr(mod, "source", "local") or "local")
-        mod_source_id = getattr(mod, "source_id", None)
+        mod_source_id = stringify_source_id(getattr(mod, "source_id", None))
         mod_game = getattr(mod, "game", None)
 
     try:
@@ -380,11 +380,7 @@ async def _handle_archive_completion(
             await _update_job_status(job_id, "completed")
             return Response(status_code=200)
 
-        if (
-            mod_source != "local"
-            and mod_source_id is not None
-            and int(mod_source_id or 0) > 0
-        ):
+        if mod_source != "local" and mod_source_id is not None:
             source_conflict = await session.scalar(
                 select(catalog.Mod.id).where(
                     catalog.Mod.id != mod_id,

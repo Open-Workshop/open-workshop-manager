@@ -110,12 +110,15 @@ class Game(Base):  # Таблица "игры"
     creation_date: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
     source: Mapped[str] = mapped_column(String(64))
-    source_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    source_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     genres: Mapped[list["Genre"]] = relationship("Genre", secondary=game_genres, backref="games")
     allowed_tags_for_mods: Mapped[list["Tag"]] = relationship(
         "Tag", secondary=allowed_mods_tags, backref="games", viewonly=True
     )
+
+
+Index("ix_games_source_id", Game.source_id)
 
 
 class Mod(Base):  # Таблица "моды"
@@ -140,7 +143,7 @@ class Mod(Base):  # Таблица "моды"
     date_edit: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
     source: Mapped[str] = mapped_column(String(64))
-    source_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    source_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     git_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     downloads: Mapped[int] = mapped_column(BigInteger)
 
@@ -163,6 +166,9 @@ class Mod(Base):  # Таблица "моды"
     )
     game: Mapped[int | None] = mapped_column(Integer, ForeignKey("games.id"))
     adult: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+Index("ix_mods_source_id", Mod.source_id)
 
 
 class Resource(Base):  # Ресурсы (скриншоты и лого)

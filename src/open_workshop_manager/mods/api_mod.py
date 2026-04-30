@@ -30,6 +30,7 @@ from open_workshop_manager.api_models import (
     ModDependencyRead,
     TagListResponse,
     TagRead,
+    stringify_source_id,
 )
 from open_workshop_manager.limits import LIMITS
 from open_workshop_manager.settings import STORAGE_URL
@@ -350,7 +351,7 @@ def _serialize_mod_base(row: catalog.Mod) -> dict[str, object]:
         "short_description": getattr(row, "short_description", None),
         "description": getattr(row, "description", None),
         "source": str(getattr(row, "source", "local")),
-        "source_id": getattr(row, "source_id", None),
+        "source_id": stringify_source_id(getattr(row, "source_id", None)),
         "git_url": getattr(row, "git_url", None),
         "game_id": int(game_id) if game_id is not None else None,
         "public": int(getattr(row, "public", 0) or 0),
@@ -444,7 +445,7 @@ async def _serialize_mod_with_includes(
                 description=getattr(game, "description", None),
                 type=str(getattr(game, "type", "game")),
                 source=str(getattr(game, "source", "local")),
-                source_id=getattr(game, "source_id", None),
+                source_id=stringify_source_id(getattr(game, "source_id", None)),
                 mods_count=
                 int(getattr(game, "mods_count", 0))
                 if getattr(game, "mods_count", None) is not None
@@ -616,7 +617,7 @@ async def list_mods(
     game_id: int | None = Query(default=None, ge=1, description="Filter by game ID."),
     adult: int = Query(default=-1, ge=-1, le=1, description="Adult content filter: -1 any, 0 false, 1 true."),
     sources: list[str] = Query(default_factory=list, description="Source names to filter by."),
-    source_ids: list[int] = Query(default_factory=list, description="Source-specific IDs to filter by."),
+    source_ids: list[str] = Query(default_factory=list, description="Source-specific IDs to filter by."),
     author_id: int | None = Query(default=None, ge=1, description="Filter by author user ID."),
     user: int | None = Query(default=None, ge=1, description="Backward-compatible alias for `author_id`."),
     show_not_public: bool = Query(
@@ -645,6 +646,7 @@ async def list_mods(
     ),
 ):
     include_set = _normalize_include(request, include)
+    source_ids = [item for item in (stringify_source_id(value) for value in source_ids) if item is not None]
     if size_min is not None and size_max is not None and size_min > size_max:
         raise standarts.BadRequestError(
             detail="Minimum size cannot exceed maximum size.",
@@ -1031,13 +1033,14 @@ async def create_mod(
         )
 
     async with catalog.AsyncSessionLocal() as session:
-        if payload.source_id is not None and payload.source != "local":
+        candidate_source_id = stringify_source_id(payload.source_id)
+        if candidate_source_id is not None and payload.source != "local":
             # Draft mods are allowed to coexist while they are still uploading.
             # Only a loaded mod should block a new source binding.
             existing = await session.scalar(
                 select(catalog.Mod.id).where(
                     catalog.Mod.source == payload.source,
-                    catalog.Mod.source_id == payload.source_id,
+                    catalog.Mod.source_id == candidate_source_id,
                     catalog.Mod.condition == 0,
                 )
             )
@@ -1048,7 +1051,7 @@ async def create_mod(
                     detail="Mod source already exists.",
                     code="MOD_SOURCE_ALREADY_EXISTS",
                     instance=str(request.url),
-                    context={"source": payload.source, "source_id": payload.source_id},
+                    context={"source": payload.source, "source_id": candidate_source_id},
                 )
 
         mod = catalog.Mod(
@@ -1063,7 +1066,7 @@ async def create_mod(
             date_update_file=datetime.now(),
             date_edit=datetime.now(),
             source=payload.source,
-            source_id=payload.source_id,
+            source_id=candidate_source_id,
             git_url=payload.git_url,
             downloads=0,
             game=payload.game_id,
@@ -1161,7 +1164,7 @@ async def patch_mod(
 
         if "source" in data or "source_id" in data:
             candidate_source = data.get("source", row.source)
-            candidate_source_id = data.get("source_id", row.source_id)
+            candidate_source_id = stringify_source_id(data.get("source_id", row.source_id))
             if candidate_source_id is not None and candidate_source != "local":
                 # Keep uploading drafts flexible; loaded mods still remain unique per source.
                 existing = await session.scalar(

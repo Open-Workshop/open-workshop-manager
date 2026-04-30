@@ -221,6 +221,37 @@ class ModSourceConflictTests(unittest.TestCase):
         self.assertEqual(response.json()["git_url"], git_url)
         self.assertEqual(getattr(session.existing_mod, "git_url", None), git_url)
 
+    def test_create_mod_accepts_string_source_id(self) -> None:
+        session = _SourceConflictSession(existing_mod=_mod(condition=1, source="factorio", source_id="dimension-warp"))
+        access_result = SimpleNamespace(
+            authenticated=True,
+            owner_id=-1,
+            add=SimpleNamespace(value=True, reason="ok", reason_code="ok"),
+            anonymous_add=SimpleNamespace(value=True, reason="ok", reason_code="ok"),
+        )
+
+        with (
+            patch.object(api_mod.catalog, "AsyncSessionLocal", return_value=session),
+            patch.object(api_mod.tools, "access_mod_add", AsyncMock(return_value=access_result)),
+            patch.object(api_mod.tools, "check_game_exists", AsyncMock(return_value=True)),
+        ):
+            response = self.client.post(
+                "/mods",
+                json={
+                    "name": "Dimension Warp",
+                    "source": "factorio",
+                    "source_id": "dimension-warp",
+                    "game_id": 7,
+                    "public": 0,
+                    "adult": False,
+                    "without_author": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["source_id"], "dimension-warp")
+        self.assertEqual(getattr(session.added[-1], "source_id", None), "dimension-warp")
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

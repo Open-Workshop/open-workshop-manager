@@ -22,6 +22,7 @@ from open_workshop_manager.api_models import (
     GenreRead,
     ResourceRead,
     TagRead,
+    stringify_source_id,
 )
 from open_workshop_manager.limits import LIMITS
 from open_workshop_manager.sql_logic import sql_catalog as catalog
@@ -122,7 +123,7 @@ def _serialize_game_base(row: catalog.Game) -> dict[str, object]:
         "description": getattr(row, "description", None),
         "type": str(getattr(row, "type", "game")),
         "source": str(getattr(row, "source", "local")),
-        "source_id": getattr(row, "source_id", None),
+        "source_id": stringify_source_id(getattr(row, "source_id", None)),
         "mods_count": int(getattr(row, "mods_count", 0)) if getattr(row, "mods_count", None) is not None else None,
         "mods_downloads": int(getattr(row, "mods_downloads", 0)) if getattr(row, "mods_downloads", None) is not None else None,
         "created_at": getattr(row, "creation_date", None),
@@ -231,7 +232,7 @@ async def list_games(
         description="Only return games linked to all of these genre IDs.",
     ),
     sources: list[str] = Query(default_factory=list, description="Source names to filter by."),
-    source_ids: list[int] = Query(
+    source_ids: list[str] = Query(
         default_factory=list,
         description="Source-specific IDs to filter by.",
     ),
@@ -242,6 +243,7 @@ async def list_games(
     ),
 ):
     include_set = _normalize_includes(request, include)
+    source_ids = [item for item in (stringify_source_id(value) for value in source_ids) if item is not None]
     sort_clause = None
     try:
         sort_clause = tools.sort_games(sort)
@@ -430,7 +432,7 @@ async def patch_game(
 
         if "source" in data or "source_id" in data:
             candidate_source = data.get("source", game.source)
-            candidate_source_id = data.get("source_id", game.source_id)
+            candidate_source_id = stringify_source_id(data.get("source_id", game.source_id))
             if candidate_source_id is not None:
                 existing = await session.scalar(
                     select(catalog.Game.id).where(

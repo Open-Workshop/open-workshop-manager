@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from open_workshop_manager.limits import LIMITS
 
@@ -25,6 +25,13 @@ class Pagination(ApiModel):
     has_previous: bool
 
 
+def stringify_source_id(value: object | None) -> str | None:
+    if value is None:
+        return None
+    rendered = str(value).strip()
+    return rendered or None
+
+
 T = TypeVar("T")
 
 
@@ -40,13 +47,22 @@ class GameRead(ReadModel):
     description: str | None = None
     type: str
     source: str
-    source_id: int | None = None
+    source_id: str | None = Field(
+        default=None,
+        max_length=LIMITS.game.source_id_max,
+        description="Opaque source-specific identifier for the game.",
+    )
     mods_count: int | None = None
     mods_downloads: int | None = None
     created_at: datetime.datetime | None = None
     genres: list["GenreRead"] | None = None
     tags: list["TagRead"] | None = None
     resources: list["ResourceRead"] | None = None
+
+    @field_validator("source_id", mode="before")
+    @classmethod
+    def _normalize_source_id(cls, value: object | None) -> str | None:
+        return stringify_source_id(value)
 
 
 class GameCreate(ApiModel):
@@ -62,7 +78,17 @@ class GamePatch(ApiModel):
     description: str | None = Field(default=None, max_length=LIMITS.game.desc_max)
     type: Literal["game", "app"] | None = None
     source: str | None = Field(default=None, min_length=1, max_length=LIMITS.game.source_max)
-    source_id: int | None = Field(default=None, ge=1)
+    source_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=LIMITS.game.source_id_max,
+        description="Opaque source-specific identifier for the game.",
+    )
+
+    @field_validator("source_id", mode="before")
+    @classmethod
+    def _normalize_source_id(cls, value: object | None) -> str | None:
+        return stringify_source_id(value)
 
 
 class GameListResponse(ListResponse[GameRead]):
@@ -157,7 +183,11 @@ class ModRead(ReadModel):
     short_description: str | None = None
     description: str | None = None
     source: str
-    source_id: int | None = None
+    source_id: str | None = Field(
+        default=None,
+        max_length=LIMITS.mod.source_id_max,
+        description="Opaque source-specific identifier for the mod.",
+    )
     git_url: str | None = None
     game_id: int | None = None
     public: int
@@ -177,18 +207,33 @@ class ModRead(ReadModel):
     authors: dict[int, dict[str, bool]] | None = None
     resources: list[ResourceRead] | None = None
 
+    @field_validator("source_id", mode="before")
+    @classmethod
+    def _normalize_source_id(cls, value: object | None) -> str | None:
+        return stringify_source_id(value)
+
 
 class ModCreate(ApiModel):
     name: str = Field(min_length=1, max_length=LIMITS.mod.name_max)
     short_description: str | None = Field(default=None, max_length=LIMITS.mod.short_desc_max)
     description: str | None = Field(default=None, max_length=LIMITS.mod.desc_max)
     source: str = Field(default="local", min_length=1, max_length=LIMITS.mod.source_max)
-    source_id: int | None = Field(default=None, ge=1)
+    source_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=LIMITS.mod.source_id_max,
+        description="Opaque source-specific identifier for the mod.",
+    )
     git_url: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.git_url_max)
     game_id: int = Field(ge=1)
     public: int = Field(default=0, ge=0, le=2)
     adult: bool = False
     without_author: bool = False
+
+    @field_validator("source_id", mode="before")
+    @classmethod
+    def _normalize_source_id(cls, value: object | None) -> str | None:
+        return stringify_source_id(value)
 
 
 class ModPatch(ApiModel):
@@ -196,11 +241,21 @@ class ModPatch(ApiModel):
     short_description: str | None = Field(default=None, max_length=LIMITS.mod.short_desc_max)
     description: str | None = Field(default=None, max_length=LIMITS.mod.desc_max)
     source: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.source_max)
-    source_id: int | None = Field(default=None, ge=1)
+    source_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=LIMITS.mod.source_id_max,
+        description="Opaque source-specific identifier for the mod.",
+    )
     git_url: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.git_url_max)
     game_id: int | None = Field(default=None, ge=1)
     public: int | None = Field(default=None, ge=0, le=2)
     adult: bool | None = None
+
+    @field_validator("source_id", mode="before")
+    @classmethod
+    def _normalize_source_id(cls, value: object | None) -> str | None:
+        return stringify_source_id(value)
 
 
 class ModAuthorUpsert(ApiModel):
