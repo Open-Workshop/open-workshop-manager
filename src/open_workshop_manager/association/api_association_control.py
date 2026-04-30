@@ -258,6 +258,30 @@ async def upsert_mod_dependency(
     return Response(status_code=204)
 
 
+@router.delete(
+    "/mods/{mod_id}/dependencies/{dependency_mod_id}",
+    tags=["Association", "Mod"],
+    summary="Remove mod dependency",
+    description="Removes a dependency between two mods.",
+    status_code=204,
+)
+async def delete_mod_dependency(request: Request, mod_id: int, dependency_mod_id: int):
+    await tools.access_mods(request=request, mods_ids=[mod_id], edit=True)
+    await _ensure_mod_exists(request, mod_id)
+    await _ensure_mod_exists(request, dependency_mod_id)
+
+    async with catalog.AsyncSessionLocal() as session:
+        await session.execute(
+            delete(catalog.mods_dependencies).where(
+                catalog.mods_dependencies.c.mod_id == mod_id,
+                catalog.mods_dependencies.c.dependence == dependency_mod_id,
+            )
+        )
+        await session.commit()
+
+    return Response(status_code=204)
+
+
 @router.post(
     "/mods/{mod_id}/conflicts/{conflict_mod_id}",
     tags=["Association", "Mod"],

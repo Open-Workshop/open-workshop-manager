@@ -702,6 +702,26 @@ class ModListSizeFilterTests(unittest.TestCase):
             },
         )
 
+    def test_mod_dependency_delete_removes_relation(self) -> None:
+        session = _RecordingSession(get_value=_mod(), allow_writes=True)
+        access_mods = AsyncMock(return_value=True)
+
+        with patch.object(self.api_association.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_association.tools,
+            "access_mods",
+            access_mods,
+        ):
+            response = self.client.delete(f"{self.main_url}/mods/7/dependencies/13")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(sum(isinstance(stmt, Delete) for stmt in session.execute_statements), 1)
+        delete_stmt = next(stmt for stmt in session.execute_statements if isinstance(stmt, Delete))
+        delete_sql = str(delete_stmt.compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("unity_mods_dependencies", delete_sql)
+        self.assertIn("mod_id", delete_sql)
+        self.assertIn("dependence", delete_sql)
+        access_mods.assert_awaited_once()
+
     def test_mod_conflicts_endpoint_returns_count_and_items(self) -> None:
         session = _RecordingSession(rows=[1, 5], get_value=_mod())
         access_mods = AsyncMock(return_value=True)
