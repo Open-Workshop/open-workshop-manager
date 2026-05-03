@@ -89,7 +89,7 @@ class _RecordingSession:
             return self.scalar_values.pop(0)
         return 0
 
-    async def execute(self, stmt) -> _DummyResult:
+    async def execute(self, stmt, *args, **kwargs) -> _DummyResult:
         if isinstance(stmt, (Insert, Update, Delete)) and not self.allow_writes:
             raise AssertionError(f"Unexpected write statement: {stmt!r}")
         self.execute_statements.append(stmt)
@@ -1328,6 +1328,29 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("rating", mod_read["properties"])
         self.assertIn("current_vote", mod_read["properties"])
         self.assertIn("git_url", mod_read["properties"])
+        self.assertIn("/modpacks/{modpack_id}/mods", schema["paths"])
+        self.assertIn("get", schema["paths"]["/modpacks/{modpack_id}/mods"])
+        self.assertIn("put", schema["paths"]["/modpacks/{modpack_id}/mods"])
+        self.assertIn("ModpackModRead", schema["components"]["schemas"])
+        self.assertIn("ModpackModsRead", schema["components"]["schemas"])
+        self.assertIn("ModpackModUpsert", schema["components"]["schemas"])
+        self.assertIn("ModpackModsUpsert", schema["components"]["schemas"])
+        self.assertEqual(
+            set(schema["components"]["schemas"]["ModpackModRead"]["properties"]),
+            {"mod_id", "sort_order", "auto_added"},
+        )
+        self.assertEqual(
+            set(schema["components"]["schemas"]["ModpackModsRead"]["properties"]),
+            {"modpack_id", "items"},
+        )
+        self.assertEqual(
+            set(schema["components"]["schemas"]["ModpackModUpsert"]["properties"]),
+            {"mod_id", "auto_added"},
+        )
+        self.assertEqual(
+            set(schema["components"]["schemas"]["ModpackModsUpsert"]["properties"]),
+            {"items"},
+        )
         build_node_read = schema["components"]["schemas"]["ModBuildNodeRead"]
         self.assertEqual(
             set(build_node_read["properties"]),
@@ -1352,7 +1375,8 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("rating", modpack_read["properties"])
         self.assertIn("current_vote", modpack_read["properties"])
         self.assertIn("authors", modpack_read["properties"])
-        self.assertIn("condition", modpack_read["properties"])
+        self.assertNotIn("condition", modpack_read["properties"])
+        self.assertNotIn("git_url", modpack_read["properties"])
         resource_read = schema["components"]["schemas"]["ResourceRead"]
         self.assertIn("sort_order", resource_read["properties"])
         self.assertIn("sort_order", resource_read["required"])

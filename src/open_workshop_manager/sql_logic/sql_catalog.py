@@ -92,6 +92,33 @@ Index(
     mods_conflicts.c.mod_id,
 )
 
+modpacks_and_mods = Table(
+    "modpacks_and_mods",
+    Base.metadata,
+    Column("modpack_id", Integer, ForeignKey("modpacks.id", ondelete="CASCADE"), nullable=False),
+    Column("mod_id", Integer, ForeignKey("mods.id", ondelete="CASCADE"), nullable=False),
+    Column("sort_order", Integer, nullable=False, server_default=text("0")),
+    Column("auto_added", Boolean, nullable=False, server_default=text("0")),
+)
+
+Index(
+    "ux_modpacks_and_mods_modpack_mod",
+    modpacks_and_mods.c.modpack_id,
+    modpacks_and_mods.c.mod_id,
+    unique=True,
+)
+Index(
+    "ix_modpacks_and_mods_modpack_sort",
+    modpacks_and_mods.c.modpack_id,
+    modpacks_and_mods.c.sort_order,
+    modpacks_and_mods.c.mod_id,
+)
+Index(
+    "ix_modpacks_and_mods_mod_modpack",
+    modpacks_and_mods.c.mod_id,
+    modpacks_and_mods.c.modpack_id,
+)
+
 
 # Основные БД
 class Game(Base):  # Таблица "игры"
@@ -195,9 +222,14 @@ class Modpack(Base):  # Таблица "модпаки"
 
     source: Mapped[str] = mapped_column(String(64))
     source_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    git_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     game: Mapped[int | None] = mapped_column(Integer, ForeignKey("games.id"), nullable=True)
+    mods: Mapped[list["Mod"]] = relationship(
+        "Mod",
+        secondary=modpacks_and_mods,
+        backref="modpacks",
+        viewonly=True,
+    )
 
 
 Index("ix_modpacks_source_id", Modpack.source_id)

@@ -21,6 +21,10 @@ from open_workshop_manager.api_models import (
     ModpackPatch,
     ModpackRead,
     ModpackRatingRead,
+    ModpackModRead,
+    ModpackModsRead,
+    ModpackModUpsert,
+    ModpackModsUpsert,
     RatingVoteUpsert,
     stringify_source_id,
 )
@@ -68,6 +72,16 @@ MODPACK_CONFLICT_RESPONSE = standarts.response_spec(
         code="MODPACK_SOURCE_ALREADY_EXISTS",
     ),
     "Modpack source already exists.",
+)
+
+MODPACK_MODS_NOT_FOUND_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        404,
+        title="Not Found",
+        detail="Modpack or referenced mod not found.",
+        code="NOT_FOUND",
+    ),
+    "Modpack or referenced mod not found.",
 )
 
 
@@ -125,6 +139,38 @@ def _normalize_source_id(value: object | None) -> str | None:
     return stringify_source_id(value)
 
 
+def _raise_mods_not_found(request: Request, missing_ids: list[int]) -> None:
+    raise standarts.StandardAPIError(
+        status_code=404,
+        title="Not Found",
+        detail="One or more mods were not found.",
+        code="MOD_NOT_FOUND",
+        instance=str(request.url),
+        context={"missing_ids": missing_ids},
+    )
+
+
+async def _ensure_mods_exist(
+    request: Request,
+    session,
+    mod_ids: list[int],
+) -> None:
+    if not mod_ids:
+        return
+
+    found_ids = set(
+        int(mod_id)
+        for mod_id in (
+            await session.execute(
+                select(catalog.Mod.id).where(catalog.Mod.id.in_(mod_ids))
+            )
+        ).scalars().all()
+    )
+    missing_ids = [mod_id for mod_id in mod_ids if mod_id not in found_ids]
+    if missing_ids:
+        _raise_mods_not_found(request, missing_ids)
+
+
 async def _load_modpack_current_vote(request: Request, modpack_id: int) -> int | None:
     access_state = await account.check_access(request=request)
     if not access_state or not getattr(access_state, "authenticated", False):
@@ -165,6 +211,82 @@ async def _load_modpack_authors(
     return authors_by_modpack
 
 
+async def _load_modpack_mods(
+    session,
+    modpack_ids: list[int],
+) -> dict[int, list[ModpackModRead]]:
+    if not modpack_ids:
+        return {}
+
+    result = await session.execute(
+        select(
+            catalog.modpacks_and_mods.c.modpack_id,
+            catalog.modpacks_and_mods.c.mod_id,
+            catalog.modpacks_and_mods.c.sort_order,
+            catalog.modpacks_and_mods.c.auto_added,
+        ).where(catalog.modpacks_and_mods.c.modpack_id.in_(modpack_ids))
+        .order_by(
+            catalog.modpacks_and_mods.c.modpack_id.asc(),
+            catalog.modpacks_and_mods.c.sort_order.asc(),
+            catalog.modpacks_and_mods.c.mod_id.asc(),
+        )
+    )
+
+    mods_by_modpack: dict[int, list[ModpackModRead]] = {modpack_id: [] for modpack_id in modpack_ids}
+    for modpack_id, mod_id, sort_order, auto_added in result.all():
+        mods_by_modpack.setdefault(int(modpack_id), []).append(
+            ModpackModRead(
+                mod_id=int(mod_id),
+                sort_order=int(sort_order or 0),
+                auto_added=bool(auto_added),
+            )
+        )
+    return mods_by_modpack
+
+
+def _normalize_modpack_mods(items: list[ModpackModUpsert]) -> list[ModpackModUpsert]:
+    normalized: list[ModpackModUpsert] = []
+    seen: set[int] = set()
+    for item in items:
+        mod_id = int(getattr(item, "mod_id", 0) or 0)
+        if mod_id <= 0 or mod_id in seen:
+            continue
+        seen.add(mod_id)
+        normalized.append(
+            ModpackModUpsert(
+                mod_id=mod_id,
+                auto_added=bool(getattr(item, "auto_added", False)),
+            )
+        )
+    return normalized
+
+
+async def _store_modpack_mods(
+    session,
+    modpack_id: int,
+    items: list[ModpackModUpsert],
+) -> None:
+    await session.execute(
+        delete(catalog.modpacks_and_mods).where(
+            catalog.modpacks_and_mods.c.modpack_id == modpack_id
+        )
+    )
+
+    if not items:
+        return
+
+    values = [
+        {
+            "modpack_id": modpack_id,
+            "mod_id": item.mod_id,
+            "sort_order": index,
+            "auto_added": bool(item.auto_added),
+        }
+        for index, item in enumerate(items)
+    ]
+    await session.execute(insert(catalog.modpacks_and_mods), values)
+
+
 def _serialize_modpack(
     row: catalog.Modpack,
     *,
@@ -178,13 +300,11 @@ def _serialize_modpack(
         "description": getattr(row, "description", None),
         "source": str(getattr(row, "source", "") or ""),
         "source_id": _normalize_source_id(getattr(row, "source_id", None)),
-        "git_url": getattr(row, "git_url", None),
         "game_id": (
             int(getattr(row, "game", 0)) if getattr(row, "game", None) is not None else None
         ),
         "public": int(getattr(row, "public", 0) or 0),
         "adult": bool(getattr(row, "adult", False)),
-        "condition": int(getattr(row, "condition", 0) or 0),
         "rating": int(getattr(row, "rating", 0) or 0),
         "current_vote": current_vote,
         "downloads": (
@@ -355,6 +475,72 @@ async def get_modpack(
     )
 
 
+@router.get(
+    "/modpacks/{modpack_id}/mods",
+    tags=["Modpack", "Build"],
+    summary="Get modpack mods",
+    description="Returns the list of mods stored in the modpack, including auto-added flags.",
+    status_code=200,
+    response_model=ModpackModsRead,
+    response_model_exclude_none=True,
+    response_description="Stored modpack mods.",
+    responses={404: MODPACK_NOT_FOUND_RESPONSE},
+)
+async def get_modpack_mods(request: Request, modpack_id: int) -> ModpackModsRead:
+    async with catalog.AsyncSessionLocal() as session:
+        row = await session.get(catalog.Modpack, modpack_id)
+        if row is None:
+            _raise_modpack_not_found(request)
+
+        if row.public > 0 or int(getattr(row, "condition", 0) or 0) != 0:
+            await tools.access_modpacks(request=request, modpack_ids=[modpack_id])
+
+        mods = await _load_modpack_mods(session, [modpack_id])
+
+    return ModpackModsRead(modpack_id=modpack_id, items=mods.get(modpack_id, []))
+
+
+@router.put(
+    "/modpacks/{modpack_id}/mods",
+    tags=["Modpack", "Build"],
+    summary="Replace modpack mods",
+    description="Replaces the stored mod list for a modpack.",
+    status_code=200,
+    response_model=ModpackModsRead,
+    response_model_exclude_none=True,
+    response_description="Updated modpack mods.",
+    responses={
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
+        404: MODPACK_MODS_NOT_FOUND_RESPONSE,
+    },
+)
+async def put_modpack_mods(
+    request: Request,
+    modpack_id: int,
+    payload: ModpackModsUpsert,
+) -> ModpackModsRead:
+    await tools.access_modpacks(request=request, modpack_ids=[modpack_id], edit=True)
+
+    normalized_items = _normalize_modpack_mods(list(payload.items or []))
+    mod_ids = [item.mod_id for item in normalized_items]
+
+    async with catalog.AsyncSessionLocal() as session:
+        row = await session.get(catalog.Modpack, modpack_id)
+        if row is None:
+            _raise_modpack_not_found(request)
+
+        await _ensure_mods_exist(request, session, mod_ids)
+        if mod_ids:
+            await tools.access_mods(request=request, mods_ids=mod_ids)
+
+        await _store_modpack_mods(session, modpack_id, normalized_items)
+        await session.commit()
+        mods = await _load_modpack_mods(session, [modpack_id])
+
+    return ModpackModsRead(modpack_id=modpack_id, items=mods.get(modpack_id, []))
+
+
 @router.put(
     "/modpacks/{modpack_id}/rating",
     tags=["Modpack"],
@@ -473,7 +659,6 @@ async def create_modpack(
             date_edit=datetime.datetime.now(),
             source=payload.source,
             source_id=candidate_source_id,
-            git_url=payload.git_url,
             game=payload.game_id,
         )
         session.add(modpack)
@@ -588,9 +773,6 @@ async def patch_modpack(
                     )
             row.source = candidate_source
             row.source_id = candidate_source_id
-
-        if "git_url" in data:
-            row.git_url = data["git_url"] if data["git_url"] is None else str(data["git_url"])
 
         for key, value in data.items():
             if key == "game_id":

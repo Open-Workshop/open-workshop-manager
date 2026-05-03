@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.sql.dml import Delete, Insert, Update
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -60,6 +61,9 @@ class _DummyResult:
     def first(self) -> object | None:
         return self._rows[0] if self._rows else None
 
+    def scalar_one_or_none(self) -> object | None:
+        return self.first()
+
 
 class _RatingSession:
     def __init__(
@@ -88,8 +92,10 @@ class _RatingSession:
             return self.scalar_results.pop(0)
         return None
 
-    async def execute(self, stmt) -> _DummyResult:
+    async def execute(self, stmt, *args, **kwargs) -> _DummyResult:
         self.execute_statements.append(stmt)
+        if isinstance(stmt, (Insert, Update, Delete)):
+            return _DummyResult([])
         if self.execute_results:
             return _DummyResult(self.execute_results.pop(0))
         return _DummyResult([])
@@ -278,6 +284,91 @@ class ReputationRouteTests(unittest.TestCase):
         self.assertEqual(body["id"], 17)
         self.assertEqual(body["current_vote"], -1)
         self.assertEqual(body["authors"], {"21": {"owner": True}})
+
+    def test_get_modpack_mods_returns_stored_mod_list(self) -> None:
+        modpack = SimpleNamespace(
+            id=17,
+            name="Cool Pack",
+            short_description="Short",
+            description="Long",
+            source="local",
+            source_id=None,
+            game=None,
+            public=0,
+            adult=False,
+            rating=13,
+            downloads=0,
+            date_creation=None,
+            date_edit=None,
+        )
+        catalog_session = _RatingSession(
+            get_map={sql_catalog.Modpack: modpack},
+            execute_results=[[(17, 11, 0, False), (17, 7, 1, True)]],
+        )
+
+        with patch.object(api_modpack.catalog, "AsyncSessionLocal", return_value=catalog_session):
+            response = self.client.get("/modpacks/17/mods")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["modpack_id"], 17)
+        self.assertEqual(body["items"], [
+            {"mod_id": 11, "sort_order": 0, "auto_added": False},
+            {"mod_id": 7, "sort_order": 1, "auto_added": True},
+        ])
+
+    def test_put_modpack_mods_persists_mod_list_and_auto_added_flags(self) -> None:
+        modpack = SimpleNamespace(
+            id=17,
+            name="Cool Pack",
+            short_description="Short",
+            description="Long",
+            source="local",
+            source_id=None,
+            game=None,
+            public=0,
+            adult=False,
+            rating=13,
+            downloads=0,
+            date_creation=None,
+            date_edit=None,
+        )
+        catalog_session = _RatingSession(
+            get_map={sql_catalog.Modpack: modpack},
+            execute_results=[
+                [11, 7],
+                [(17, 7, 0, False), (17, 11, 1, True)],
+            ],
+        )
+        access_result = SimpleNamespace(
+            authenticated=True,
+            edit=SimpleNamespace(value=True, reason="ok", reason_code="allowed"),
+        )
+
+        with (
+            patch.object(api_modpack.tools, "access_modpacks", AsyncMock(return_value=access_result)),
+            patch.object(api_modpack.tools, "access_mods", AsyncMock(return_value=True)),
+            patch.object(api_modpack.catalog, "AsyncSessionLocal", return_value=catalog_session),
+        ):
+            response = self.client.put(
+                "/modpacks/17/mods",
+                json={
+                    "items": [
+                        {"mod_id": 7, "auto_added": False},
+                        {"mod_id": 11, "auto_added": True},
+                    ]
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["modpack_id"], 17)
+        self.assertEqual(body["items"], [
+            {"mod_id": 7, "sort_order": 0, "auto_added": False},
+            {"mod_id": 11, "sort_order": 1, "auto_added": True},
+        ])
+        self.assertEqual(catalog_session.commit_count, 1)
+        self.assertEqual(access_result.authenticated, True)
 
     def test_put_modpack_author_requires_author_management_right(self) -> None:
         access_result = SimpleNamespace(

@@ -226,11 +226,9 @@ class ModpackRead(ReadModel):
         max_length=LIMITS.mod.source_id_max,
         description="Opaque source-specific identifier for the modpack.",
     )
-    git_url: str | None = None
     game_id: int | None = None
     public: int
     adult: bool
-    condition: int = 0
     rating: int = 0
     current_vote: int | None = None
     downloads: int | None = None
@@ -242,6 +240,26 @@ class ModpackRead(ReadModel):
     @classmethod
     def _normalize_source_id(cls, value: object | None) -> str | None:
         return stringify_source_id(value)
+
+
+class ModpackModRead(ReadModel):
+    mod_id: int
+    sort_order: int = 0
+    auto_added: bool = False
+
+
+class ModpackModsRead(ReadModel):
+    modpack_id: int
+    items: list[ModpackModRead]
+
+
+class ModpackModUpsert(ApiModel):
+    mod_id: int = Field(ge=1)
+    auto_added: bool = False
+
+
+class ModpackModsUpsert(ApiModel):
+    items: list[ModpackModUpsert] = Field(default_factory=list)
 
 
 class ModCreate(ApiModel):
@@ -300,7 +318,6 @@ class ModpackCreate(ApiModel):
         max_length=LIMITS.mod.source_id_max,
         description="Opaque source-specific identifier for the modpack.",
     )
-    git_url: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.git_url_max)
     game_id: int | None = Field(default=None, ge=1)
     public: int = Field(default=0, ge=0, le=2)
     adult: bool = False
@@ -323,7 +340,6 @@ class ModpackPatch(ApiModel):
         max_length=LIMITS.mod.source_id_max,
         description="Opaque source-specific identifier for the modpack.",
     )
-    git_url: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.git_url_max)
     game_id: int | None = Field(default=None, ge=1)
     public: int | None = Field(default=None, ge=0, le=2)
     adult: bool | None = None
