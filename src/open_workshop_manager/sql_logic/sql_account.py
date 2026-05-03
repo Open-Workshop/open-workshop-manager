@@ -203,11 +203,6 @@ Index(
     ReputationVote.target_id,
     unique=True,
 )
-Index(
-    "ix_reputation_votes_target_type_target_id",
-    ReputationVote.target_type,
-    ReputationVote.target_id,
-)
 
 
 class ReputationVoteHistory(Base):
@@ -231,10 +226,11 @@ Index(
     ReputationVoteHistory.created_at,
 )
 Index(
-    "ix_reputation_vote_history_target_created",
+    "ux_reputation_vote_history_voter_target",
+    ReputationVoteHistory.voter_id,
     ReputationVoteHistory.target_type,
     ReputationVoteHistory.target_id,
-    ReputationVoteHistory.created_at,
+    unique=True,
 )
 
 

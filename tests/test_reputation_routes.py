@@ -239,7 +239,6 @@ class ReputationRouteTests(unittest.TestCase):
         )
         session = _RatingSession(
             get_map={sql_account.Account: profile},
-            scalar_results=[1],
             execute_results=[[history_row]],
         )
         access_result = SimpleNamespace(
@@ -261,6 +260,69 @@ class ReputationRouteTests(unittest.TestCase):
         self.assertEqual(body["items"][0]["mod_delta"], 1)
         self.assertEqual(body["items"][0]["reputation_delta"], 0.1)
         self.assertEqual(session.commit_count, 0)
+
+    def test_profile_rating_history_returns_latest_state_per_target(self) -> None:
+        profile = SimpleNamespace(id=7, username="User", reputation=11.0)
+        latest_mod_row = SimpleNamespace(
+            id=4,
+            voter_id=7,
+            target_type="mod",
+            target_id=3,
+            target_name="Harmony",
+            previous_value=1,
+            value=0,
+            reputation_delta=-1.0,
+            mod_delta=-10,
+            created_at=datetime.datetime(2026, 5, 3, 16, 15, 41),
+        )
+        older_mod_row = SimpleNamespace(
+            id=2,
+            voter_id=7,
+            target_type="mod",
+            target_id=3,
+            target_name="Harmony",
+            previous_value=-1,
+            value=1,
+            reputation_delta=2.0,
+            mod_delta=20,
+            created_at=datetime.datetime(2026, 5, 3, 16, 12, 16),
+        )
+        profile_row = SimpleNamespace(
+            id=5,
+            voter_id=7,
+            target_type="profile",
+            target_id=8,
+            target_name="User",
+            previous_value=0,
+            value=1,
+            reputation_delta=1.0,
+            mod_delta=0,
+            created_at=datetime.datetime(2026, 5, 3, 16, 10, 0),
+        )
+        session = _RatingSession(
+            get_map={sql_account.Account: profile},
+            execute_results=[[latest_mod_row, older_mod_row, profile_row]],
+        )
+        access_result = SimpleNamespace(
+            authenticated=True,
+            owner_id=7,
+            info=SimpleNamespace(meta=SimpleNamespace(value=True, reason="ok", reason_code="self")),
+        )
+
+        with (
+            patch.object(api_profile.tools, "access_profile", AsyncMock(return_value=access_result)),
+            patch.object(api_profile.account, "AsyncSessionLocal", return_value=session),
+        ):
+            response = self.client.get("/profiles/7/rating/history")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["pagination"]["total"], 2)
+        self.assertEqual(len(body["items"]), 2)
+        self.assertEqual(body["items"][0]["id"], 4)
+        self.assertEqual(body["items"][0]["value"], 0)
+        self.assertEqual(body["items"][1]["target_type"], "profile")
+        self.assertEqual(body["items"][1]["id"], 5)
 
 
 if __name__ == "__main__":  # pragma: no cover

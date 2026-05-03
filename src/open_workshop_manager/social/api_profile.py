@@ -308,11 +308,13 @@ async def put_profile_rating(
     "/profiles/{user_id}/rating/history",
     tags=["Profile"],
     summary="Get vote history",
-    description="Returns the votes cast by this user, including mod and profile votes.",
+    description=(
+        "Returns the latest stored vote state for each mod or profile this user has rated."
+    ),
     status_code=200,
     response_model=RatingHistoryListResponse,
     response_model_exclude_none=True,
-    response_description="Paginated vote history.",
+    response_description="Paginated latest vote states.",
     responses={404: PROFILE_NOT_FOUND_RESPONSE},
 )
 async def get_profile_rating_history(
@@ -341,9 +343,8 @@ async def get_profile_rating_history(
         if row is None:
             _raise_profile_not_found(request)
 
-        total = await reputation.count_vote_history(session, voter_id=user_id)
         offset = page * page_size
-        rows = await reputation.list_vote_history(
+        total, rows = await reputation.load_vote_history_page(
             session,
             voter_id=user_id,
             offset=offset,

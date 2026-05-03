@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from open_workshop_manager.sql_logic import sql_account as account
@@ -14,6 +14,13 @@ MOD_RATING_SCALE = 10
 def _display_name(row: object, ident: int) -> str:
     name = str(getattr(row, "name", "") or getattr(row, "username", "") or "").strip()
     return name or f"#{ident}"
+
+
+def _vote_history_key(row: object) -> tuple[str, int]:
+    return (
+        str(getattr(row, "target_type", "") or ""),
+        int(getattr(row, "target_id", 0) or 0),
+    )
 
 
 async def _current_vote(
@@ -30,6 +37,73 @@ async def _current_vote(
             account.ReputationVote.target_id == target_id,
         )
     )
+
+
+async def _latest_vote_history_row(
+    session: AsyncSession,
+    *,
+    voter_id: int,
+    target_type: str,
+    target_id: int,
+) -> account.ReputationVoteHistory | None:
+    return await session.scalar(
+        select(account.ReputationVoteHistory)
+        .where(
+            account.ReputationVoteHistory.voter_id == voter_id,
+            account.ReputationVoteHistory.target_type == target_type,
+            account.ReputationVoteHistory.target_id == target_id,
+        )
+        .order_by(
+            account.ReputationVoteHistory.created_at.desc(),
+            account.ReputationVoteHistory.id.desc(),
+        )
+    )
+
+
+async def _upsert_vote_history(
+    session: AsyncSession,
+    *,
+    voter_id: int,
+    target_type: str,
+    target_id: int,
+    target_name: str,
+    previous_value: int,
+    value: int,
+    reputation_delta: float,
+    mod_delta: int,
+    created_at: datetime.datetime,
+) -> None:
+    row = await _latest_vote_history_row(
+        session,
+        voter_id=voter_id,
+        target_type=target_type,
+        target_id=target_id,
+    )
+    if row is None:
+        session.add(
+            account.ReputationVoteHistory(
+                voter_id=voter_id,
+                target_type=target_type,
+                target_id=target_id,
+                target_name=target_name,
+                previous_value=previous_value,
+                value=value,
+                reputation_delta=reputation_delta,
+                mod_delta=mod_delta,
+                created_at=created_at,
+            )
+        )
+        return
+
+    row.voter_id = voter_id
+    row.target_type = target_type
+    row.target_id = target_id
+    row.target_name = target_name
+    row.previous_value = previous_value
+    row.value = value
+    row.reputation_delta = reputation_delta
+    row.mod_delta = mod_delta
+    row.created_at = created_at
 
 
 async def apply_profile_vote(
@@ -70,18 +144,17 @@ async def apply_profile_vote(
         current_vote.updated_at = now
 
     profile.reputation = float(getattr(profile, "reputation", 0) or 0.0) + float(delta)
-    session.add(
-        account.ReputationVoteHistory(
-            voter_id=voter_id,
-            target_type="profile",
-            target_id=int(profile.id),
-            target_name=_display_name(profile, int(profile.id)),
-            previous_value=previous_value,
-            value=value,
-            reputation_delta=float(delta),
-            mod_delta=0,
-            created_at=now,
-        )
+    await _upsert_vote_history(
+        session,
+        voter_id=voter_id,
+        target_type="profile",
+        target_id=int(profile.id),
+        target_name=_display_name(profile, int(profile.id)),
+        previous_value=previous_value,
+        value=value,
+        reputation_delta=float(delta),
+        mod_delta=0,
+        created_at=now,
     )
     return float(profile.reputation)
 
@@ -146,33 +219,59 @@ async def apply_mod_vote(
         seen_author_ids.add(author_id)
         author.reputation = float(getattr(author, "reputation", 0) or 0.0) + author_delta
 
-    session.add(
-        account.ReputationVoteHistory(
-            voter_id=voter_id,
-            target_type="mod",
-            target_id=int(mod.id),
-            target_name=_display_name(mod, int(mod.id)),
-            previous_value=previous_value,
-            value=value,
-            reputation_delta=author_delta,
-            mod_delta=mod_delta,
-            created_at=now,
-        )
+    await _upsert_vote_history(
+        session,
+        voter_id=voter_id,
+        target_type="mod",
+        target_id=int(mod.id),
+        target_name=_display_name(mod, int(mod.id)),
+        previous_value=previous_value,
+        value=value,
+        reputation_delta=author_delta,
+        mod_delta=mod_delta,
+        created_at=now,
     )
     return int(mod.rating)
 
 
-async def count_vote_history(session: AsyncSession, *, voter_id: int) -> int:
-    return int(
-        (
-            await session.scalar(
-                select(func.count()).select_from(account.ReputationVoteHistory).where(
-                    account.ReputationVoteHistory.voter_id == voter_id
-                )
-            )
-            or 0
+async def _latest_vote_history_rows(
+    session: AsyncSession,
+    *,
+    voter_id: int,
+) -> list[account.ReputationVoteHistory]:
+    result = await session.execute(
+        select(account.ReputationVoteHistory)
+        .where(account.ReputationVoteHistory.voter_id == voter_id)
+        .order_by(
+            account.ReputationVoteHistory.created_at.desc(),
+            account.ReputationVoteHistory.id.desc(),
         )
     )
+    latest_rows: list[account.ReputationVoteHistory] = []
+    seen: set[tuple[str, int]] = set()
+    for row in result.scalars().all():
+        key = _vote_history_key(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        latest_rows.append(row)
+    return latest_rows
+
+
+async def load_vote_history_page(
+    session: AsyncSession,
+    *,
+    voter_id: int,
+    offset: int,
+    limit: int,
+) -> tuple[int, list[account.ReputationVoteHistory]]:
+    rows = await _latest_vote_history_rows(session, voter_id=voter_id)
+    return len(rows), rows[offset : offset + limit]
+
+
+async def count_vote_history(session: AsyncSession, *, voter_id: int) -> int:
+    total, _ = await load_vote_history_page(session, voter_id=voter_id, offset=0, limit=0)
+    return total
 
 
 async def list_vote_history(
@@ -182,14 +281,5 @@ async def list_vote_history(
     offset: int,
     limit: int,
 ) -> list[account.ReputationVoteHistory]:
-    result = await session.execute(
-        select(account.ReputationVoteHistory)
-        .where(account.ReputationVoteHistory.voter_id == voter_id)
-        .order_by(
-            account.ReputationVoteHistory.created_at.desc(),
-            account.ReputationVoteHistory.id.desc(),
-        )
-        .offset(offset)
-        .limit(limit)
-    )
-    return result.scalars().all()
+    _, rows = await load_vote_history_page(session, voter_id=voter_id, offset=offset, limit=limit)
+    return rows
