@@ -1,0 +1,231 @@
+from __future__ import annotations
+
+import datetime
+import pathlib
+import sys
+import types
+import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+if "aiomysql" not in sys.modules:
+    aiomysql_stub = types.ModuleType("aiomysql")
+    aiomysql_stub.__version__ = "0"
+    aiomysql_stub.paramstyle = "pyformat"
+    aiomysql_stub.connect = lambda *args, **kwargs: None  # pragma: no cover
+    aiomysql_stub.Warning = type("Warning", (Exception,), {})
+    aiomysql_stub.Error = type("Error", (Exception,), {})
+    aiomysql_stub.InterfaceError = type("InterfaceError", (Exception,), {})
+    aiomysql_stub.DataError = type("DataError", (Exception,), {})
+    aiomysql_stub.DatabaseError = type("DatabaseError", (Exception,), {})
+    aiomysql_stub.OperationalError = type("OperationalError", (Exception,), {})
+    aiomysql_stub.IntegrityError = type("IntegrityError", (Exception,), {})
+    aiomysql_stub.ProgrammingError = type("ProgrammingError", (Exception,), {})
+    aiomysql_stub.InternalError = type("InternalError", (Exception,), {})
+    aiomysql_stub.NotSupportedError = type("NotSupportedError", (Exception,), {})
+    aiomysql_stub.Cursor = type("Cursor", (), {})
+    aiomysql_stub.SSCursor = type("SSCursor", (), {})
+    aiomysql_cursors_stub = types.ModuleType("aiomysql.cursors")
+    aiomysql_cursors_stub.SSCursor = aiomysql_stub.SSCursor
+    sys.modules["aiomysql.cursors"] = aiomysql_cursors_stub
+    sys.modules["aiomysql"] = aiomysql_stub
+
+
+from open_workshop_manager import standarts
+from open_workshop_manager.mods import api_mod
+from open_workshop_manager.social import api_profile
+from open_workshop_manager.sql_logic import sql_account, sql_catalog
+
+
+class _DummyResult:
+    def __init__(self, rows: list[object]) -> None:
+        self._rows = rows
+
+    def scalars(self) -> "_DummyResult":
+        return self
+
+    def all(self) -> list[object]:
+        return list(self._rows)
+
+    def first(self) -> object | None:
+        return self._rows[0] if self._rows else None
+
+
+class _RatingSession:
+    def __init__(
+        self,
+        *,
+        get_map: dict[type, object] | None = None,
+        scalar_results: list[object | None] | None = None,
+        execute_results: list[list[object]] | None = None,
+    ) -> None:
+        self.get_map = dict(get_map or {})
+        self.scalar_results = list(scalar_results or [])
+        self.execute_results = list(execute_results or [])
+        self.execute_statements: list[object] = []
+        self.added: list[object] = []
+        self.deleted: list[object] = []
+        self.commit_count = 0
+
+    async def __aenter__(self) -> "_RatingSession":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    async def scalar(self, stmt) -> object | None:
+        if self.scalar_results:
+            return self.scalar_results.pop(0)
+        return None
+
+    async def execute(self, stmt) -> _DummyResult:
+        self.execute_statements.append(stmt)
+        if self.execute_results:
+            return _DummyResult(self.execute_results.pop(0))
+        return _DummyResult([])
+
+    async def get(self, entity, ident) -> object | None:
+        target = self.get_map.get(entity)
+        if isinstance(target, dict):
+            return target.get(int(ident))
+        return target if target is not None and getattr(target, "id", None) == ident else None
+
+    def add(self, obj) -> None:
+        self.added.append(obj)
+        self.get_map[type(obj)] = obj
+
+    async def delete(self, obj) -> None:
+        self.deleted.append(obj)
+
+    async def commit(self) -> None:
+        self.commit_count += 1
+
+
+class ReputationRouteTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        app = FastAPI()
+        standarts.install_exception_handlers(app)
+        app.include_router(api_mod.router)
+        app.include_router(api_profile.router)
+        cls.client = TestClient(app)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+
+    def test_mod_rating_updates_mod_and_authors(self) -> None:
+        mod = SimpleNamespace(id=7, name="Cool Mod", rating=0)
+        author = SimpleNamespace(id=11, username="Author", reputation=4)
+        session = _RatingSession(
+            get_map={sql_catalog.Mod: mod},
+            scalar_results=[None],
+            execute_results=[[author]],
+        )
+        vote_access = SimpleNamespace(
+            authenticated=True,
+            owner_id=99,
+            vote_for_reputation=SimpleNamespace(value=True, reason="ok", reason_code="allowed"),
+        )
+        publish_event = AsyncMock(return_value=None)
+
+        with (
+            patch.object(api_mod.tools, "access_vote_for_reputation", AsyncMock(return_value=vote_access)),
+            patch.object(api_mod.tools, "access_mods", AsyncMock(return_value=True)),
+            patch.object(api_mod.account, "AsyncSessionLocal", return_value=session),
+            patch.object(api_mod.mod_events, "publish_mod_event", publish_event),
+        ):
+            response = self.client.put("/mods/7/rating", json={"value": 1})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"mod_id": 7, "rating": 10})
+        self.assertEqual(mod.rating, 10)
+        self.assertEqual(author.reputation, 5)
+        self.assertEqual(session.commit_count, 1)
+        self.assertEqual(len(session.added), 2)
+        self.assertEqual(getattr(session.added[-1], "target_type", None), "mod")
+        self.assertEqual(getattr(session.added[-1], "mod_delta", None), 10)
+        publish_event.assert_awaited_once()
+        self.assertEqual(publish_event.await_args.args[0], api_mod.mod_events.MOD_EVENT_RATED)
+        self.assertEqual(publish_event.await_args.args[1], 7)
+        self.assertEqual(publish_event.await_args.kwargs["extra"]["vote_value"], 1)
+        self.assertEqual(publish_event.await_args.kwargs["extra"]["rating"], 10)
+
+    def test_profile_rating_updates_reputation(self) -> None:
+        profile = SimpleNamespace(id=7, username="User", reputation=12)
+        session = _RatingSession(
+            get_map={sql_account.Account: profile},
+            scalar_results=[None],
+        )
+        access_result = SimpleNamespace(
+            authenticated=True,
+            owner_id=42,
+            vote_for_reputation=SimpleNamespace(value=True, reason="ok", reason_code="allowed"),
+            info=SimpleNamespace(meta=SimpleNamespace(value=True, reason="ok", reason_code="self")),
+        )
+
+        with (
+            patch.object(api_profile.tools, "access_profile", AsyncMock(return_value=access_result)),
+            patch.object(api_profile.account, "AsyncSessionLocal", return_value=session),
+        ):
+            response = self.client.put("/profiles/7/rating", json={"value": -1})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"profile_id": 7, "reputation": 11})
+        self.assertEqual(profile.reputation, 11)
+        self.assertEqual(session.commit_count, 1)
+        self.assertEqual(len(session.added), 2)
+        self.assertEqual(getattr(session.added[-1], "target_type", None), "profile")
+        self.assertEqual(getattr(session.added[-1], "reputation_delta", None), -1)
+
+    def test_profile_rating_history_returns_items(self) -> None:
+        profile = SimpleNamespace(id=7, username="User", reputation=11)
+        history_row = SimpleNamespace(
+            id=1,
+            voter_id=7,
+            target_type="mod",
+            target_id=77,
+            target_name="Cool Mod",
+            previous_value=0,
+            value=1,
+            reputation_delta=1,
+            mod_delta=10,
+            created_at=datetime.datetime(2026, 5, 3, 12, 0, 0),
+        )
+        session = _RatingSession(
+            get_map={sql_account.Account: profile},
+            scalar_results=[1],
+            execute_results=[[history_row]],
+        )
+        access_result = SimpleNamespace(
+            authenticated=True,
+            owner_id=7,
+            info=SimpleNamespace(meta=SimpleNamespace(value=True, reason="ok", reason_code="self")),
+        )
+
+        with (
+            patch.object(api_profile.tools, "access_profile", AsyncMock(return_value=access_result)),
+            patch.object(api_profile.account, "AsyncSessionLocal", return_value=session),
+        ):
+            response = self.client.get("/profiles/7/rating/history")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["pagination"]["total"], 1)
+        self.assertEqual(body["items"][0]["target_name"], "Cool Mod")
+        self.assertEqual(body["items"][0]["mod_delta"], 10)
+        self.assertEqual(body["items"][0]["reputation_delta"], 1)
+        self.assertEqual(session.commit_count, 0)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    unittest.main()

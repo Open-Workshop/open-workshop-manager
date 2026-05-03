@@ -8,7 +8,7 @@ from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, insert, select, update
 
-from open_workshop_manager import settings as config, standarts, tools
+from open_workshop_manager import reputation, settings as config, standarts, tools
 from open_workshop_manager.api_helpers import (
     ensure_fields_not_none,
     ensure_non_empty_patch,
@@ -22,8 +22,12 @@ from open_workshop_manager.api_models import (
     ProfileSearchListResponse,
     ProfileSearchRead,
     ProfileRead,
+    ProfileRatingRead,
     ProfileRightsPatch,
     ProfileRightsRead,
+    RatingHistoryRead,
+    RatingHistoryListResponse,
+    RatingVoteUpsert,
 )
 from open_workshop_manager.limits import LIMITS
 from open_workshop_manager.sql_logic import sql_account as account
@@ -42,6 +46,17 @@ def _raise_profile_not_found(request: Request) -> None:
         code="PROFILE_NOT_FOUND",
         instance=str(request.url),
     )
+
+
+PROFILE_NOT_FOUND_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        404,
+        title="Not Found",
+        detail="Profile not found.",
+        code="PROFILE_NOT_FOUND",
+    ),
+    "Profile not found.",
+)
 
 
 def _profile_general_payload(row: account.Account, now: datetime.datetime) -> ProfileGeneralRead:
@@ -243,6 +258,101 @@ async def get_profile(
                 result.rights = _profile_rights_payload(row)
 
         return result
+
+
+@router.put(
+    "/profiles/{user_id}/rating",
+    tags=["Profile"],
+    summary="Rate profile",
+    description=(
+        "Sets the current user's vote for a profile.\n\n"
+        "Send `value=1` to upvote, `value=-1` to downvote, or `value=0` to clear "
+        "the current vote. Profile reputation is stored on the author scale, while "
+        "mod votes contribute `10` rating points per vote step."
+    ),
+    status_code=200,
+    response_model=ProfileRatingRead,
+    response_model_exclude_none=True,
+    response_description="Updated profile reputation.",
+    responses={401: standarts.UNAUTHORIZED_RESPONSE_SPEC, 403: standarts.FORBIDDEN_RESPONSE_SPEC, 404: PROFILE_NOT_FOUND_RESPONSE},
+)
+async def put_profile_rating(
+    request: Request,
+    user_id: int,
+    payload: RatingVoteUpsert,
+) -> ProfileRatingRead:
+    access_result = await tools.access_profile(request=request, profile_id=user_id)
+    if not access_result.authenticated:
+        raise standarts.UnauthorizedError(instance=str(request.url))
+    if not access_result.vote_for_reputation.value:
+        _raise_profile_right_denied(request, access_result.vote_for_reputation)
+
+    async with account.AsyncSessionLocal() as session:
+        row = await session.get(account.Account, user_id)
+        if row is None:
+            _raise_profile_not_found(request)
+
+        reputation_value = await reputation.apply_profile_vote(
+            session,
+            voter_id=int(access_result.owner_id),
+            profile=row,
+            value=int(payload.value),
+        )
+        await session.commit()
+        return ProfileRatingRead(profile_id=user_id, reputation=reputation_value)
+
+
+@router.get(
+    "/profiles/{user_id}/rating/history",
+    tags=["Profile"],
+    summary="Get vote history",
+    description="Returns the votes cast by this user, including mod and profile votes.",
+    status_code=200,
+    response_model=RatingHistoryListResponse,
+    response_model_exclude_none=True,
+    response_description="Paginated vote history.",
+    responses={404: PROFILE_NOT_FOUND_RESPONSE},
+)
+async def get_profile_rating_history(
+    request: Request,
+    user_id: int,
+    page_size: int = Query(
+        default=LIMITS.page.default,
+        ge=LIMITS.page.min,
+        le=LIMITS.page.max,
+        description="Maximum number of history items to return per page.",
+    ),
+    page: int = Query(0, ge=0, description="Zero-based page index."),
+):
+    access_result = await tools.access_profile(request=request, profile_id=user_id)
+    if not access_result.authenticated:
+        raise standarts.UnauthorizedError(instance=str(request.url))
+    if user_id != access_result.owner_id and not access_result.info.meta.value:
+        raise standarts.ForbiddenError(
+            detail=access_result.info.meta.reason,
+            instance=str(request.url),
+            context={"reason_code": access_result.info.meta.reason_code},
+        )
+
+    async with account.AsyncSessionLocal() as session:
+        row = await session.get(account.Account, user_id)
+        if row is None:
+            _raise_profile_not_found(request)
+
+        total = await reputation.count_vote_history(session, voter_id=user_id)
+        offset = page * page_size
+        rows = await reputation.list_vote_history(
+            session,
+            voter_id=user_id,
+            offset=offset,
+            limit=page_size,
+        )
+
+    items = [
+        RatingHistoryRead.model_validate(row).model_dump(mode="json", exclude_none=True)
+        for row in rows
+    ]
+    return make_list_response(items, page=page, page_size=page_size, total=total)
 
 
 @router.get(

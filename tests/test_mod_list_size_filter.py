@@ -124,6 +124,7 @@ def _mod(
     adult: bool = False,
     condition: int = 0,
     downloads: int = 42,
+    rating: int = 0,
     size: int = 150,
     size_unpacked: int | None = 320,
 ) -> types.SimpleNamespace:
@@ -140,6 +141,7 @@ def _mod(
         adult=adult,
         condition=condition,
         downloads=downloads,
+        rating=rating,
         size=size,
         size_unpacked=size_unpacked,
         date_creation=datetime.datetime(2026, 4, 27, 12, 0, 0),
@@ -288,6 +290,21 @@ class ModListSizeFilterTests(unittest.TestCase):
         list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
         self.assertIn("mods.public = 0", count_sql)
         self.assertIn("mods.public = 0", list_sql)
+
+    def test_mod_list_supports_rating_sort(self) -> None:
+        session = _RecordingSession(rows=[_mod(rating=50)], scalar_values=[1])
+
+        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(
+                f"{self.main_url}/mods",
+                params={"page": 0, "page_size": 20, "sort": "-rating"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["items"][0]["rating"], 50)
+        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        self.assertIn("ORDER BY mods.rating DESC", list_sql)
 
     def test_mod_list_filters_by_author_alias(self) -> None:
         session = _RecordingSession(rows=[_mod(mod_id=11)], scalar_values=[1])
@@ -1173,7 +1190,11 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("adult", mod_read["properties"])
         self.assertIn("adult", mod_read["required"])
         self.assertEqual(mod_read["properties"]["adult"]["type"], "boolean")
+        self.assertIn("rating", mod_read["properties"])
         self.assertIn("git_url", mod_read["properties"])
+        self.assertIn("/mods/{mod_id}/rating", schema["paths"])
+        self.assertIn("/profiles/{user_id}/rating", schema["paths"])
+        self.assertIn("/profiles/{user_id}/rating/history", schema["paths"])
         resource_read = schema["components"]["schemas"]["ResourceRead"]
         self.assertIn("sort_order", resource_read["properties"])
         self.assertIn("sort_order", resource_read["required"])

@@ -132,6 +132,7 @@ class Mod(Base):  # Таблица "моды"
 
     size: Mapped[int] = mapped_column(BigInteger)
     size_unpacked: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    rating: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default=text("0"))
 
     condition: Mapped[int] = mapped_column(Integer)  # 0 - загружен, 1 - загружается
     public: Mapped[int] = mapped_column(

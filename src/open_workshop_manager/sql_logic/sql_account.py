@@ -178,6 +178,65 @@ Index(
 )
 
 
+class ReputationVote(Base):
+    __tablename__ = "reputation_votes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    voter_id: Mapped[int] = mapped_column(Integer, ForeignKey("accounts.id"), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    value: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, default=datetime.datetime.now)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.datetime.now,
+        onupdate=datetime.datetime.now,
+    )
+
+
+Index(
+    "ux_reputation_votes_voter_target",
+    ReputationVote.voter_id,
+    ReputationVote.target_type,
+    ReputationVote.target_id,
+    unique=True,
+)
+Index(
+    "ix_reputation_votes_target_type_target_id",
+    ReputationVote.target_type,
+    ReputationVote.target_id,
+)
+
+
+class ReputationVoteHistory(Base):
+    __tablename__ = "reputation_vote_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    voter_id: Mapped[int] = mapped_column(Integer, ForeignKey("accounts.id"), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    previous_value: Mapped[int] = mapped_column(Integer, nullable=False)
+    value: Mapped[int] = mapped_column(Integer, nullable=False)
+    reputation_delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    mod_delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, default=datetime.datetime.now)
+
+
+Index(
+    "ix_reputation_vote_history_voter_created",
+    ReputationVoteHistory.voter_id,
+    ReputationVoteHistory.created_at,
+)
+Index(
+    "ix_reputation_vote_history_target_created",
+    ReputationVoteHistory.target_type,
+    ReputationVoteHistory.target_id,
+    ReputationVoteHistory.created_at,
+)
+
+
 class Forum(Base):  # Форумы, личные сообщения и все что угодно
     __tablename__ = "forums"
 

@@ -86,6 +86,55 @@ class ModEventsTests(unittest.TestCase):
         self.assertEqual(payload["public"], 0)
         self.assertIn("occurred_at", payload)
 
+    def test_publish_mod_rating_event_sends_vote_details(self) -> None:
+        fake_jetstream = _FakeJetStream()
+        mod_events._jetstream = fake_jetstream
+
+        with patch.object(
+            mod_events.config,
+            "NATS_MOD_EVENTS_ENABLED",
+            True,
+        ), patch.object(
+            mod_events.config,
+            "NATS_MOD_EVENTS_REQUIRED",
+            False,
+        ), patch.object(
+            mod_events.config,
+            "NATS_MOD_EVENTS_STREAM",
+            "MOD_EVENTS",
+        ), patch.object(
+            mod_events.config,
+            "NATS_MOD_EVENTS_SUBJECT_PREFIX",
+            "mods",
+        ), patch.object(
+            mod_events.config,
+            "NATS_PUBLISH_TIMEOUT_SECONDS",
+            3,
+        ):
+            asyncio.run(
+                mod_events.publish_mod_event(
+                    mod_events.MOD_EVENT_RATED,
+                    17,
+                    "Demo Mod",
+                    "Full text",
+                    0,
+                    extra={
+                        "voter_id": 99,
+                        "vote_value": -1,
+                        "rating": 40,
+                    },
+                )
+            )
+
+        self.assertEqual(len(fake_jetstream.calls), 1)
+        call = fake_jetstream.calls[0]
+        self.assertEqual(call["subject"], "mods.rated")
+        payload = json.loads(call["payload"].decode("utf-8"))
+        self.assertEqual(payload["event"], "mod.rated")
+        self.assertEqual(payload["voter_id"], 99)
+        self.assertEqual(payload["vote_value"], -1)
+        self.assertEqual(payload["rating"], 40)
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

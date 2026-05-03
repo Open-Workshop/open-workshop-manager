@@ -428,6 +428,20 @@ async def access_profile(
         _raise_access_service_error(str(request.url), exc)
 
 
+async def access_vote_for_reputation(
+    request: Request,
+) -> access_client.ProfileResponse:
+    access_result = await account.check_access(request=request)
+    if not access_result or not access_result.authenticated or access_result.owner_id < 0:
+        raise standarts.UnauthorizedError(instance=str(request.url))
+
+    profile_access = await access_profile(request=request, profile_id=access_result.owner_id)
+    if not profile_access.authenticated:
+        raise standarts.UnauthorizedError(instance=str(request.url))
+
+    return profile_access
+
+
 async def access_mod_action(
     request: Request,
     mod_id: int,
@@ -720,6 +734,7 @@ def sort_mods(sort_by: str, dependents_count_stmt=None):
         "updated_at": catalog.Mod.date_edit,
         "source": catalog.Mod.source,
         "downloads": catalog.Mod.downloads,
+        "rating": catalog.Mod.rating,
         "public": catalog.Mod.public,
         "adult": catalog.Mod.adult,
         "game_id": catalog.Mod.game,

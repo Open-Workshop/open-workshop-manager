@@ -11,7 +11,7 @@ from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.orm import aliased
 
-from open_workshop_manager import mod_events, standarts, tools
+from open_workshop_manager import mod_events, reputation, standarts, tools
 from open_workshop_manager.api_helpers import (
     ensure_fields_not_none,
     ensure_non_empty_patch,
@@ -26,8 +26,10 @@ from open_workshop_manager.api_models import (
     ModListResponse,
     ModPatch,
     ModRead,
+    ModRatingRead,
     ModDependencyCollectionRead,
     ModDependencyRead,
+    RatingVoteUpsert,
     TagListResponse,
     TagRead,
     stringify_source_id,
@@ -127,6 +129,22 @@ def _raise_mod_not_found(request: Request) -> None:
     )
 
 
+def _raise_vote_right_denied(request: Request, right) -> None:
+    reason_code = str(getattr(right, "reason_code", "") or "forbidden")
+    detail = str(getattr(right, "reason", "") or "Forbidden")
+    if reason_code in {"muted", "cooldown"}:
+        raise standarts.TooEarlyError(
+            detail=detail,
+            instance=str(request.url),
+            context={"reason_code": reason_code},
+        )
+    raise standarts.ForbiddenError(
+        detail=detail,
+        instance=str(request.url),
+        context={"reason_code": reason_code},
+    )
+
+
 def _raise_unsupported_include(request: Request, field: str) -> None:
     raise standarts.StandardAPIError(
         status_code=400,
@@ -155,6 +173,7 @@ def _raise_unsupported_sort(request: Request, field: str) -> None:
                 "updated_at",
                 "source",
                 "downloads",
+                "rating",
                 "dependents_count",
                 "public",
                 "adult",
@@ -358,6 +377,7 @@ def _serialize_mod_base(row: catalog.Mod) -> dict[str, object]:
         "adult": bool(getattr(row, "adult", False)),
         "condition": "draft" if int(getattr(row, "condition", 0) or 0) != 0 else "published",
         "downloads": int(getattr(row, "downloads", 0) or 0),
+        "rating": int(getattr(row, "rating", 0) or 0),
         "size": int(getattr(row, "size", 0) or 0),
         "size_unpacked": (
             int(getattr(row, "size_unpacked", 0))
@@ -569,6 +589,7 @@ async def _update_game_mod_count(session, game_id: int, delta: int) -> None:
         "Use filters for IDs, tags, dependency rules, conflict exclusions, source fields, "
         "game, size ranges, and `include` to opt into extra fields such as `description`, `dates`, `game`, "
         "`tags`, `dependencies`, `conflicts`, `authors`, and `resources`.\n\n"
+        "Sorting also supports `rating`, which uses the 10x mod reputation scale.\n\n"
         "When `include=conflicts` is requested, `scope` controls whether the response includes "
         "outgoing conflicts, incoming conflicts, or both directions merged together.\n\n"
         "Dependency filters accept bare mod IDs as `any`, or explicit rules such as "
@@ -989,6 +1010,60 @@ async def get_mod(
                 conflicts_scope,
             )
         return ModRead.model_validate(_serialize_mod_base(row))
+
+
+@router.put(
+    "/mods/{mod_id}/rating",
+    tags=["Mod"],
+    summary="Rate mod",
+    description=(
+        "Sets the current user's vote for a mod.\n\n"
+        "Send `value=1` to upvote, `value=-1` to downvote, or `value=0` to clear "
+        "the current vote. Mod ratings are stored on a 10x scale and the author "
+        "reputation changes by 1 point per vote step."
+    ),
+    status_code=200,
+    response_model=ModRatingRead,
+    response_model_exclude_none=True,
+    response_description="Updated mod rating.",
+    responses={401: standarts.UNAUTHORIZED_RESPONSE_SPEC, 403: standarts.FORBIDDEN_RESPONSE_SPEC, 404: MOD_NOT_FOUND_RESPONSE},
+)
+async def put_mod_rating(
+    request: Request,
+    mod_id: int,
+    payload: RatingVoteUpsert,
+) -> ModRatingRead:
+    vote_access = await tools.access_vote_for_reputation(request=request)
+    if not vote_access.vote_for_reputation.value:
+        _raise_vote_right_denied(request, vote_access.vote_for_reputation)
+
+    async with account.AsyncSessionLocal() as session:
+        mod = await session.get(catalog.Mod, mod_id)
+        if mod is None:
+            _raise_mod_not_found(request)
+
+        await tools.access_mods(request=request, mods_ids=[mod_id], catalog=True)
+
+        rating = await reputation.apply_mod_vote(
+            session,
+            voter_id=int(vote_access.owner_id),
+            mod=mod,
+            value=int(payload.value),
+        )
+        await session.commit()
+        await mod_events.publish_mod_event(
+            mod_events.MOD_EVENT_RATED,
+            mod_id,
+            getattr(mod, "name", ""),
+            getattr(mod, "description", None),
+            getattr(mod, "public", 0),
+            extra={
+                "voter_id": int(vote_access.owner_id),
+                "vote_value": int(payload.value),
+                "rating": rating,
+            },
+        )
+        return ModRatingRead(mod_id=mod_id, rating=rating)
 
 
 @router.post(

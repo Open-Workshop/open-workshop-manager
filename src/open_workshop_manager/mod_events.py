@@ -1,4 +1,4 @@
-"""NATS JetStream publisher for mod lifecycle events."""
+"""NATS JetStream publisher for mod lifecycle and rating events."""
 
 from __future__ import annotations
 
@@ -14,7 +14,13 @@ logger = logging.getLogger(__name__)
 MOD_EVENT_ADDED = "added"
 MOD_EVENT_CHANGED = "changed"
 MOD_EVENT_DELETED = "deleted"
-MOD_EVENT_TYPES = {MOD_EVENT_ADDED, MOD_EVENT_CHANGED, MOD_EVENT_DELETED}
+MOD_EVENT_RATED = "rated"
+MOD_EVENT_TYPES = {
+    MOD_EVENT_ADDED,
+    MOD_EVENT_CHANGED,
+    MOD_EVENT_DELETED,
+    MOD_EVENT_RATED,
+}
 
 _nats_client: Any | None = None
 _jetstream: Any | None = None
@@ -58,11 +64,12 @@ def _build_payload(
     title: str | None,
     full_description: str | None,
     public: int,
+    extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
     if event_type not in MOD_EVENT_TYPES:
         raise ValueError(f"Unsupported mod event type: {event_type}")
 
-    return {
+    payload = {
         "event": f"mod.{event_type}",
         "id": int(mod_id),
         "title": title or "",
@@ -70,6 +77,10 @@ def _build_payload(
         "public": int(public),
         "occurred_at": datetime.now(timezone.utc).isoformat(),
     }
+    for key, value in (extra or {}).items():
+        if value is not None:
+            payload[key] = value
+    return payload
 
 
 async def start() -> None:
@@ -90,6 +101,7 @@ async def start() -> None:
 
     try:
         import nats
+        from nats.js.api import StreamConfig
         from nats.js.errors import NotFoundError
     except ModuleNotFoundError:
         message = "nats-py is not installed; NATS mod events are unavailable"
@@ -107,15 +119,27 @@ async def start() -> None:
         _jetstream = _nats_client.jetstream()
 
         stream_name = str(getattr(config, "NATS_MOD_EVENTS_STREAM", "MOD_EVENTS"))
+        desired_subjects = _stream_subjects()
         try:
-            await _jetstream.stream_info(stream_name)
+            info = await _jetstream.stream_info(stream_name)
         except NotFoundError:
-            await _jetstream.add_stream(name=stream_name, subjects=_stream_subjects())
+            await _jetstream.add_stream(name=stream_name, subjects=desired_subjects)
+        else:
+            existing_subjects = list(
+                getattr(getattr(info, "config", None), "subjects", None) or []
+            )
+            if set(existing_subjects) != set(desired_subjects):
+                stream_config = getattr(info, "config", None)
+                if stream_config is None:
+                    stream_config = StreamConfig(name=stream_name, subjects=desired_subjects)
+                else:
+                    stream_config.subjects = desired_subjects
+                await _jetstream.update_stream(stream_config)
 
         logger.info(
             "NATS mod events ready stream=%s subjects=%s",
             stream_name,
-            _stream_subjects(),
+            desired_subjects,
         )
     except Exception:
         _jetstream = None
@@ -156,8 +180,10 @@ async def publish_mod_event(
     title: str | None,
     full_description: str | None,
     public: int,
+    *,
+    extra: dict[str, object] | None = None,
 ) -> None:
-    """Publish a mod lifecycle event to JetStream."""
+    """Publish a mod lifecycle or rating event to JetStream."""
     if not _enabled():
         return
 
@@ -174,6 +200,7 @@ async def publish_mod_event(
         title=title,
         full_description=full_description,
         public=public,
+        extra=extra,
     )
     encoded_payload = json.dumps(
         payload,

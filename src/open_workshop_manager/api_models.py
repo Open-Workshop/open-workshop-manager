@@ -193,6 +193,7 @@ class ModRead(ReadModel):
     public: int
     adult: bool
     condition: str
+    rating: int = 0
     downloads: int | None = None
     size: int | None = None
     size_unpacked: int | None = None
@@ -301,6 +302,38 @@ class IntCollectionRead(ReadModel):
 
 
 ModRead.model_rebuild()
+
+
+class RatingVoteUpsert(ApiModel):
+    value: Literal[-1, 0, 1] = Field(
+        description="Vote value. `0` clears the current vote."
+    )
+
+
+class ModRatingRead(ReadModel):
+    mod_id: int
+    rating: int
+
+
+class ProfileRatingRead(ReadModel):
+    profile_id: int
+    reputation: int
+
+
+class RatingHistoryRead(ReadModel):
+    id: int
+    target_type: Literal["mod", "profile"]
+    target_id: int
+    target_name: str
+    previous_value: int
+    value: int
+    reputation_delta: int
+    mod_delta: int
+    created_at: datetime.datetime | None = None
+
+
+class RatingHistoryListResponse(ListResponse[RatingHistoryRead]):
+    pass
 
 
 class ModDownloadUrlRead(ApiModel):
