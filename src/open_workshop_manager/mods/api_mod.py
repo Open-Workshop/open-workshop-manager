@@ -129,6 +129,24 @@ def _raise_mod_not_found(request: Request) -> None:
     )
 
 
+async def _load_mod_current_vote(request: Request, mod_id: int) -> int | None:
+    access_state = await account.check_access(request=request)
+    if not access_state or not getattr(access_state, "authenticated", False):
+        return None
+
+    voter_id = int(getattr(access_state, "owner_id", -1) or -1)
+    if voter_id < 0:
+        return None
+
+    async with account.AsyncSessionLocal() as session:
+        return await reputation.current_vote_value(
+            session,
+            voter_id=voter_id,
+            target_type="mod",
+            target_id=int(mod_id),
+        )
+
+
 def _raise_vote_right_denied(request: Request, right) -> None:
     reason_code = str(getattr(right, "reason_code", "") or "forbidden")
     detail = str(getattr(right, "reason", "") or "Forbidden")
@@ -442,8 +460,12 @@ async def _serialize_mod_with_includes(
     row: catalog.Mod,
     include: set[str],
     conflicts_scope: ConflictScope,
+    *,
+    current_vote: int | None = None,
 ) -> ModRead:
     payload = _serialize_mod_base(row)
+    if current_vote is not None:
+        payload["current_vote"] = current_vote
     game_id = getattr(row, "game", None)
 
     if "short_description" not in include:
@@ -1001,6 +1023,8 @@ async def get_mod(
         if row.public > 0 or row.condition != 0:
             await tools.access_mods(request=request, mods_ids=[mod_id])
 
+        current_vote = await _load_mod_current_vote(request, mod_id)
+
         if include_set:
             return await _serialize_mod_with_includes(
                 session,
@@ -1008,8 +1032,12 @@ async def get_mod(
                 row,
                 include_set,
                 conflicts_scope,
+                current_vote=current_vote,
             )
-        return ModRead.model_validate(_serialize_mod_base(row))
+        payload = _serialize_mod_base(row)
+        if current_vote is not None:
+            payload["current_vote"] = current_vote
+        return ModRead.model_validate(payload)
 
 
 @router.put(

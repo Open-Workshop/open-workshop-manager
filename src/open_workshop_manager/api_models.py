@@ -194,6 +194,7 @@ class ModRead(ReadModel):
     adult: bool
     condition: str
     rating: int = 0
+    current_vote: int | None = None
     downloads: int | None = None
     size: int | None = None
     size_unpacked: int | None = None

@@ -196,6 +196,56 @@ class ReputationRouteTests(unittest.TestCase):
         publish_event.assert_awaited_once()
         self.assertEqual(publish_event.await_args.kwargs["extra"]["rating"], 10)
 
+    def test_get_mod_includes_current_vote_state_for_authenticated_user(self) -> None:
+        mod = SimpleNamespace(
+            id=7,
+            name="Cool Mod",
+            short_description="Short",
+            description="Long",
+            source="local",
+            source_id=None,
+            git_url=None,
+            game=None,
+            public=0,
+            adult=False,
+            condition=0,
+            downloads=0,
+            rating=13,
+            size=0,
+            size_unpacked=None,
+            date_creation=None,
+            date_update_file=None,
+            date_edit=None,
+        )
+        vote_history_row = SimpleNamespace(
+            id=1,
+            voter_id=42,
+            target_type="mod",
+            target_id=7,
+            target_name="Cool Mod",
+            previous_value=0,
+            value=-1,
+            reputation_delta=-0.1,
+            mod_delta=-1,
+            created_at=datetime.datetime(2026, 5, 3, 12, 0, 0),
+        )
+        catalog_session = _RatingSession(get_map={sql_catalog.Mod: mod})
+        vote_session = _RatingSession(scalar_results=[vote_history_row])
+        access_state = SimpleNamespace(authenticated=True, owner_id=42)
+
+        with (
+            patch.object(api_mod.account, "check_access", AsyncMock(return_value=access_state)),
+            patch.object(api_mod.catalog, "AsyncSessionLocal", return_value=catalog_session),
+            patch.object(api_mod.account, "AsyncSessionLocal", return_value=vote_session),
+        ):
+            response = self.client.get("/mods/7")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["id"], 7)
+        self.assertEqual(body["rating"], 13)
+        self.assertEqual(body["current_vote"], -1)
+
     def test_profile_rating_updates_reputation(self) -> None:
         profile = SimpleNamespace(id=7, username="User", reputation=12.0)
         session = _RatingSession(

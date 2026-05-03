@@ -1191,6 +1191,7 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("adult", mod_read["required"])
         self.assertEqual(mod_read["properties"]["adult"]["type"], "boolean")
         self.assertIn("rating", mod_read["properties"])
+        self.assertIn("current_vote", mod_read["properties"])
         self.assertIn("git_url", mod_read["properties"])
         self.assertIn("/mods/{mod_id}/rating", schema["paths"])
         self.assertIn("/profiles/{user_id}/rating", schema["paths"])

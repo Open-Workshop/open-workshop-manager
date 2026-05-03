@@ -234,6 +234,33 @@ async def apply_mod_vote(
     return int(mod.rating)
 
 
+async def current_vote_value(
+    session: AsyncSession,
+    *,
+    voter_id: int,
+    target_type: str,
+    target_id: int,
+) -> int | None:
+    """Return the latest recorded vote state for a target, if any."""
+    row = await _latest_vote_history_row(
+        session,
+        voter_id=voter_id,
+        target_type=target_type,
+        target_id=target_id,
+    )
+    if row is None:
+        current_vote = await _current_vote(
+            session,
+            voter_id=voter_id,
+            target_type=target_type,
+            target_id=target_id,
+        )
+        if current_vote is None:
+            return None
+        return int(getattr(current_vote, "value", 0) or 0)
+    return int(getattr(row, "value", 0) or 0)
+
+
 async def _latest_vote_history_rows(
     session: AsyncSession,
     *,
