@@ -385,6 +385,51 @@ class IntCollectionRead(ReadModel):
     items: list[int]
 
 
+class ModBuildNodeRead(ReadModel):
+    mod_id: int
+    mod_name: str
+    selected: bool
+
+
+class ModBuildEdgeRead(ReadModel):
+    source_mod_id: int
+    target_mod_id: int
+
+
+class ModBuildConflictGraphRead(ReadModel):
+    nodes: list[ModBuildNodeRead]
+    edges: list[ModBuildEdgeRead]
+
+
+class ModBuildDependencyGraphRead(ReadModel):
+    nodes: list[ModBuildNodeRead]
+    edges: list[ModBuildEdgeRead]
+
+
+class ModBuildConflictRead(ReadModel):
+    mod_id: int
+    mod_name: str
+    conflict_mod_id: int
+    conflict_mod_name: str
+
+
+class ModBuildConflictListRead(ReadModel):
+    count: int
+    items: list[ModBuildConflictRead]
+
+
+class ModBuildMissingDependencyRead(ReadModel):
+    mod_id: int
+    mod_name: str
+    dependency_mod_id: int
+    dependency_mod_name: str
+
+
+class ModBuildMissingDependencyListRead(ReadModel):
+    count: int
+    items: list[ModBuildMissingDependencyRead]
+
+
 ModRead.model_rebuild()
 
 

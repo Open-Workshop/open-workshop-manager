@@ -28,6 +28,7 @@ from open_workshop_manager.app.api_catalog_statistics import (
 from open_workshop_manager.games.api_game import router as game_router
 from open_workshop_manager.games.api_genre import router as genre_router
 from open_workshop_manager.logging_setup import setup_logging
+from open_workshop_manager.mods.api_mod_build import router as mod_build_router
 from open_workshop_manager.mods.api_mod import router as mod_router
 from open_workshop_manager.mods.api_resource import router as resource_router
 from open_workshop_manager.mods.api_tag import router as tag_router
@@ -326,6 +327,7 @@ async def _stop_cleanup_task() -> None:
     await mod_events.stop()
 
 app.include_router(game_router)
+app.include_router(mod_build_router)
 app.include_router(mod_router)
 app.include_router(modpack_router)
 app.include_router(genre_router)

@@ -62,11 +62,13 @@ class _RecordingSession:
         self,
         *,
         rows: list[object] | None = None,
+        execute_results: list[list[object]] | None = None,
         scalar_values: list[object] | None = None,
         get_value: object | None = None,
         allow_writes: bool = False,
     ) -> None:
         self.rows = rows or []
+        self.execute_results = list(execute_results or [])
         self.scalar_values = list(scalar_values or [])
         self.get_value = get_value
         self.allow_writes = allow_writes
@@ -91,6 +93,8 @@ class _RecordingSession:
         if isinstance(stmt, (Insert, Update, Delete)) and not self.allow_writes:
             raise AssertionError(f"Unexpected write statement: {stmt!r}")
         self.execute_statements.append(stmt)
+        if self.execute_results:
+            return _DummyResult(self.execute_results.pop(0))
         selected_columns = list(getattr(stmt, "selected_columns", []))
         if len(selected_columns) == 1 and getattr(selected_columns[0], "name", None) == "id":
             return _DummyResult([int(getattr(row, "id", row)) for row in self.rows])
@@ -235,6 +239,7 @@ class ModListSizeFilterTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         standarts = import_module("open_workshop_manager.standarts")
         cls.api_mod = import_module("open_workshop_manager.mods.api_mod")
+        cls.api_mod_build = import_module("open_workshop_manager.mods.api_mod_build")
         cls.api_modpack = import_module("open_workshop_manager.modpacks.api_modpack")
         cls.api_association = import_module("open_workshop_manager.association.api_association_control")
         cls.api_game = import_module("open_workshop_manager.games.api_game")
@@ -247,6 +252,7 @@ class ModListSizeFilterTests(unittest.TestCase):
         cls.standarts = standarts
         app = FastAPI()
         standarts.install_exception_handlers(app)
+        app.include_router(cls.api_mod_build.router)
         app.include_router(cls.api_mod.router)
         app.include_router(cls.api_modpack.router)
         app.include_router(cls.api_association.router)
@@ -795,6 +801,133 @@ class ModListSizeFilterTests(unittest.TestCase):
                 for expected_snippet in expected_snippets:
                     self.assertIn(expected_snippet, sql)
 
+    def test_mod_build_conflicts_endpoint_returns_conflicting_mod_ids(self) -> None:
+        session = _RecordingSession(
+            execute_results=[
+                [1, 2, 3],
+                [
+                    (1, 2),
+                    (3, 2),
+                ],
+                [
+                    (1, "One"),
+                    (2, "Two"),
+                    (3, "Three"),
+                ],
+            ],
+            get_value=_mod(),
+        )
+        access_mods = AsyncMock(return_value=True)
+
+        with patch.object(self.api_mod_build.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_mod_build.tools,
+            "access_mods",
+            access_mods,
+        ):
+            response = self.client.get(
+                "/mods/build/conflicts",
+                params=[("mods_ids", 1), ("mods_ids", 2), ("mods_ids", 3)],
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "nodes": [
+                    {
+                        "mod_id": 1,
+                        "mod_name": "One",
+                        "selected": True,
+                    },
+                    {
+                        "mod_id": 2,
+                        "mod_name": "Two",
+                        "selected": True,
+                    },
+                    {
+                        "mod_id": 3,
+                        "mod_name": "Three",
+                        "selected": True,
+                    },
+                ],
+                "edges": [
+                    {
+                        "source_mod_id": 1,
+                        "target_mod_id": 2,
+                    },
+                    {
+                        "source_mod_id": 2,
+                        "target_mod_id": 3,
+                    },
+                ],
+            },
+        )
+        access_mods.assert_awaited_once()
+        self.assertEqual(len(session.execute_statements), 3)
+
+    def test_mod_build_missing_dependencies_endpoint_traverses_required_chain(self) -> None:
+        session = _RecordingSession(
+            execute_results=[
+                [1],
+                [(1, 2)],
+                [(2, 3)],
+                [],
+                [
+                    (1, "D"),
+                    (2, "B"),
+                    (3, "A"),
+                ],
+            ],
+            get_value=_mod(),
+        )
+        access_mods = AsyncMock(return_value=True)
+
+        with patch.object(self.api_mod_build.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_mod_build.tools,
+            "access_mods",
+            access_mods,
+        ):
+            response = self.client.get(
+                "/mods/build/dependencies/missing",
+                params=[("mods_ids", 1)],
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "nodes": [
+                    {
+                        "mod_id": 1,
+                        "mod_name": "D",
+                        "selected": True,
+                    },
+                    {
+                        "mod_id": 2,
+                        "mod_name": "B",
+                        "selected": False,
+                    },
+                    {
+                        "mod_id": 3,
+                        "mod_name": "A",
+                        "selected": False,
+                    },
+                ],
+                "edges": [
+                    {
+                        "source_mod_id": 1,
+                        "target_mod_id": 2,
+                    },
+                    {
+                        "source_mod_id": 2,
+                        "target_mod_id": 3,
+                    },
+                ],
+            },
+        )
+        access_mods.assert_awaited_once()
+        self.assertEqual(len(session.execute_statements), 5)
+
     def test_mod_dependency_post_creates_optional_false_by_default(self) -> None:
         session = _RecordingSession(get_value=_mod(), allow_writes=True)
         access_mods = AsyncMock(return_value=True)
@@ -1195,7 +1328,19 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("rating", mod_read["properties"])
         self.assertIn("current_vote", mod_read["properties"])
         self.assertIn("git_url", mod_read["properties"])
+        build_node_read = schema["components"]["schemas"]["ModBuildNodeRead"]
+        self.assertEqual(
+            set(build_node_read["properties"]),
+            {"mod_id", "mod_name", "selected"},
+        )
+        build_edge_read = schema["components"]["schemas"]["ModBuildEdgeRead"]
+        self.assertEqual(
+            set(build_edge_read["properties"]),
+            {"source_mod_id", "target_mod_id"},
+        )
         self.assertIn("/mods/{mod_id}/rating", schema["paths"])
+        self.assertIn("/mods/build/conflicts", schema["paths"])
+        self.assertIn("/mods/build/dependencies/missing", schema["paths"])
         self.assertIn("/modpacks", schema["paths"])
         self.assertIn("/modpacks/{modpack_id}", schema["paths"])
         self.assertIn("/modpacks/{modpack_id}/rating", schema["paths"])
@@ -1219,12 +1364,42 @@ class ModListSizeFilterTests(unittest.TestCase):
             if parameter["name"] == "dependencies"
         )
         self.assertEqual(dependencies_param["schema"]["items"]["type"], "string")
+        build_conflicts_param = next(
+            parameter
+            for parameter in schema["paths"]["/mods/build/conflicts"]["get"]["parameters"]
+            if parameter["name"] == "mods_ids"
+        )
+        self.assertEqual(build_conflicts_param["schema"]["items"]["type"], "integer")
+        build_missing_param = next(
+            parameter
+            for parameter in schema["paths"]["/mods/build/dependencies/missing"]["get"]["parameters"]
+            if parameter["name"] == "mods_ids"
+        )
+        self.assertEqual(build_missing_param["schema"]["items"]["type"], "integer")
         excluded_dependencies_param = next(
             parameter
             for parameter in schema["paths"]["/mods"]["get"]["parameters"]
             if parameter["name"] == "excluded_dependencies"
         )
         self.assertEqual(excluded_dependencies_param["schema"]["items"]["type"], "string")
+        build_conflict_graph_read = schema["components"]["schemas"]["ModBuildConflictGraphRead"]
+        self.assertEqual(
+            build_conflict_graph_read["properties"]["nodes"]["items"]["$ref"],
+            "#/components/schemas/ModBuildNodeRead",
+        )
+        self.assertEqual(
+            build_conflict_graph_read["properties"]["edges"]["items"]["$ref"],
+            "#/components/schemas/ModBuildEdgeRead",
+        )
+        build_dependency_graph_read = schema["components"]["schemas"]["ModBuildDependencyGraphRead"]
+        self.assertEqual(
+            build_dependency_graph_read["properties"]["nodes"]["items"]["$ref"],
+            "#/components/schemas/ModBuildNodeRead",
+        )
+        self.assertEqual(
+            build_dependency_graph_read["properties"]["edges"]["items"]["$ref"],
+            "#/components/schemas/ModBuildEdgeRead",
+        )
         self.assertEqual(
             include_enum("/profiles/{user_id}", "get"),
             {"general", "rights", "private"},
