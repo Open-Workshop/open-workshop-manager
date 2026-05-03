@@ -166,30 +166,68 @@ async def apply_mod_vote(
     mod: catalog.Mod,
     value: int,
 ) -> int:
-    current_vote = await _current_vote(
+    return await _apply_content_vote(
         session,
         voter_id=voter_id,
         target_type="mod",
-        target_id=int(mod.id),
+        item=mod,
+        value=value,
+        relation_table=account.mod_and_author,
+        relation_target_column="mod_id",
+    )
+
+
+async def apply_modpack_vote(
+    session: AsyncSession,
+    *,
+    voter_id: int,
+    modpack: catalog.Modpack,
+    value: int,
+) -> int:
+    return await _apply_content_vote(
+        session,
+        voter_id=voter_id,
+        target_type="modpack",
+        item=modpack,
+        value=value,
+        relation_table=account.modpack_and_author,
+        relation_target_column="modpack_id",
+    )
+
+
+async def _apply_content_vote(
+    session: AsyncSession,
+    *,
+    voter_id: int,
+    target_type: str,
+    item: catalog.Mod | catalog.Modpack,
+    value: int,
+    relation_table,
+    relation_target_column: str,
+) -> int:
+    current_vote = await _current_vote(
+        session,
+        voter_id=voter_id,
+        target_type=target_type,
+        target_id=int(item.id),
     )
     previous_value = int(getattr(current_vote, "value", 0) or 0)
     if previous_value == value:
-        return int(getattr(mod, "rating", 0) or 0)
+        return int(getattr(item, "rating", 0) or 0)
 
     delta = value - previous_value
-    mod_delta = delta
     now = datetime.datetime.now()
-    previous_rating = int(getattr(mod, "rating", 0) or 0)
-    updated_rating = previous_rating + mod_delta
-    author_delta = mod_delta / MOD_RATING_SCALE
+    previous_rating = int(getattr(item, "rating", 0) or 0)
+    updated_rating = previous_rating + delta
+    author_delta = delta / MOD_RATING_SCALE
 
     if current_vote is None:
         if value != 0:
             session.add(
                 account.ReputationVote(
                     voter_id=voter_id,
-                    target_type="mod",
-                    target_id=int(mod.id),
+                    target_type=target_type,
+                    target_id=int(item.id),
                     value=value,
                     created_at=now,
                     updated_at=now,
@@ -201,15 +239,15 @@ async def apply_mod_vote(
         current_vote.value = value
         current_vote.updated_at = now
 
-    mod.rating = updated_rating
+    item.rating = updated_rating
 
     authors_result = await session.execute(
         select(account.Account)
         .join(
-            account.mod_and_author,
-            account.Account.id == account.mod_and_author.c.user_id,
+            relation_table,
+            account.Account.id == relation_table.c.user_id,
         )
-        .where(account.mod_and_author.c.mod_id == int(mod.id))
+        .where(getattr(relation_table.c, relation_target_column) == int(item.id))
     )
     seen_author_ids: set[int] = set()
     for author in authors_result.scalars().all():
@@ -222,16 +260,16 @@ async def apply_mod_vote(
     await _upsert_vote_history(
         session,
         voter_id=voter_id,
-        target_type="mod",
-        target_id=int(mod.id),
-        target_name=_display_name(mod, int(mod.id)),
+        target_type=target_type,
+        target_id=int(item.id),
+        target_name=_display_name(item, int(item.id)),
         previous_value=previous_value,
         value=value,
         reputation_delta=author_delta,
-        mod_delta=mod_delta,
+        mod_delta=delta,
         created_at=now,
     )
-    return int(mod.rating)
+    return int(getattr(item, "rating", 0) or 0)
 
 
 async def current_vote_value(

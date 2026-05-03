@@ -215,6 +215,35 @@ class ModRead(ReadModel):
         return stringify_source_id(value)
 
 
+class ModpackRead(ReadModel):
+    id: int
+    name: str
+    short_description: str | None = None
+    description: str | None = None
+    source: str
+    source_id: str | None = Field(
+        default=None,
+        max_length=LIMITS.mod.source_id_max,
+        description="Opaque source-specific identifier for the modpack.",
+    )
+    git_url: str | None = None
+    game_id: int | None = None
+    public: int
+    adult: bool
+    condition: int = 0
+    rating: int = 0
+    current_vote: int | None = None
+    downloads: int | None = None
+    created_at: datetime.datetime | None = None
+    updated_at: datetime.datetime | None = None
+    authors: dict[int, dict[str, bool]] | None = None
+
+    @field_validator("source_id", mode="before")
+    @classmethod
+    def _normalize_source_id(cls, value: object | None) -> str | None:
+        return stringify_source_id(value)
+
+
 class ModCreate(ApiModel):
     name: str = Field(min_length=1, max_length=LIMITS.mod.name_max)
     short_description: str | None = Field(default=None, max_length=LIMITS.mod.short_desc_max)
@@ -258,6 +287,60 @@ class ModPatch(ApiModel):
     @classmethod
     def _normalize_source_id(cls, value: object | None) -> str | None:
         return stringify_source_id(value)
+
+
+class ModpackCreate(ApiModel):
+    name: str = Field(min_length=1, max_length=LIMITS.mod.name_max)
+    short_description: str | None = Field(default=None, max_length=LIMITS.mod.short_desc_max)
+    description: str | None = Field(default=None, max_length=LIMITS.mod.desc_max)
+    source: str = Field(default="local", min_length=1, max_length=LIMITS.mod.source_max)
+    source_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=LIMITS.mod.source_id_max,
+        description="Opaque source-specific identifier for the modpack.",
+    )
+    git_url: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.git_url_max)
+    game_id: int | None = Field(default=None, ge=1)
+    public: int = Field(default=0, ge=0, le=2)
+    adult: bool = False
+    without_author: bool = False
+
+    @field_validator("source_id", mode="before")
+    @classmethod
+    def _normalize_source_id(cls, value: object | None) -> str | None:
+        return stringify_source_id(value)
+
+
+class ModpackPatch(ApiModel):
+    name: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.name_max)
+    short_description: str | None = Field(default=None, max_length=LIMITS.mod.short_desc_max)
+    description: str | None = Field(default=None, max_length=LIMITS.mod.desc_max)
+    source: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.source_max)
+    source_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=LIMITS.mod.source_id_max,
+        description="Opaque source-specific identifier for the modpack.",
+    )
+    git_url: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.git_url_max)
+    game_id: int | None = Field(default=None, ge=1)
+    public: int | None = Field(default=None, ge=0, le=2)
+    adult: bool | None = None
+
+    @field_validator("source_id", mode="before")
+    @classmethod
+    def _normalize_source_id(cls, value: object | None) -> str | None:
+        return stringify_source_id(value)
+
+
+class ModpackListResponse(ListResponse[ModpackRead]):
+    pass
+
+
+class ModpackRatingRead(ReadModel):
+    modpack_id: int
+    rating: int
 
 
 class ModAuthorUpsert(ApiModel):
@@ -323,7 +406,7 @@ class ProfileRatingRead(ReadModel):
 
 class RatingHistoryRead(ReadModel):
     id: int
-    target_type: Literal["mod", "profile"]
+    target_type: Literal["mod", "modpack", "profile"]
     target_id: int
     target_name: str
     previous_value: int
@@ -395,6 +478,12 @@ class ProfileRightsRead(ReadModel):
     change_mods: bool
     delete_self_mods: bool
     delete_mods: bool
+    publish_modpacks: bool
+    change_authorship_modpacks: bool
+    change_self_modpacks: bool
+    change_modpacks: bool
+    delete_self_modpacks: bool
+    delete_modpacks: bool
     mute_users: bool
     create_forums: bool
     change_authorship_forums: bool
@@ -478,6 +567,12 @@ class ProfileRightsPatch(ApiModel):
     change_mods: bool | None = None
     delete_self_mods: bool | None = None
     delete_mods: bool | None = None
+    publish_modpacks: bool | None = None
+    change_authorship_modpacks: bool | None = None
+    change_self_modpacks: bool | None = None
+    change_modpacks: bool | None = None
+    delete_self_modpacks: bool | None = None
+    delete_modpacks: bool | None = None
     mute_users: bool | None = None
     create_forums: bool | None = None
     change_authorship_forums: bool | None = None

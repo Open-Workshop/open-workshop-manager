@@ -30,6 +30,14 @@ class AccessModEntry(AccessModel):
     member: bool = False
 
 
+class AccessModpackEntry(AccessModel):
+    modpack_id: int
+    public: int = 0
+    condition: int = 0
+    owner: bool = False
+    member: bool = False
+
+
 class AccessState(AccessModel):
     authenticated: bool = False
     owner_id: int = -1
@@ -49,6 +57,13 @@ class AccessState(AccessModel):
     delete_self_mods: bool = False
     delete_mods: bool = False
 
+    publish_modpacks: bool = False
+    change_authorship_modpacks: bool = False
+    change_self_modpacks: bool = False
+    change_modpacks: bool = False
+    delete_self_modpacks: bool = False
+    delete_modpacks: bool = False
+
     create_forums: bool = False
     change_authorship_forums: bool = False
     change_self_forums: bool = False
@@ -67,6 +82,7 @@ class AccessState(AccessModel):
     username_change_available_at: datetime.datetime | None = None
 
     mods: list[AccessModEntry] | None = None
+    modpacks: list[AccessModpackEntry] | None = None
 
 
 class BaseRight(AccessModel):
@@ -86,6 +102,13 @@ class ModEditResponse(AccessModel):
     dependencies: BaseRight
 
 
+class ModpackEditResponse(AccessModel):
+    title: BaseRight
+    description: BaseRight
+    short_description: BaseRight
+    authors: BaseRight
+
+
 class ModResponse(AccessState):
     info: BaseRight
     catalog: BaseRight
@@ -94,7 +117,19 @@ class ModResponse(AccessState):
     download: BaseRight
 
 
+class ModpackResponse(AccessState):
+    info: BaseRight
+    catalog: BaseRight
+    edit: ModpackEditResponse
+    delete: BaseRight
+
+
 class ModAddResponse(AccessState):
+    add: BaseRight
+    anonymous_add: BaseRight
+
+
+class ModpackAddResponse(AccessState):
     add: BaseRight
     anonymous_add: BaseRight
 
@@ -297,6 +332,18 @@ async def resolve_mod_add(
     )
 
 
+async def resolve_modpack_add(
+    *,
+    request: Request | None = None,
+) -> ModpackAddResponse:
+    return await _put_model(
+        "/modpack",
+        None,
+        ModpackAddResponse,
+        cookies=_session_cookies(request),
+    )
+
+
 async def resolve_mod(
     *,
     request: Request | None = None,
@@ -314,6 +361,27 @@ async def resolve_mod(
         f"/mod/{mod_id}",
         payload,
         ModResponse,
+        cookies=_session_cookies(request),
+    )
+
+
+async def resolve_modpack(
+    *,
+    request: Request | None = None,
+    modpack_id: int,
+    author_id: int | None = None,
+    mode: bool | None = None,
+) -> ModpackResponse:
+    payload: dict[str, Any] = {}
+    if author_id is not None:
+        payload["author_id"] = author_id
+    if mode is not None:
+        payload["mode"] = mode
+
+    return await _post_model(
+        f"/modpack/{modpack_id}",
+        payload,
+        ModpackResponse,
         cookies=_session_cookies(request),
     )
 
@@ -343,6 +411,34 @@ async def resolve_mods(
     return {
         int(mod_id): ModResponse.model_validate(mod_payload)
         for mod_id, mod_payload in data.items()
+    }
+
+
+async def resolve_modpacks(
+    *,
+    request: Request | None = None,
+    modpacks_ids: list[int] | int,
+    author_id: int | None = None,
+    mode: bool | None = None,
+) -> dict[int, ModpackResponse]:
+    payload = {
+        "modpacks_ids": _normalize_mod_ids(modpacks_ids),
+    }
+    if author_id is not None:
+        payload["author_id"] = author_id
+    if mode is not None:
+        payload["mode"] = mode
+    data = await _post_json(
+        "/modpacks",
+        payload,
+        cookies=_session_cookies(request),
+    )
+    if not isinstance(data, dict):
+        raise AccessServiceError("Access service returned unexpected batch response")
+
+    return {
+        int(modpack_id): ModpackResponse.model_validate(modpack_payload)
+        for modpack_id, modpack_payload in data.items()
     }
 
 

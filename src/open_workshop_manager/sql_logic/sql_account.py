@@ -95,6 +95,13 @@ class Account(Base):  # Аккаунты юзеров
     delete_self_mods: Mapped[bool] = mapped_column(Boolean, default=True)
     delete_mods: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    publish_modpacks: Mapped[bool] = mapped_column(Boolean, default=True)
+    change_authorship_modpacks: Mapped[bool] = mapped_column(Boolean, default=False)
+    change_self_modpacks: Mapped[bool] = mapped_column(Boolean, default=True)
+    change_modpacks: Mapped[bool] = mapped_column(Boolean, default=False)
+    delete_self_modpacks: Mapped[bool] = mapped_column(Boolean, default=True)
+    delete_modpacks: Mapped[bool] = mapped_column(Boolean, default=False)
+
     create_forums: Mapped[bool] = mapped_column(Boolean, default=True)
     change_authorship_forums: Mapped[bool] = mapped_column(Boolean, default=False)
     change_self_forums: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -176,6 +183,25 @@ Index(
     "ix_mods_and_authors_mod_user",
     mod_and_author.c.mod_id,
     mod_and_author.c.user_id,
+)
+
+modpack_and_author = Table(
+    "modpacks_and_authors",
+    Base.metadata,
+    Column("user_id", Integer, ForeignKey("accounts.id")),
+    Column("owner", Boolean),
+    Column("modpack_id", Integer),
+)
+
+Index(
+    "ix_modpacks_and_authors_user_modpack",
+    modpack_and_author.c.user_id,
+    modpack_and_author.c.modpack_id,
+)
+Index(
+    "ix_modpacks_and_authors_modpack_user",
+    modpack_and_author.c.modpack_id,
+    modpack_and_author.c.user_id,
 )
 
 
@@ -398,6 +424,12 @@ def _access_context_from_rows(
         change_mods=bool(account_row.change_mods),
         delete_self_mods=bool(account_row.delete_self_mods),
         delete_mods=bool(account_row.delete_mods),
+        publish_modpacks=bool(account_row.publish_modpacks),
+        change_authorship_modpacks=bool(account_row.change_authorship_modpacks),
+        change_self_modpacks=bool(account_row.change_self_modpacks),
+        change_modpacks=bool(account_row.change_modpacks),
+        delete_self_modpacks=bool(account_row.delete_self_modpacks),
+        delete_modpacks=bool(account_row.delete_modpacks),
         create_forums=bool(account_row.create_forums),
         change_authorship_forums=bool(account_row.change_authorship_forums),
         change_self_forums=bool(account_row.change_self_forums),

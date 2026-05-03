@@ -31,6 +31,7 @@ from open_workshop_manager.logging_setup import setup_logging
 from open_workshop_manager.mods.api_mod import router as mod_router
 from open_workshop_manager.mods.api_resource import router as resource_router
 from open_workshop_manager.mods.api_tag import router as tag_router
+from open_workshop_manager.modpacks.api_modpack import router as modpack_router
 from open_workshop_manager.uploads import api_uploads as upload_api
 from open_workshop_manager.uploads.api_uploads import router as upload_router
 from open_workshop_manager.social.api_profile import router as profile_router
@@ -326,6 +327,7 @@ async def _stop_cleanup_task() -> None:
 
 app.include_router(game_router)
 app.include_router(mod_router)
+app.include_router(modpack_router)
 app.include_router(genre_router)
 app.include_router(tag_router)
 app.include_router(resource_router)

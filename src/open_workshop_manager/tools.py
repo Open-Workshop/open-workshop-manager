@@ -145,7 +145,13 @@ def _mod_status_allowed(
         return bool(status.edit.title.value)
     if catalog:
         return bool(status.catalog.value)
-    return bool(status.download.value)
+    download_right = getattr(status, "download", None)
+    if download_right is not None:
+        return bool(download_right.value)
+    info_right = getattr(status, "info", None)
+    if info_right is not None:
+        return bool(info_right.value)
+    return False
 
 
 def _allowed_mod_ids(
@@ -415,6 +421,17 @@ async def access_mod_add(
         _raise_access_service_error(str(request.url), exc)
 
 
+async def access_modpack_add(
+    request: Request,
+) -> access_client.ModpackAddResponse:
+    try:
+        return await access_client.resolve_modpack_add(
+            request=request,
+        )
+    except access_client.AccessServiceError as exc:
+        _raise_access_service_error(str(request.url), exc)
+
+
 async def access_profile(
     request: Request,
     profile_id: int,
@@ -458,6 +475,93 @@ async def access_mod_action(
         )
     except access_client.AccessServiceError as exc:
         _raise_access_service_error(str(request.url), exc)
+
+
+async def access_modpack_action(
+    request: Request,
+    modpack_id: int,
+    *,
+    author_id: int | None = None,
+    mode: bool | None = None,
+) -> access_client.ModpackResponse:
+    try:
+        return await access_client.resolve_modpack(
+            request=request,
+            modpack_id=modpack_id,
+            author_id=author_id,
+            mode=mode,
+        )
+    except access_client.AccessServiceError as exc:
+        _raise_access_service_error(str(request.url), exc)
+
+
+@overload
+async def access_modpacks(
+    request: Request,
+    modpack_ids: list[int] | int,
+    edit: bool = False,
+    author_id: int | None = None,
+    catalog: bool = False,
+    *,
+    check_mode: Literal[True],
+) -> list[int]: ...
+
+
+@overload
+async def access_modpacks(
+    request: Request,
+    modpack_ids: list[int] | int,
+    edit: bool = False,
+    author_id: int | None = None,
+    catalog: bool = False,
+    *,
+    check_mode: Literal[False] = False,
+) -> bool: ...
+
+
+async def access_modpacks(
+    request: Request,
+    modpack_ids: list[int] | int,
+    edit: bool = False,
+    author_id: int | None = None,
+    catalog: bool = False,
+    *,
+    check_mode: bool = False,
+) -> bool | list[int]:
+    normalized_mod_ids = _normalize_mod_ids(modpack_ids)
+
+    if edit:
+        access_context = await account.check_access(request=request)
+        if (
+            not access_context
+            or not access_context.authenticated
+            or access_context.owner_id < 0
+        ):
+            raise standarts.UnauthorizedError(instance=str(request.url))
+
+    try:
+        access_result = await access_client.resolve_modpacks(
+            request=request,
+            modpacks_ids=normalized_mod_ids,
+            author_id=author_id,
+        )
+    except access_client.AccessServiceError as exc:
+        _raise_access_service_error(str(request.url), exc)
+
+    allowed_ids = _allowed_mod_ids(
+        access_result,
+        normalized_mod_ids,
+        edit=edit,
+        catalog=catalog,
+    )
+
+    if check_mode:
+        return allowed_ids
+
+    if len(allowed_ids) == len(normalized_mod_ids):
+        return True
+
+    raise standarts.ForbiddenError(instance=str(request.url))
 
 
 async def check_game_exists(game_id: int) -> bool:
@@ -741,6 +845,21 @@ def sort_mods(sort_by: str, dependents_count_stmt=None):
         "dependents_count": dependents_count_stmt
         if dependents_count_stmt is not None
         else catalog.Mod.downloads,
+    }
+    return _sort_clause(sort_by, mapping, default="downloads")
+
+
+def sort_modpacks(sort_by: str):
+    mapping = {
+        "name": catalog.Modpack.name,
+        "created_at": catalog.Modpack.date_creation,
+        "updated_at": catalog.Modpack.date_edit,
+        "source": catalog.Modpack.source,
+        "downloads": catalog.Modpack.downloads,
+        "rating": catalog.Modpack.rating,
+        "public": catalog.Modpack.public,
+        "adult": catalog.Modpack.adult,
+        "game_id": catalog.Modpack.game,
     }
     return _sort_clause(sort_by, mapping, default="downloads")
 

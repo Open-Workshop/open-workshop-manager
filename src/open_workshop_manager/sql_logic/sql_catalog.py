@@ -172,6 +172,37 @@ class Mod(Base):  # Таблица "моды"
 Index("ix_mods_source_id", Mod.source_id)
 
 
+class Modpack(Base):  # Таблица "модпаки"
+    __tablename__ = "modpacks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128))
+
+    short_description: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    condition: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, server_default=text("0")
+    )
+    public: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default=text("0"))
+    adult: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    rating: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default=text("0"))
+    downloads: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False, server_default=text("0"))
+
+    date_creation: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    date_edit: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+
+    source: Mapped[str] = mapped_column(String(64))
+    source_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    git_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    game: Mapped[int | None] = mapped_column(Integer, ForeignKey("games.id"), nullable=True)
+
+
+Index("ix_modpacks_source_id", Modpack.source_id)
+
+
 class Resource(Base):  # Ресурсы (скриншоты и лого)
     __tablename__ = "resources"
 

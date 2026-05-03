@@ -42,6 +42,7 @@ if "aiomysql" not in sys.modules:
 
 from open_workshop_manager import standarts
 from open_workshop_manager.mods import api_mod
+from open_workshop_manager.modpacks import api_modpack
 from open_workshop_manager.social import api_profile
 from open_workshop_manager.sql_logic import sql_account, sql_catalog
 
@@ -116,6 +117,7 @@ class ReputationRouteTests(unittest.TestCase):
         app = FastAPI()
         standarts.install_exception_handlers(app)
         app.include_router(api_mod.router)
+        app.include_router(api_modpack.router)
         app.include_router(api_profile.router)
         cls.client = TestClient(app)
 
@@ -195,6 +197,145 @@ class ReputationRouteTests(unittest.TestCase):
         self.assertEqual(getattr(session.added[-1], "reputation_delta", None), 0.1)
         publish_event.assert_awaited_once()
         self.assertEqual(publish_event.await_args.kwargs["extra"]["rating"], 10)
+
+    def test_modpack_rating_updates_modpack_and_author_reputation_by_tenth_point(self) -> None:
+        modpack = SimpleNamespace(id=17, name="Cool Pack", rating=0)
+        author = SimpleNamespace(id=21, username="Pack Author", reputation=1.5)
+        session = _RatingSession(
+            get_map={sql_catalog.Modpack: modpack},
+            scalar_results=[None],
+            execute_results=[[author]],
+        )
+        vote_access = SimpleNamespace(
+            authenticated=True,
+            owner_id=77,
+            vote_for_reputation=SimpleNamespace(value=True, reason="ok", reason_code="allowed"),
+        )
+
+        with (
+            patch.object(api_modpack.tools, "access_vote_for_reputation", AsyncMock(return_value=vote_access)),
+            patch.object(api_modpack.tools, "access_modpacks", AsyncMock(return_value=True)),
+            patch.object(api_modpack.account, "AsyncSessionLocal", return_value=session),
+        ):
+            response = self.client.put("/modpacks/17/rating", json={"value": 1})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"modpack_id": 17, "rating": 1})
+        self.assertEqual(modpack.rating, 1)
+        self.assertEqual(author.reputation, 1.6)
+        self.assertEqual(session.commit_count, 1)
+        self.assertEqual(len(session.added), 2)
+        self.assertEqual(getattr(session.added[-1], "target_type", None), "modpack")
+        self.assertEqual(getattr(session.added[-1], "mod_delta", None), 1)
+        self.assertEqual(getattr(session.added[-1], "reputation_delta", None), 0.1)
+
+    def test_get_modpack_includes_current_vote_state_for_authenticated_user(self) -> None:
+        modpack = SimpleNamespace(
+            id=17,
+            name="Cool Pack",
+            short_description="Short",
+            description="Long",
+            source="local",
+            source_id=None,
+            git_url=None,
+            game=None,
+            public=0,
+            adult=False,
+            condition=0,
+            downloads=0,
+            rating=13,
+            date_creation=None,
+            date_edit=None,
+        )
+        vote_history_row = SimpleNamespace(
+            id=1,
+            voter_id=42,
+            target_type="modpack",
+            target_id=17,
+            target_name="Cool Pack",
+            previous_value=0,
+            value=-1,
+            reputation_delta=-0.1,
+            mod_delta=-1,
+            created_at=datetime.datetime(2026, 5, 3, 12, 0, 0),
+        )
+        catalog_session = _RatingSession(
+            get_map={sql_catalog.Modpack: modpack},
+            execute_results=[[(17, 21, True)]],
+        )
+        vote_session = _RatingSession(scalar_results=[vote_history_row])
+        access_state = SimpleNamespace(authenticated=True, owner_id=42)
+
+        with (
+            patch.object(api_modpack.account, "check_access", AsyncMock(return_value=access_state)),
+            patch.object(api_modpack.catalog, "AsyncSessionLocal", return_value=catalog_session),
+            patch.object(api_modpack.account, "AsyncSessionLocal", return_value=vote_session),
+        ):
+            response = self.client.get("/modpacks/17")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["id"], 17)
+        self.assertEqual(body["current_vote"], -1)
+        self.assertEqual(body["authors"], {"21": {"owner": True}})
+
+    def test_put_modpack_author_requires_author_management_right(self) -> None:
+        access_result = SimpleNamespace(
+            authenticated=True,
+            edit=SimpleNamespace(
+                authors=SimpleNamespace(
+                    value=False,
+                    reason="no author access",
+                    reason_code="forbidden",
+                )
+            ),
+        )
+        access_mock = AsyncMock(return_value=access_result)
+
+        with patch.object(api_modpack.tools, "access_modpack_action", access_mock):
+            response = self.client.put("/modpacks/17/authors/21", json={"owner": True})
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(access_mock.await_args.kwargs["author_id"], 21)
+        self.assertTrue(access_mock.await_args.kwargs["mode"])
+
+    def test_delete_modpack_author_requires_author_management_right(self) -> None:
+        access_result = SimpleNamespace(
+            authenticated=True,
+            edit=SimpleNamespace(
+                authors=SimpleNamespace(
+                    value=False,
+                    reason="no author access",
+                    reason_code="forbidden",
+                )
+            ),
+        )
+        access_mock = AsyncMock(return_value=access_result)
+
+        with patch.object(api_modpack.tools, "access_modpack_action", access_mock):
+            response = self.client.delete("/modpacks/17/authors/21")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(access_mock.await_args.kwargs["author_id"], 21)
+        self.assertFalse(access_mock.await_args.kwargs["mode"])
+
+    def test_delete_modpack_requires_delete_right(self) -> None:
+        access_result = SimpleNamespace(
+            authenticated=True,
+            delete=SimpleNamespace(
+                value=False,
+                reason="no delete access",
+                reason_code="forbidden",
+            ),
+        )
+        access_mock = AsyncMock(return_value=access_result)
+
+        with patch.object(api_modpack.tools, "access_modpack_action", access_mock):
+            response = self.client.delete("/modpacks/17")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(access_mock.await_args.kwargs["modpack_id"], 17)
+        self.assertNotIn("author_id", access_mock.await_args.kwargs)
 
     def test_get_mod_includes_current_vote_state_for_authenticated_user(self) -> None:
         mod = SimpleNamespace(

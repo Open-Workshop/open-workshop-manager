@@ -24,6 +24,16 @@ class AccessModEntry(BaseModel):
     owner: bool = False
     member: bool = False
 
+
+class AccessModpackEntry(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="ignore")
+
+    modpack_id: int
+    public: int = 0
+    condition: int = 0
+    owner: bool = False
+    member: bool = False
+
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
 
@@ -32,6 +42,7 @@ class AccessCallbackRequest(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra="ignore")
 
     mods_ids: list[int] = Field(default_factory=list)
+    modpacks_ids: list[int] = Field(default_factory=list)
 
 
 class AccessCallbackContext(BaseModel):
@@ -55,6 +66,13 @@ class AccessCallbackContext(BaseModel):
     delete_self_mods: bool = False
     delete_mods: bool = False
 
+    publish_modpacks: bool = False
+    change_authorship_modpacks: bool = False
+    change_self_modpacks: bool = False
+    change_modpacks: bool = False
+    delete_self_modpacks: bool = False
+    delete_modpacks: bool = False
+
     create_forums: bool = False
     change_authorship_forums: bool = False
     change_self_forums: bool = False
@@ -73,6 +91,7 @@ class AccessCallbackContext(BaseModel):
     username_change_available_at: datetime.datetime | None = None
 
     mods: list[AccessModEntry] | None = None
+    modpacks: list[AccessModpackEntry] | None = None
 
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
@@ -124,6 +143,12 @@ def _context_from_account(
         change_mods=bool(row.change_mods),
         delete_self_mods=bool(row.delete_self_mods),
         delete_mods=bool(row.delete_mods),
+        publish_modpacks=bool(row.publish_modpacks),
+        change_authorship_modpacks=bool(row.change_authorship_modpacks),
+        change_self_modpacks=bool(row.change_self_modpacks),
+        change_modpacks=bool(row.change_modpacks),
+        delete_self_modpacks=bool(row.delete_self_modpacks),
+        delete_modpacks=bool(row.delete_modpacks),
         create_forums=bool(row.create_forums),
         change_authorship_forums=bool(row.change_authorship_forums),
         change_self_forums=bool(row.change_self_forums),
@@ -195,6 +220,60 @@ async def _load_mods(
     return output
 
 
+async def _load_modpacks(
+    session: AsyncSession,
+    owner_id: int,
+    modpack_ids: list[int],
+) -> list[AccessModpackEntry]:
+    if not modpack_ids:
+        return []
+
+    unique_ids = list(dict.fromkeys(int(modpack_id) for modpack_id in modpack_ids if int(modpack_id) > 0))
+    if not unique_ids:
+        return []
+
+    columns = (
+        catalog.Modpack.id.label("modpack_id"),
+        catalog.Modpack.public,
+        catalog.Modpack.condition,
+    )
+    if owner_id > 0:
+        stmt = (
+            select(*columns, account.modpack_and_author.c.owner)
+            .select_from(catalog.Modpack)
+            .outerjoin(
+                account.modpack_and_author,
+                and_(
+                    account.modpack_and_author.c.modpack_id == catalog.Modpack.id,
+                    account.modpack_and_author.c.user_id == owner_id,
+                ),
+            )
+            .where(catalog.Modpack.id.in_(unique_ids))
+        )
+    else:
+        stmt = select(*columns).where(catalog.Modpack.id.in_(unique_ids))
+
+    result = await session.execute(stmt)
+    modpack_rows = {int(row.modpack_id): row for row in result.all()}
+
+    output: list[AccessModpackEntry] = []
+    for modpack_id in unique_ids:
+        row = modpack_rows.get(modpack_id)
+        if row is None:
+            continue
+        relation = getattr(row, "owner", None)
+        output.append(
+            AccessModpackEntry(
+                modpack_id=modpack_id,
+                public=int(getattr(row, "public", 0) or 0),
+                condition=int(getattr(row, "condition", 0) or 0),
+                owner=bool(relation is True),
+                member=bool(relation is False),
+            )
+        )
+    return output
+
+
 @router.post(
     "/internal/access/context",
     tags=["Access"],
@@ -218,7 +297,8 @@ async def callback_context(
         raise standarts.ForbiddenError(instance=str(request.url))
 
     mods_ids = list(payload.mods_ids) if payload is not None else []
-    if not (access_token and refresh_token) and not mods_ids:
+    modpacks_ids = list(payload.modpacks_ids) if payload is not None else []
+    if not (access_token and refresh_token) and not mods_ids and not modpacks_ids:
         return AccessCallbackContext(authenticated=False, owner_id=-1)
 
     session_context = AccessCallbackContext(authenticated=False)
@@ -256,5 +336,10 @@ async def callback_context(
 
         session_context.mods = (
             await _load_mods(session, session_owner_id, mods_ids) if mods_ids else None
+        )
+        session_context.modpacks = (
+            await _load_modpacks(session, session_owner_id, modpacks_ids)
+            if modpacks_ids
+            else None
         )
     return session_context
