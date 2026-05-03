@@ -69,7 +69,7 @@ def _profile_general_payload(row: account.Account, now: datetime.datetime) -> Pr
         comments=int(getattr(row, "comments", 0) or 0),
         author_mods=int(getattr(row, "author_mods", 0) or 0),
         registration_date=getattr(row, "registration_date", now),
-        reputation=int(getattr(row, "reputation", 0) or 0),
+        reputation=float(getattr(row, "reputation", 0) or 0.0),
         mute=bool(getattr(row, "mute_until", None) and getattr(row, "mute_until") > now),
         mute_until=getattr(row, "mute_until", None),
     )
@@ -267,8 +267,10 @@ async def get_profile(
     description=(
         "Sets the current user's vote for a profile.\n\n"
         "Send `value=1` to upvote, `value=-1` to downvote, or `value=0` to clear "
-        "the current vote. Profile reputation is stored on the author scale, while "
-        "mod votes contribute `10` rating points per vote step."
+        "the current vote. Profile reputation changes by 1 point per vote step, "
+        "while mod ratings change by 1 point per vote step and author reputation "
+        "changes by 0.1 point per mod vote, which is 1 point for every 10 mod "
+        "rating points."
     ),
     status_code=200,
     response_model=ProfileRatingRead,

@@ -18,6 +18,7 @@ from sqlalchemy import (
     select,
     update,
 )
+from sqlalchemy.dialects.mysql import DOUBLE
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -70,7 +71,7 @@ class Account(Base):  # Аккаунты юзеров
     password_hash: Mapped[str | None] = mapped_column(String(512), nullable=True)
     last_password_reset: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
-    reputation: Mapped[int] = mapped_column(Integer, default=0)
+    reputation: Mapped[float] = mapped_column(DOUBLE, default=0.0)
 
     # Права пользователей
     admin: Mapped[bool] = mapped_column(
@@ -219,7 +220,7 @@ class ReputationVoteHistory(Base):
     target_name: Mapped[str] = mapped_column(String(128), nullable=False)
     previous_value: Mapped[int] = mapped_column(Integer, nullable=False)
     value: Mapped[int] = mapped_column(Integer, nullable=False)
-    reputation_delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    reputation_delta: Mapped[float] = mapped_column(DOUBLE, nullable=False)
     mod_delta: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, default=datetime.datetime.now)
 

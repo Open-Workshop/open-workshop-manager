@@ -123,9 +123,47 @@ class ReputationRouteTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.client.close()
 
-    def test_mod_rating_updates_mod_and_authors(self) -> None:
+    def test_mod_rating_updates_mod_and_author_reputation_by_tenth_point(self) -> None:
         mod = SimpleNamespace(id=7, name="Cool Mod", rating=0)
-        author = SimpleNamespace(id=11, username="Author", reputation=4)
+        author = SimpleNamespace(id=11, username="Author", reputation=4.0)
+        session = _RatingSession(
+            get_map={sql_catalog.Mod: mod},
+            scalar_results=[None],
+            execute_results=[[author]],
+        )
+        vote_access = SimpleNamespace(
+            authenticated=True,
+            owner_id=99,
+            vote_for_reputation=SimpleNamespace(value=True, reason="ok", reason_code="allowed"),
+        )
+        publish_event = AsyncMock(return_value=None)
+
+        with (
+            patch.object(api_mod.tools, "access_vote_for_reputation", AsyncMock(return_value=vote_access)),
+            patch.object(api_mod.tools, "access_mods", AsyncMock(return_value=True)),
+            patch.object(api_mod.account, "AsyncSessionLocal", return_value=session),
+            patch.object(api_mod.mod_events, "publish_mod_event", publish_event),
+        ):
+            response = self.client.put("/mods/7/rating", json={"value": 1})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"mod_id": 7, "rating": 1})
+        self.assertEqual(mod.rating, 1)
+        self.assertEqual(author.reputation, 4.1)
+        self.assertEqual(session.commit_count, 1)
+        self.assertEqual(len(session.added), 2)
+        self.assertEqual(getattr(session.added[-1], "target_type", None), "mod")
+        self.assertEqual(getattr(session.added[-1], "mod_delta", None), 1)
+        self.assertEqual(getattr(session.added[-1], "reputation_delta", None), 0.1)
+        publish_event.assert_awaited_once()
+        self.assertEqual(publish_event.await_args.args[0], api_mod.mod_events.MOD_EVENT_RATED)
+        self.assertEqual(publish_event.await_args.args[1], 7)
+        self.assertEqual(publish_event.await_args.kwargs["extra"]["vote_value"], 1)
+        self.assertEqual(publish_event.await_args.kwargs["extra"]["rating"], 1)
+
+    def test_mod_rating_updates_author_reputation_on_second_vote(self) -> None:
+        mod = SimpleNamespace(id=7, name="Cool Mod", rating=9)
+        author = SimpleNamespace(id=11, username="Author", reputation=4.9)
         session = _RatingSession(
             get_map={sql_catalog.Mod: mod},
             scalar_results=[None],
@@ -149,19 +187,17 @@ class ReputationRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"mod_id": 7, "rating": 10})
         self.assertEqual(mod.rating, 10)
-        self.assertEqual(author.reputation, 5)
+        self.assertEqual(author.reputation, 5.0)
         self.assertEqual(session.commit_count, 1)
         self.assertEqual(len(session.added), 2)
         self.assertEqual(getattr(session.added[-1], "target_type", None), "mod")
-        self.assertEqual(getattr(session.added[-1], "mod_delta", None), 10)
+        self.assertEqual(getattr(session.added[-1], "mod_delta", None), 1)
+        self.assertEqual(getattr(session.added[-1], "reputation_delta", None), 0.1)
         publish_event.assert_awaited_once()
-        self.assertEqual(publish_event.await_args.args[0], api_mod.mod_events.MOD_EVENT_RATED)
-        self.assertEqual(publish_event.await_args.args[1], 7)
-        self.assertEqual(publish_event.await_args.kwargs["extra"]["vote_value"], 1)
         self.assertEqual(publish_event.await_args.kwargs["extra"]["rating"], 10)
 
     def test_profile_rating_updates_reputation(self) -> None:
-        profile = SimpleNamespace(id=7, username="User", reputation=12)
+        profile = SimpleNamespace(id=7, username="User", reputation=12.0)
         session = _RatingSession(
             get_map={sql_account.Account: profile},
             scalar_results=[None],
@@ -180,15 +216,15 @@ class ReputationRouteTests(unittest.TestCase):
             response = self.client.put("/profiles/7/rating", json={"value": -1})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"profile_id": 7, "reputation": 11})
-        self.assertEqual(profile.reputation, 11)
+        self.assertEqual(response.json(), {"profile_id": 7, "reputation": 11.0})
+        self.assertEqual(profile.reputation, 11.0)
         self.assertEqual(session.commit_count, 1)
         self.assertEqual(len(session.added), 2)
         self.assertEqual(getattr(session.added[-1], "target_type", None), "profile")
-        self.assertEqual(getattr(session.added[-1], "reputation_delta", None), -1)
+        self.assertEqual(getattr(session.added[-1], "reputation_delta", None), -1.0)
 
     def test_profile_rating_history_returns_items(self) -> None:
-        profile = SimpleNamespace(id=7, username="User", reputation=11)
+        profile = SimpleNamespace(id=7, username="User", reputation=11.0)
         history_row = SimpleNamespace(
             id=1,
             voter_id=7,
@@ -197,8 +233,8 @@ class ReputationRouteTests(unittest.TestCase):
             target_name="Cool Mod",
             previous_value=0,
             value=1,
-            reputation_delta=1,
-            mod_delta=10,
+            reputation_delta=0.1,
+            mod_delta=1,
             created_at=datetime.datetime(2026, 5, 3, 12, 0, 0),
         )
         session = _RatingSession(
@@ -222,8 +258,8 @@ class ReputationRouteTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["pagination"]["total"], 1)
         self.assertEqual(body["items"][0]["target_name"], "Cool Mod")
-        self.assertEqual(body["items"][0]["mod_delta"], 10)
-        self.assertEqual(body["items"][0]["reputation_delta"], 1)
+        self.assertEqual(body["items"][0]["mod_delta"], 1)
+        self.assertEqual(body["items"][0]["reputation_delta"], 0.1)
         self.assertEqual(session.commit_count, 0)
 
 

@@ -589,7 +589,7 @@ async def _update_game_mod_count(session, game_id: int, delta: int) -> None:
         "Use filters for IDs, tags, dependency rules, conflict exclusions, source fields, "
         "game, size ranges, and `include` to opt into extra fields such as `description`, `dates`, `game`, "
         "`tags`, `dependencies`, `conflicts`, `authors`, and `resources`.\n\n"
-        "Sorting also supports `rating`, which uses the 10x mod reputation scale.\n\n"
+        "Sorting also supports `rating`, which uses the raw mod vote count scale.\n\n"
         "When `include=conflicts` is requested, `scope` controls whether the response includes "
         "outgoing conflicts, incoming conflicts, or both directions merged together.\n\n"
         "Dependency filters accept bare mod IDs as `any`, or explicit rules such as "
@@ -1019,8 +1019,9 @@ async def get_mod(
     description=(
         "Sets the current user's vote for a mod.\n\n"
         "Send `value=1` to upvote, `value=-1` to downvote, or `value=0` to clear "
-        "the current vote. Mod ratings are stored on a 10x scale and the author "
-        "reputation changes by 1 point per vote step."
+        "the current vote. Mod ratings change by 1 point per vote step, and author "
+        "reputation changes by 0.1 point per mod vote, which is 1 point for every "
+        "10 mod rating points."
     ),
     status_code=200,
     response_model=ModRatingRead,

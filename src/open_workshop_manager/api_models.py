@@ -317,7 +317,7 @@ class ModRatingRead(ReadModel):
 
 class ProfileRatingRead(ReadModel):
     profile_id: int
-    reputation: int
+    reputation: float
 
 
 class RatingHistoryRead(ReadModel):
@@ -327,7 +327,7 @@ class RatingHistoryRead(ReadModel):
     target_name: str
     previous_value: int
     value: int
-    reputation_delta: int
+    reputation_delta: float
     mod_delta: int
     created_at: datetime.datetime | None = None
 
@@ -433,7 +433,7 @@ class ProfileGeneralRead(ReadModel):
     comments: int
     author_mods: int
     registration_date: datetime.datetime
-    reputation: int
+    reputation: float
     mute: bool
     mute_until: datetime.datetime | None = None
 

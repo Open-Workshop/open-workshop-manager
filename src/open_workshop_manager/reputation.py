@@ -38,7 +38,7 @@ async def apply_profile_vote(
     voter_id: int,
     profile: account.Account,
     value: int,
-) -> int:
+) -> float:
     current_vote = await _current_vote(
         session,
         voter_id=voter_id,
@@ -47,7 +47,7 @@ async def apply_profile_vote(
     )
     previous_value = int(getattr(current_vote, "value", 0) or 0)
     if previous_value == value:
-        return int(getattr(profile, "reputation", 0) or 0)
+        return float(getattr(profile, "reputation", 0) or 0.0)
 
     delta = value - previous_value
     now = datetime.datetime.now()
@@ -69,7 +69,7 @@ async def apply_profile_vote(
         current_vote.value = value
         current_vote.updated_at = now
 
-    profile.reputation = int(getattr(profile, "reputation", 0) or 0) + delta
+    profile.reputation = float(getattr(profile, "reputation", 0) or 0.0) + float(delta)
     session.add(
         account.ReputationVoteHistory(
             voter_id=voter_id,
@@ -78,12 +78,12 @@ async def apply_profile_vote(
             target_name=_display_name(profile, int(profile.id)),
             previous_value=previous_value,
             value=value,
-            reputation_delta=delta,
+            reputation_delta=float(delta),
             mod_delta=0,
             created_at=now,
         )
     )
-    return int(profile.reputation)
+    return float(profile.reputation)
 
 
 async def apply_mod_vote(
@@ -104,8 +104,11 @@ async def apply_mod_vote(
         return int(getattr(mod, "rating", 0) or 0)
 
     delta = value - previous_value
-    mod_delta = delta * MOD_RATING_SCALE
+    mod_delta = delta
     now = datetime.datetime.now()
+    previous_rating = int(getattr(mod, "rating", 0) or 0)
+    updated_rating = previous_rating + mod_delta
+    author_delta = mod_delta / MOD_RATING_SCALE
 
     if current_vote is None:
         if value != 0:
@@ -125,7 +128,7 @@ async def apply_mod_vote(
         current_vote.value = value
         current_vote.updated_at = now
 
-    mod.rating = int(getattr(mod, "rating", 0) or 0) + mod_delta
+    mod.rating = updated_rating
 
     authors_result = await session.execute(
         select(account.Account)
@@ -141,7 +144,7 @@ async def apply_mod_vote(
         if author_id in seen_author_ids:
             continue
         seen_author_ids.add(author_id)
-        author.reputation = int(getattr(author, "reputation", 0) or 0) + delta
+        author.reputation = float(getattr(author, "reputation", 0) or 0.0) + author_delta
 
     session.add(
         account.ReputationVoteHistory(
@@ -151,7 +154,7 @@ async def apply_mod_vote(
             target_name=_display_name(mod, int(mod.id)),
             previous_value=previous_value,
             value=value,
-            reputation_delta=delta,
+            reputation_delta=author_delta,
             mod_delta=mod_delta,
             created_at=now,
         )
