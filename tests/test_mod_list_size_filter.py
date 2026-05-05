@@ -1350,6 +1350,16 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("author_id", parameter_names("/mods/feed", "get"))
         self.assertIn("user", parameter_names("/mods/feed", "get"))
         self.assertIn("sort", parameter_names("/resources", "get"))
+        modpack_adult = next(
+            parameter
+            for parameter in schema["paths"]["/modpacks"]["get"]["parameters"]
+            if parameter["name"] == "adult"
+        )
+        self.assertEqual(modpack_adult["schema"]["type"], "integer")
+        self.assertEqual(modpack_adult["schema"]["minimum"], -1)
+        self.assertEqual(modpack_adult["schema"]["maximum"], 1)
+        self.assertEqual(modpack_adult["schema"]["default"], -1)
+        self.assertEqual(modpack_adult["description"], "Adult content filter: -1 any, 0 false, 1 true.")
         mod_read = schema["components"]["schemas"]["ModRead"]
         self.assertIn("adult", mod_read["properties"])
         self.assertIn("adult", mod_read["required"])

@@ -487,7 +487,7 @@ async def list_modpacks(
     author_id: int | None = Query(default=None, ge=1),
     game_id: int | None = Query(default=None, ge=1),
     public: int | None = Query(default=None, ge=0, le=2),
-    adult: int | None = Query(default=None, ge=0, le=1),
+    adult: int = Query(default=-1, ge=-1, le=1, description="Adult content filter: -1 any, 0 false, 1 true."),
     show_not_public: bool = Query(default=False),
     sort: str = Query(
         default="downloads",
