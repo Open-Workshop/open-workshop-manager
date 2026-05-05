@@ -184,7 +184,7 @@ async def patch_tag(
     "/tags/{tag_id}",
     tags=["Tag"],
     summary="Delete tag",
-    description="Deletes a tag and detaches it from all games and mods. Admin privileges are required.",
+    description="Deletes a tag and detaches it from all games, mods, and modpacks. Admin privileges are required.",
     status_code=204,
     responses={
         403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
@@ -202,6 +202,9 @@ async def delete_tag(request: Request, tag_id: int) -> Response:
         await session.execute(catalog.mods_tags.delete().where(catalog.mods_tags.c.tag_id == tag_id))
         await session.execute(
             catalog.allowed_mods_tags.delete().where(catalog.allowed_mods_tags.c.tag_id == tag_id)
+        )
+        await session.execute(
+            catalog.modpacks_tags.delete().where(catalog.modpacks_tags.c.tag_id == tag_id)
         )
         await session.execute(delete(catalog.Tag).where(catalog.Tag.id == tag_id))
         await session.commit()

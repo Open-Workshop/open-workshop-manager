@@ -285,6 +285,102 @@ class ReputationRouteTests(unittest.TestCase):
         self.assertEqual(body["current_vote"], -1)
         self.assertEqual(body["authors"], {"21": {"owner": True}})
 
+    def test_get_modpack_includes_tags_and_resources(self) -> None:
+        modpack = SimpleNamespace(
+            id=17,
+            name="Cool Pack",
+            short_description="Short",
+            description="Long",
+            source="local",
+            source_id=None,
+            git_url=None,
+            game=None,
+            public=0,
+            adult=False,
+            condition=0,
+            downloads=0,
+            rating=13,
+            date_creation=None,
+            date_edit=None,
+        )
+        vote_history_row = SimpleNamespace(
+            id=1,
+            voter_id=42,
+            target_type="modpack",
+            target_id=17,
+            target_name="Cool Pack",
+            previous_value=0,
+            value=1,
+            reputation_delta=0.1,
+            mod_delta=1,
+            created_at=datetime.datetime(2026, 5, 3, 12, 0, 0),
+        )
+        resource_one = SimpleNamespace(
+            id=7,
+            owner_type="modpacks",
+            owner_id=17,
+            type="banner",
+            sort_order=0,
+            url="https://storage.example/modpacks/17/banner.webp",
+            size=None,
+            date_event=None,
+        )
+        resource_two = SimpleNamespace(
+            id=8,
+            owner_type="modpacks",
+            owner_id=17,
+            type="screenshot",
+            sort_order=1,
+            url="https://storage.example/modpacks/17/screenshot.webp",
+            size=None,
+            date_event=None,
+        )
+        catalog_session = _RatingSession(
+            get_map={sql_catalog.Modpack: modpack},
+            execute_results=[
+                [(17, 21, True)],
+                [(17, 3, "Adventure"), (17, 5, "QoL")],
+                [resource_one, resource_two],
+            ],
+        )
+        vote_session = _RatingSession(scalar_results=[vote_history_row])
+        access_state = SimpleNamespace(authenticated=True, owner_id=42)
+
+        with (
+            patch.object(api_modpack.account, "check_access", AsyncMock(return_value=access_state)),
+            patch.object(api_modpack.catalog, "AsyncSessionLocal", return_value=catalog_session),
+            patch.object(api_modpack.account, "AsyncSessionLocal", return_value=vote_session),
+        ):
+            response = self.client.get("/modpacks/17")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["id"], 17)
+        self.assertEqual(body["current_vote"], 1)
+        self.assertEqual(body["authors"], {"21": {"owner": True}})
+        self.assertEqual(body["tags"], [
+            {"id": 3, "name": "Adventure"},
+            {"id": 5, "name": "QoL"},
+        ])
+        self.assertEqual(body["resources"], [
+            {
+                "id": 7,
+                "owner_type": "modpacks",
+                "owner_id": 17,
+                "type": "banner",
+                "sort_order": 0,
+                "url": "https://storage.example/modpacks/17/banner.webp",
+            },
+            {
+                "id": 8,
+                "owner_type": "modpacks",
+                "owner_id": 17,
+                "type": "screenshot",
+                "sort_order": 1,
+                "url": "https://storage.example/modpacks/17/screenshot.webp",
+            },
+        ])
+
     def test_get_modpack_mods_returns_stored_mod_list(self) -> None:
         modpack = SimpleNamespace(
             id=17,
@@ -316,6 +412,41 @@ class ReputationRouteTests(unittest.TestCase):
             {"mod_id": 11, "sort_order": 0, "auto_added": False},
             {"mod_id": 7, "sort_order": 1, "auto_added": True},
         ])
+
+    def test_put_modpack_tag_adds_association(self) -> None:
+        modpack = SimpleNamespace(
+            id=17,
+            name="Cool Pack",
+            short_description="Short",
+            description="Long",
+            source="local",
+            source_id=None,
+            game=None,
+            public=0,
+            adult=False,
+            rating=13,
+            downloads=0,
+            date_creation=None,
+            date_edit=None,
+        )
+        catalog_session = _RatingSession(
+            get_map={sql_catalog.Modpack: modpack},
+            execute_results=[[3], []],
+        )
+        access_result = SimpleNamespace(
+            authenticated=True,
+            edit=SimpleNamespace(value=True, reason="ok", reason_code="allowed"),
+        )
+
+        with (
+            patch.object(api_modpack.tools, "access_modpacks", AsyncMock(return_value=access_result)),
+            patch.object(api_modpack.catalog, "AsyncSessionLocal", return_value=catalog_session),
+        ):
+            response = self.client.post("/modpacks/17/tags/3")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertTrue(any(getattr(stmt, "table", None) is not None and stmt.table.name == "modpacks_tags" for stmt in catalog_session.execute_statements))
+        self.assertEqual(catalog_session.commit_count, 1)
 
     def test_put_modpack_mods_persists_mod_list_and_auto_added_flags(self) -> None:
         modpack = SimpleNamespace(

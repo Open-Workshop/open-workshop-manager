@@ -54,6 +54,25 @@ mods_tags = Table(
     Column("tag_id", Integer, ForeignKey("tags.id")),
 )
 
+modpacks_tags = Table(
+    "modpacks_tags",
+    Base.metadata,  # Теги для модпаков
+    Column("modpack_id", Integer, ForeignKey("modpacks.id", ondelete="CASCADE"), nullable=False),
+    Column("tag_id", Integer, ForeignKey("tags.id", ondelete="CASCADE"), nullable=False),
+)
+
+Index(
+    "ux_modpacks_tags_modpack_tag",
+    modpacks_tags.c.modpack_id,
+    modpacks_tags.c.tag_id,
+    unique=True,
+)
+Index(
+    "ix_modpacks_tags_tag_modpack",
+    modpacks_tags.c.tag_id,
+    modpacks_tags.c.modpack_id,
+)
+
 mods_dependencies = Table(
     "unity_mods_dependencies",
     Base.metadata,  # Зависимости мода
@@ -230,6 +249,7 @@ class Modpack(Base):  # Таблица "модпаки"
         backref="modpacks",
         viewonly=True,
     )
+    tags: Mapped[list["Tag"]] = relationship("Tag", secondary=modpacks_tags, backref="modpacks")
 
 
 Index("ix_modpacks_source_id", Modpack.source_id)

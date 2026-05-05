@@ -1221,6 +1221,35 @@ class ModListSizeFilterTests(unittest.TestCase):
         list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
         self.assertIn("ORDER BY resources.sort_order DESC", list_sql)
 
+    def test_resources_list_supports_modpack_owner_type(self) -> None:
+        session = _RecordingSession(
+            rows=[_resource(owner_type="modpacks", owner_id=17, sort_order=5)],
+            scalar_values=[1],
+        )
+        access_modpacks = AsyncMock(return_value=[17])
+
+        with (
+            patch.object(self.api_resource.catalog, "AsyncSessionLocal", return_value=session),
+            patch.object(self.api_resource.tools, "access_modpacks", access_modpacks),
+        ):
+            response = self.client.get(
+                f"{self.main_url}/resources",
+                params={
+                    "owner_type": "modpacks",
+                    "owner_ids": [17],
+                    "page": 0,
+                    "page_size": 20,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["items"][0]["owner_type"], "modpacks")
+        self.assertEqual(body["items"][0]["sort_order"], 5)
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 1)
+        self.assertTrue(access_modpacks.await_args.kwargs["check_mode"])
+
     def test_profile_avatar_get_is_get_safe(self) -> None:
         session = _RecordingSession(scalar_values=["local/avatar.webp"])
 
@@ -1368,6 +1397,8 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("/modpacks/{modpack_id}", schema["paths"])
         self.assertIn("/modpacks/{modpack_id}/rating", schema["paths"])
         self.assertIn("/modpacks/{modpack_id}/authors/{author_id}", schema["paths"])
+        self.assertIn("/modpacks/{modpack_id}/tags", schema["paths"])
+        self.assertIn("/modpacks/{modpack_id}/tags/{tag_id}", schema["paths"])
         self.assertIn("/profiles/{user_id}/rating", schema["paths"])
         self.assertIn("/profiles/{user_id}/rating/history", schema["paths"])
         modpack_read = schema["components"]["schemas"]["ModpackRead"]
@@ -1375,11 +1406,15 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("rating", modpack_read["properties"])
         self.assertIn("current_vote", modpack_read["properties"])
         self.assertIn("authors", modpack_read["properties"])
+        self.assertIn("tags", modpack_read["properties"])
+        self.assertIn("resources", modpack_read["properties"])
         self.assertNotIn("condition", modpack_read["properties"])
         self.assertNotIn("git_url", modpack_read["properties"])
         resource_read = schema["components"]["schemas"]["ResourceRead"]
         self.assertIn("sort_order", resource_read["properties"])
         self.assertIn("sort_order", resource_read["required"])
+        resource_create = schema["components"]["schemas"]["ResourceCreate"]
+        self.assertIn("modpacks", resource_create["properties"]["owner_type"]["enum"])
         mod_params = parameter_names("/mods", "get")
         self.assertIn("excluded_conflicts", mod_params)
         dependencies_param = next(

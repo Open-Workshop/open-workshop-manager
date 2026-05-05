@@ -142,7 +142,7 @@ class ResourceRead(ReadModel):
 
 
 class ResourceCreate(ApiModel):
-    owner_type: Literal["mods", "games"]
+    owner_type: Literal["mods", "games", "modpacks"]
     owner_id: int = Field(ge=1)
     type: str = Field(min_length=LIMITS.resource.type_min, max_length=LIMITS.resource.type_max)
     sort_order: int = Field(
@@ -235,6 +235,8 @@ class ModpackRead(ReadModel):
     created_at: datetime.datetime | None = None
     updated_at: datetime.datetime | None = None
     authors: dict[int, dict[str, bool]] | None = None
+    tags: list[TagRead] | None = None
+    resources: list[ResourceRead] | None = None
 
     @field_validator("source_id", mode="before")
     @classmethod
@@ -513,7 +515,7 @@ class UploadCreate(ApiModel):
     mode: Literal["create", "replace"]
     format: str | None = Field(default=None, min_length=1, max_length=16)
     compression_level: int | None = Field(default=None, ge=0, le=9)
-    resource_owner_type: Literal["mods", "games"] | None = None
+    resource_owner_type: Literal["mods", "games", "modpacks"] | None = None
     resource_owner_id: int | None = Field(default=None, ge=1)
     resource_type: str | None = Field(
         default=None,

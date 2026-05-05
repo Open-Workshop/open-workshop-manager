@@ -53,7 +53,7 @@ UPLOAD_REFERENCE_NOT_FOUND_RESPONSE = standarts.response_spec(
 
 VALID_UPLOAD_KINDS = {"mod_archive", "resource_image", "profile_avatar"}
 VALID_UPLOAD_MODES = {"create", "replace"}
-VALID_RESOURCE_OWNER_TYPES = {"mods", "games"}
+VALID_RESOURCE_OWNER_TYPES = {"mods", "games", "modpacks"}
 VALID_IMAGE_CALLBACK_ACTIONS = {"avatar_set", "resource_add", "resource_edit"}
 VALID_IMAGE_STORAGE_TYPES = {"avatar", "resource"}
 
@@ -240,6 +240,9 @@ async def _require_resource_owner_access(
 ) -> None:
     if owner_type == "mods":
         await tools.access_mods(request=request, mods_ids=[owner_id], edit=True)
+        return
+    if owner_type == "modpacks":
+        await tools.access_modpacks(request=request, modpack_ids=[owner_id], edit=True)
         return
     if owner_type == "games":
         await tools.access_admin(request=request)

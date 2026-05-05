@@ -19,7 +19,7 @@ from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
 
-ALLOWED_OWNER_TYPES = {"mods", "games"}
+ALLOWED_OWNER_TYPES = {"mods", "games", "modpacks"}
 
 RESOURCE_BAD_REQUEST_RESPONSE = standarts.response_spec(
     standarts.build_problem(
@@ -81,6 +81,9 @@ async def _require_owner_access(request: Request, owner_type: str, owner_id: int
     if owner_type == "mods":
         await _require_mod_access(request, owner_id, edit=edit)
         return
+    if owner_type == "modpacks":
+        await tools.access_modpacks(request=request, modpack_ids=[owner_id], edit=edit)
+        return
     await tools.access_admin(request=request)
 
 
@@ -104,7 +107,7 @@ async def list_resources(
     owner_type: str = Query(
         ...,
         max_length=LIMITS.resource.owner_type_max,
-        description="Owner type to filter by (`mods` or `games`).",
+        description="Owner type to filter by (`mods`, `games`, or `modpacks`).",
     ),
     owner_id: int | None = Query(default=None, ge=1, description="Convenience filter for one owner ID."),
     owner_ids: list[int] = Query(default_factory=list, description="Owner IDs to include."),
@@ -164,10 +167,21 @@ async def list_resources(
         offset = page * page_size
         rows = (await session.execute(list_stmt.offset(offset).limit(page_size))).scalars().all()
 
-    if owner_type == "mods" and owner_ids and rows:
-        mod_ids = [int(row.owner_id) for row in rows]
-        allowed_ids = await tools.access_mods(request=request, mods_ids=mod_ids, check_mode=True)
-        if len(allowed_ids) != len(mod_ids):
+    if owner_type in {"mods", "modpacks"} and owner_ids and rows:
+        owner_ids_to_check = [int(row.owner_id) for row in rows]
+        if owner_type == "mods":
+            allowed_ids = await tools.access_mods(
+                request=request,
+                mods_ids=owner_ids_to_check,
+                check_mode=True,
+            )
+        else:
+            allowed_ids = await tools.access_modpacks(
+                request=request,
+                modpack_ids=owner_ids_to_check,
+                check_mode=True,
+            )
+        if len(allowed_ids) != len(owner_ids_to_check):
             raise standarts.ForbiddenError(
                 detail="Access denied.",
                 instance=str(request.url),
@@ -209,6 +223,8 @@ async def get_resource(request: Request, resource_id: int) -> ResourceRead:
 
     if resource.owner_type == "mods":
         await tools.access_mods(request=request, mods_ids=[resource.owner_id])
+    elif resource.owner_type == "modpacks":
+        await tools.access_modpacks(request=request, modpack_ids=[resource.owner_id])
 
     return _serialize_resource(resource)
 
@@ -218,7 +234,7 @@ async def get_resource(request: Request, resource_id: int) -> ResourceRead:
     tags=["Resource"],
     summary="Create resource",
     description=(
-        "Creates a new resource for a game or a mod owner.\n\n"
+        "Creates a new resource for a game, mod, or modpack owner.\n\n"
         "Set `sort_order` to control where the resource appears in list responses."
     ),
     status_code=201,

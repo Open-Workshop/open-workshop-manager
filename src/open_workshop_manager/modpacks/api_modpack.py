@@ -26,6 +26,9 @@ from open_workshop_manager.api_models import (
     ModpackModUpsert,
     ModpackModsUpsert,
     RatingVoteUpsert,
+    TagListResponse,
+    ResourceRead,
+    TagRead,
     stringify_source_id,
 )
 from open_workshop_manager.limits import LIMITS
@@ -82,6 +85,26 @@ MODPACK_MODS_NOT_FOUND_RESPONSE = standarts.response_spec(
         code="NOT_FOUND",
     ),
     "Modpack or referenced mod not found.",
+)
+
+MODPACK_TAGS_NOT_FOUND_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        404,
+        title="Not Found",
+        detail="Modpack or referenced tag not found.",
+        code="NOT_FOUND",
+    ),
+    "Modpack or referenced tag not found.",
+)
+
+MODPACK_TAGS_CONFLICT_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        409,
+        title="Conflict",
+        detail="The association is already present.",
+        code="ASSOCIATION_ALREADY_EXISTS",
+    ),
+    "The association is already present.",
 )
 
 
@@ -171,6 +194,34 @@ async def _ensure_mods_exist(
         _raise_mods_not_found(request, missing_ids)
 
 
+async def _ensure_tags_exist(
+    request: Request,
+    session,
+    tag_ids: list[int],
+) -> None:
+    if not tag_ids:
+        return
+
+    found_ids = set(
+        int(tag_id)
+        for tag_id in (
+            await session.execute(
+                select(catalog.Tag.id).where(catalog.Tag.id.in_(tag_ids))
+            )
+        ).scalars().all()
+    )
+    missing_ids = [tag_id for tag_id in tag_ids if tag_id not in found_ids]
+    if missing_ids:
+        raise standarts.StandardAPIError(
+            status_code=404,
+            title="Not Found",
+            detail="One or more tags were not found.",
+            code="TAG_NOT_FOUND",
+            instance=str(request.url),
+            context={"missing_ids": missing_ids},
+        )
+
+
 async def _load_modpack_current_vote(request: Request, modpack_id: int) -> int | None:
     access_state = await account.check_access(request=request)
     if not access_state or not getattr(access_state, "authenticated", False):
@@ -244,6 +295,89 @@ async def _load_modpack_mods(
     return mods_by_modpack
 
 
+async def _load_modpack_tags(
+    session,
+    modpack_ids: list[int],
+) -> dict[int, list[TagRead]]:
+    if not modpack_ids:
+        return {}
+
+    tag_table = catalog.Tag.__table__
+    result = await session.execute(
+        select(
+            catalog.modpacks_tags.c.modpack_id,
+            tag_table.c.id,
+            tag_table.c.name,
+        )
+        .select_from(
+            catalog.modpacks_tags.join(
+                tag_table,
+                tag_table.c.id == catalog.modpacks_tags.c.tag_id,
+            )
+        )
+        .where(catalog.modpacks_tags.c.modpack_id.in_(modpack_ids))
+        .order_by(
+            catalog.modpacks_tags.c.modpack_id.asc(),
+            tag_table.c.name.asc(),
+            tag_table.c.id.asc(),
+        )
+    )
+
+    tags_by_modpack: dict[int, list[TagRead]] = {modpack_id: [] for modpack_id in modpack_ids}
+    for modpack_id, tag_id, tag_name in result.all():
+        tags_by_modpack.setdefault(int(modpack_id), []).append(
+            TagRead(id=int(tag_id), name=str(tag_name))
+        )
+    return tags_by_modpack
+
+
+async def _load_modpack_resources(
+    session,
+    modpack_ids: list[int],
+) -> dict[int, list[ResourceRead]]:
+    if not modpack_ids:
+        return {}
+
+    resources = (
+        await session.execute(
+            select(catalog.Resource)
+            .where(
+                catalog.Resource.owner_type == "modpacks",
+                catalog.Resource.owner_id.in_(modpack_ids),
+            )
+            .order_by(
+                catalog.Resource.owner_id.asc(),
+                catalog.Resource.sort_order.asc(),
+                catalog.Resource.id.asc(),
+            )
+        )
+    ).scalars().all()
+
+    resources_by_modpack: dict[int, list[ResourceRead]] = {modpack_id: [] for modpack_id in modpack_ids}
+    for resource in resources:
+        resource_owner_id = int(getattr(resource, "owner_id", 0) or 0)
+        resources_by_modpack.setdefault(resource_owner_id, []).append(
+            ResourceRead.model_validate(
+                {
+                    "id": int(getattr(resource, "id", 0) or 0),
+                    "owner_type": str(getattr(resource, "owner_type", "")),
+                    "owner_id": resource_owner_id,
+                    "type": str(getattr(resource, "type", "")),
+                    "sort_order": int(getattr(resource, "sort_order", 0) or 0),
+                    "url": getattr(resource, "real_url", getattr(resource, "url", "")),
+                    "size": (
+                        int(getattr(resource, "size", 0))
+                        if getattr(resource, "size", None) is not None
+                        else None
+                    ),
+                    "created_at": getattr(resource, "date_event", None),
+                    "updated_at": getattr(resource, "date_event", None),
+                }
+            )
+        )
+    return resources_by_modpack
+
+
 def _normalize_modpack_mods(items: list[ModpackModUpsert]) -> list[ModpackModUpsert]:
     normalized: list[ModpackModUpsert] = []
     seen: set[int] = set()
@@ -291,6 +425,8 @@ def _serialize_modpack(
     row: catalog.Modpack,
     *,
     authors: dict[int, dict[str, bool]] | None = None,
+    tags: list[TagRead] | None = None,
+    resources: list[ResourceRead] | None = None,
     current_vote: int | None = None,
 ) -> ModpackRead:
     payload: dict[str, object] = {
@@ -315,6 +451,8 @@ def _serialize_modpack(
         "created_at": getattr(row, "date_creation", None),
         "updated_at": getattr(row, "date_edit", None),
         "authors": authors,
+        "tags": tags,
+        "resources": resources,
     }
     return ModpackRead.model_validate(payload)
 
@@ -430,10 +568,18 @@ async def list_modpacks(
             )
         ).scalars().all()
 
-        authors = await _load_modpack_authors(session, [int(row.id) for row in rows])
+        modpack_ids = [int(row.id) for row in rows]
+        authors = await _load_modpack_authors(session, modpack_ids)
+        tags = await _load_modpack_tags(session, modpack_ids)
+        resources = await _load_modpack_resources(session, modpack_ids)
 
     items = [
-        _serialize_modpack(row, authors=authors.get(int(row.id))).model_dump(
+        _serialize_modpack(
+            row,
+            authors=authors.get(int(row.id)),
+            tags=tags.get(int(row.id)),
+            resources=resources.get(int(row.id)),
+        ).model_dump(
             mode="json",
             exclude_none=True,
         )
@@ -446,7 +592,10 @@ async def list_modpacks(
     "/modpacks/{modpack_id}",
     tags=["Modpack"],
     summary="Get modpack",
-    description="Returns a modpack by ID, including its authors and current vote state when available.",
+    description=(
+        "Returns a modpack by ID, including its authors, tags, resources, and current vote state "
+        "when available."
+    ),
     status_code=200,
     response_model=ModpackRead,
     response_model_exclude_none=True,
@@ -466,11 +615,15 @@ async def get_modpack(
             await tools.access_modpacks(request=request, modpack_ids=[modpack_id])
 
         authors = await _load_modpack_authors(session, [modpack_id])
+        tags = await _load_modpack_tags(session, [modpack_id])
+        resources = await _load_modpack_resources(session, [modpack_id])
 
     current_vote = await _load_modpack_current_vote(request, modpack_id)
     return _serialize_modpack(
         row,
         authors=authors.get(modpack_id),
+        tags=tags.get(modpack_id),
+        resources=resources.get(modpack_id),
         current_vote=current_vote,
     )
 
@@ -498,6 +651,109 @@ async def get_modpack_mods(request: Request, modpack_id: int) -> ModpackModsRead
         mods = await _load_modpack_mods(session, [modpack_id])
 
     return ModpackModsRead(modpack_id=modpack_id, items=mods.get(modpack_id, []))
+
+
+@router.get(
+    "/modpacks/{modpack_id}/tags",
+    tags=["Modpack", "Tag"],
+    summary="List modpack tags",
+    description="Returns all tags attached to a modpack.",
+    status_code=200,
+    response_model=TagListResponse,
+    response_model_exclude_none=True,
+    response_description="Stored modpack tags.",
+    responses={404: MODPACK_NOT_FOUND_RESPONSE},
+)
+async def get_modpack_tags(request: Request, modpack_id: int) -> dict[str, object]:
+    async with catalog.AsyncSessionLocal() as session:
+        row = await session.get(catalog.Modpack, modpack_id)
+        if row is None:
+            _raise_modpack_not_found(request)
+
+        if row.public > 0 or int(getattr(row, "condition", 0) or 0) != 0:
+            await tools.access_modpacks(request=request, modpack_ids=[modpack_id])
+
+        tags = await _load_modpack_tags(session, [modpack_id])
+
+    items = [tag.model_dump(mode="json", exclude_none=True) for tag in tags.get(modpack_id, [])]
+    return make_list_response(items, page=0, page_size=max(len(items), 1), total=len(items))
+
+
+@router.post(
+    "/modpacks/{modpack_id}/tags/{tag_id}",
+    tags=["Modpack", "Tag"],
+    summary="Add modpack tag",
+    description="Associates a tag with a modpack.",
+    status_code=204,
+    responses={
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
+        404: MODPACK_TAGS_NOT_FOUND_RESPONSE,
+        409: MODPACK_TAGS_CONFLICT_RESPONSE,
+    },
+)
+async def add_modpack_tag(request: Request, modpack_id: int, tag_id: int):
+    await tools.access_modpacks(request=request, modpack_ids=[modpack_id], edit=True)
+
+    async with catalog.AsyncSessionLocal() as session:
+        modpack = await session.get(catalog.Modpack, modpack_id)
+        if modpack is None:
+            _raise_modpack_not_found(request)
+        await _ensure_tags_exist(request, session, [tag_id])
+
+        exists = await session.execute(
+            select(catalog.modpacks_tags).where(
+                catalog.modpacks_tags.c.modpack_id == modpack_id,
+                catalog.modpacks_tags.c.tag_id == tag_id,
+            )
+        )
+        if exists.first() is not None:
+            raise standarts.StandardAPIError(
+                status_code=409,
+                title="Conflict",
+                detail="The association is already present.",
+                code="ASSOCIATION_ALREADY_EXISTS",
+                instance=str(request.url),
+            )
+
+        await session.execute(
+            insert(catalog.modpacks_tags).values(modpack_id=modpack_id, tag_id=tag_id)
+        )
+        await session.commit()
+
+    return Response(status_code=204)
+
+
+@router.delete(
+    "/modpacks/{modpack_id}/tags/{tag_id}",
+    tags=["Modpack", "Tag"],
+    summary="Remove modpack tag",
+    description="Removes a tag association from a modpack.",
+    status_code=204,
+    responses={
+        401: standarts.UNAUTHORIZED_RESPONSE_SPEC,
+        403: standarts.FORBIDDEN_RESPONSE_SPEC,
+        404: MODPACK_TAGS_NOT_FOUND_RESPONSE,
+    },
+)
+async def delete_modpack_tag(request: Request, modpack_id: int, tag_id: int):
+    await tools.access_modpacks(request=request, modpack_ids=[modpack_id], edit=True)
+
+    async with catalog.AsyncSessionLocal() as session:
+        modpack = await session.get(catalog.Modpack, modpack_id)
+        if modpack is None:
+            _raise_modpack_not_found(request)
+        await _ensure_tags_exist(request, session, [tag_id])
+
+        await session.execute(
+            delete(catalog.modpacks_tags).where(
+                catalog.modpacks_tags.c.modpack_id == modpack_id,
+                catalog.modpacks_tags.c.tag_id == tag_id,
+            )
+        )
+        await session.commit()
+
+    return Response(status_code=204)
 
 
 @router.put(
@@ -589,7 +845,7 @@ async def put_modpack_rating(
     "/modpacks",
     tags=["Modpack"],
     summary="Create modpack",
-    description="Creates a new modpack draft or published entry.",
+    description="Creates a new modpack draft or published entry, returning its tags and resources collections.",
     status_code=201,
     response_model=ModpackRead,
     response_model_exclude_none=True,
@@ -677,14 +933,14 @@ async def create_modpack(
 
         await session.commit()
         response.headers["Location"] = f"/modpacks/{modpack.id}"
-        return _serialize_modpack(modpack, authors=authors)
+        return _serialize_modpack(modpack, authors=authors, tags=[], resources=[])
 
 
 @router.patch(
     "/modpacks/{modpack_id}",
     tags=["Modpack"],
     summary="Update modpack",
-    description="Updates an existing modpack.",
+    description="Updates an existing modpack and returns its tags and resources collections.",
     status_code=200,
     response_model=ModpackRead,
     response_model_exclude_none=True,
@@ -790,8 +1046,15 @@ async def patch_modpack(
 
         row.date_edit = datetime.datetime.now()
         authors = await _load_modpack_authors(session, [modpack_id])
+        tags = await _load_modpack_tags(session, [modpack_id])
+        resources = await _load_modpack_resources(session, [modpack_id])
         await session.commit()
-        return _serialize_modpack(row, authors=authors.get(modpack_id))
+        return _serialize_modpack(
+            row,
+            authors=authors.get(modpack_id),
+            tags=tags.get(modpack_id),
+            resources=resources.get(modpack_id),
+        )
 
 
 @router.delete(
@@ -825,9 +1088,20 @@ async def delete_modpack(request: Request, modpack_id: int) -> Response:
         if row is None:
             _raise_modpack_not_found(request)
 
+        if not await tools.delete_resources(owner_type="modpacks", owner_id=modpack_id):
+            raise standarts.InternalServerError(
+                detail="Failed to delete modpack resources.",
+                instance=str(request.url),
+                code="RESOURCE_DELETE_FAILED",
+            )
         await session.execute(
             delete(account.modpack_and_author).where(
                 account.modpack_and_author.c.modpack_id == modpack_id
+            )
+        )
+        await session.execute(
+            delete(catalog.modpacks_tags).where(
+                catalog.modpacks_tags.c.modpack_id == modpack_id
             )
         )
         await session.execute(delete(catalog.Modpack).where(catalog.Modpack.id == modpack_id))

@@ -522,6 +522,87 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         access_admin.assert_awaited_once()
         access_mods.assert_not_awaited()
 
+    def test_resource_image_create_uses_modpack_access_for_modpacks(self) -> None:
+        resource = SimpleNamespace(
+            id=None,
+            type="screenshot",
+            url="",
+            size=None,
+            date_event=None,
+            sort_order=0,
+            owner_type="modpacks",
+            owner_id=7,
+        )
+        session = _MutableSession(next_id=555)
+
+        access_modpacks = AsyncMock(return_value=True)
+        access_admin = AsyncMock(side_effect=AssertionError("access_admin must not be called"))
+        access_mods = AsyncMock(side_effect=AssertionError("access_mods must not be called"))
+        captured_payload: dict[str, object] = {}
+
+        def fake_create_transfer_jwt(payload, audience, ttl_seconds, issuer="manager"):
+            captured_payload.update(payload)
+            captured_payload["audience"] = audience
+            captured_payload["ttl_seconds"] = ttl_seconds
+            captured_payload["issuer"] = issuer
+            return "upload-token"
+
+        with patch.object(api_uploads.config, "TRANSFER_JWT_SECRET", "secret", create=True), patch.object(
+            api_uploads.tools,
+            "access_admin",
+            access_admin,
+        ), patch.object(
+            api_uploads.tools,
+            "access_mods",
+            access_mods,
+        ), patch.object(
+            api_uploads.tools,
+            "access_modpacks",
+            access_modpacks,
+        ), patch.object(
+            api_uploads.tools,
+            "create_transfer_jwt",
+            side_effect=fake_create_transfer_jwt,
+        ), patch.object(
+            api_uploads.catalog,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
+            response = self.client.post(
+                "/uploads",
+                json={
+                    "kind": "resource_image",
+                    "owner_type": "resource",
+                    "mode": "create",
+                    "resource_owner_type": "modpacks",
+                    "resource_owner_id": 7,
+                    "resource_type": "screenshot",
+                    "resource_sort_order": 17,
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertEqual(body["kind"], "resource_image")
+        self.assertEqual(body["owner_id"], 7)
+        self.assertEqual(body["resource_id"], 555)
+        self.assertEqual(session.commit_count, 1)
+        self.assertEqual(session.flush_count, 1)
+        self.assertEqual(len(session.added), 2)
+        resource_row = next(obj for obj in session.added if isinstance(obj, sql_catalog.Resource))
+        self.assertEqual(resource_row.sort_order, 17)
+        self.assertTrue(any(isinstance(obj, sql_catalog.Resource) for obj in session.added))
+        self.assertTrue(any(isinstance(obj, sql_catalog.UploadJob) for obj in session.added))
+        self.assertEqual(captured_payload["transfer_kind"], "img")
+        self.assertEqual(captured_payload["storage_type"], "resource")
+        self.assertEqual(captured_payload["file_kind"], "img")
+        self.assertEqual(captured_payload["callback_action"], "resource_add")
+        self.assertEqual(captured_payload["resource_sort_order"], 17)
+        self.assertEqual(captured_payload["target_path"], "modpacks/7/555.webp")
+        access_modpacks.assert_awaited_once()
+        access_admin.assert_not_awaited()
+        access_mods.assert_not_awaited()
+
     def test_profile_avatar_create_uses_avatar_file_kind(self) -> None:
         session = _MutableSession(next_id=777)
         access_profile = AsyncMock(
