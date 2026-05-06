@@ -254,10 +254,9 @@ export NATS_URLS='["nats://127.0.0.1:4222"]'
 - `PUT /profiles/{user_id}/rating` - поставить, изменить или снять голос за профиль.
 - `GET /profiles/{user_id}/rating/history` - посмотреть историю голосов пользователя.
 - `rating` у модов и модпаков хранится как процент одобрения, а `votes_count` показывает число активных голосов.
-- `PUT /profiles/{user_id}/rating` возвращает `rating` как процент одобрения и `votes_count` с числом активных голосов.
-- `GET /profiles/{user_id}` в `general` возвращает `rating` и `votes_count` вместо старого `reputation`.
+- `PUT /profiles/{user_id}/rating` возвращает `rating` как процент одобрения и `votes_count` с числом активных голосов для отдельной оценки профиля.
+- `GET /profiles/{user_id}` в `general` возвращает `rating` и `votes_count`, рассчитанные по голосам за моды и модпаки автора.
 - В каталоге моды можно сортировать по `rating` через `sort=rating` или `sort=-rating`.
-- Рейтинг мода считается в масштабе `10:1` относительно репутации автора.
 - Голосование доступно только авторизованным пользователям с правом `vote_for_reputation` в Access.
 
 ## Скрипты

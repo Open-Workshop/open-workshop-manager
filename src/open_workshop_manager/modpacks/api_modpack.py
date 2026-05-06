@@ -830,7 +830,7 @@ async def put_modpack_mods(
     summary="Rate modpack",
     description=(
         "Sets the current user's vote for a modpack. Votes update the stored approval "
-        "percentage in the database and propagate reputation changes to all listed authors."
+        "percentage in the database."
     ),
     status_code=200,
     response_model=ModpackRatingRead,

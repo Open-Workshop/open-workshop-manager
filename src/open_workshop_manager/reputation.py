@@ -4,13 +4,13 @@ import datetime
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, literal, select, union
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from open_workshop_manager.sql_logic import sql_account as account
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 
-MOD_RATING_SCALE = 10
+LEGACY_REPUTATION_SCALE = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +198,52 @@ async def count_vote_counts(
     return {int(target_id): int(votes_count or 0) for target_id, votes_count in result.all()}
 
 
+async def load_profile_content_summary(
+    session: AsyncSession,
+    *,
+    profile_id: int,
+) -> VoteSummary:
+    profile_id = int(profile_id)
+    targets = union(
+        select(
+            literal("mod").label("target_type"),
+            account.mod_and_author.c.mod_id.label("target_id"),
+        ).where(account.mod_and_author.c.user_id == profile_id),
+        select(
+            literal("modpack").label("target_type"),
+            account.modpack_and_author.c.modpack_id.label("target_id"),
+        ).where(account.modpack_and_author.c.user_id == profile_id),
+    ).subquery()
+
+    result = await session.execute(
+        select(
+            func.count().label("votes_count"),
+            func.coalesce(
+                func.sum(case((account.ReputationVote.value > 0, 1), else_=0)),
+                0,
+            ).label("positive_votes"),
+        )
+        .select_from(account.ReputationVote)
+        .join(
+            targets,
+            and_(
+                account.ReputationVote.target_type == targets.c.target_type,
+                account.ReputationVote.target_id == targets.c.target_id,
+            ),
+        )
+    )
+    row = result.first()
+    if row is None:
+        return VoteSummary()
+
+    votes_count = int(getattr(row, "votes_count", 0) or 0)
+    positive_votes = int(getattr(row, "positive_votes", 0) or 0)
+    return VoteSummary(
+        rating=_approval_percent(positive_votes, votes_count),
+        votes_count=votes_count,
+    )
+
+
 async def apply_profile_vote(
     session: AsyncSession,
     *,
@@ -277,8 +323,6 @@ async def apply_mod_vote(
         target_type="mod",
         item=mod,
         value=value,
-        relation_table=account.mod_and_author,
-        relation_target_column="mod_id",
     )
 
 
@@ -295,8 +339,6 @@ async def apply_modpack_vote(
         target_type="modpack",
         item=modpack,
         value=value,
-        relation_table=account.modpack_and_author,
-        relation_target_column="modpack_id",
     )
 
 
@@ -307,8 +349,6 @@ async def _apply_content_vote(
     target_type: str,
     item: catalog.Mod | catalog.Modpack,
     value: int,
-    relation_table,
-    relation_target_column: str,
 ) -> VoteSummary:
     current_vote = await _current_vote(
         session,
@@ -328,7 +368,7 @@ async def _apply_content_vote(
 
     delta = value - previous_value
     now = datetime.datetime.now()
-    author_delta = delta / MOD_RATING_SCALE
+    history_delta = delta / LEGACY_REPUTATION_SCALE
 
     if current_vote is None:
         if value != 0:
@@ -348,22 +388,6 @@ async def _apply_content_vote(
         current_vote.value = value
         current_vote.updated_at = now
 
-    authors_result = await session.execute(
-        select(account.Account)
-        .join(
-            relation_table,
-            account.Account.id == relation_table.c.user_id,
-        )
-        .where(getattr(relation_table.c, relation_target_column) == int(item.id))
-    )
-    seen_author_ids: set[int] = set()
-    for author in authors_result.scalars().all():
-        author_id = int(getattr(author, "id", 0) or 0)
-        if author_id in seen_author_ids:
-            continue
-        seen_author_ids.add(author_id)
-        author.reputation = float(getattr(author, "reputation", 0) or 0.0) + author_delta
-
     await _upsert_vote_history(
         session,
         voter_id=voter_id,
@@ -372,7 +396,7 @@ async def _apply_content_vote(
         target_name=_display_name(item, int(item.id)),
         previous_value=previous_value,
         value=value,
-        reputation_delta=author_delta,
+        reputation_delta=history_delta,
         mod_delta=delta,
         created_at=now,
     )

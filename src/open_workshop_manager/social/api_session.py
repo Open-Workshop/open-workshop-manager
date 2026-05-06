@@ -561,7 +561,6 @@ async def _oauth_google_callback(
                     comments=0,
                     author_mods=0,
                     registration_date=datetime.datetime.now(),
-                    reputation=0,
                     rating=0,
                     votes_count=0,
                 )
@@ -688,7 +687,6 @@ async def _oauth_yandex_callback(
                     comments=0,
                     author_mods=0,
                     registration_date=datetime.datetime.now(),
-                    reputation=0,
                     rating=0,
                     votes_count=0,
                 )

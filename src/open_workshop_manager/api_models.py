@@ -633,11 +633,11 @@ class ProfileGeneralRead(ReadModel):
     rating: int = Field(
         ge=0,
         le=100,
-        description="Approval percentage rounded to a whole number.",
+        description="Approval percentage across the profile's authored mods and modpacks.",
     )
     votes_count: int = Field(
         ge=0,
-        description="Number of active votes used to calculate the approval percentage.",
+        description="Number of active votes across the profile's authored mods and modpacks.",
     )
     mute: bool
     mute_until: datetime.datetime | None = None

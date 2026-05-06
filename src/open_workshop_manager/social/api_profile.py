@@ -59,7 +59,12 @@ PROFILE_NOT_FOUND_RESPONSE = standarts.response_spec(
 )
 
 
-def _profile_general_payload(row: account.Account, now: datetime.datetime) -> ProfileGeneralRead:
+async def _profile_general_payload(
+    session,
+    row: account.Account,
+    now: datetime.datetime,
+) -> ProfileGeneralRead:
+    summary = await reputation.load_profile_content_summary(session, profile_id=int(row.id))
     return ProfileGeneralRead(
         id=int(row.id),
         username=str(getattr(row, "username", "")),
@@ -69,8 +74,8 @@ def _profile_general_payload(row: account.Account, now: datetime.datetime) -> Pr
         comments=int(getattr(row, "comments", 0) or 0),
         author_mods=int(getattr(row, "author_mods", 0) or 0),
         registration_date=getattr(row, "registration_date", now),
-        rating=int(getattr(row, "rating", 0) or 0),
-        votes_count=int(getattr(row, "votes_count", 0) or 0),
+        rating=summary.rating,
+        votes_count=summary.votes_count,
         mute=bool(getattr(row, "mute_until", None) and getattr(row, "mute_until") > now),
         mute_until=getattr(row, "mute_until", None),
     )
@@ -246,7 +251,7 @@ async def get_profile(
         now = datetime.datetime.now()
 
         if "general" in include_set:
-            result.general = _profile_general_payload(row, now)
+            result.general = await _profile_general_payload(session, row, now)
 
         if "private" in include_set or "rights" in include_set:
             access_result = await tools.access_profile(request=request, profile_id=user_id)
@@ -276,10 +281,9 @@ async def get_profile(
         "Send `value=1` to upvote, `value=-1` to downvote, or `value=0` to clear "
         "the current vote. Profile votes update the stored approval percentage and "
         "active vote count, while the response returns the updated approval "
-        "percentage and active vote count. "
-        "Mod ratings change by 1 point per vote step and author reputation "
-        "changes by 0.1 point per mod vote, which is 1 point for every 10 mod "
-        "rating points."
+        "percentage and active vote count. The profile summary shown by "
+        "`GET /profiles/{user_id}` is derived from the user's authored mods and "
+        "modpacks."
     ),
     status_code=200,
     response_model=ProfileRatingRead,
@@ -543,7 +547,7 @@ async def patch_profile(
             row.mute_until = mute_until
 
         await session.commit()
-        return _profile_general_payload(row, now)
+        return await _profile_general_payload(session, row, now)
 
 
 @router.patch(

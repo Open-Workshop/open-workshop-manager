@@ -131,13 +131,13 @@ class ReputationRouteTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.client.close()
 
-    def test_mod_rating_updates_mod_and_author_reputation_by_tenth_point(self) -> None:
+    def test_mod_rating_updates_mod_without_author_reputation(self) -> None:
         mod = SimpleNamespace(id=7, name="Cool Mod", rating=0)
         author = SimpleNamespace(id=11, username="Author", reputation=4.0)
         session = _RatingSession(
             get_map={sql_catalog.Mod: mod},
             scalar_results=[None],
-            execute_results=[[author], [(7, 1, 1)]],
+            execute_results=[[(7, 1, 1)]],
         )
         vote_access = SimpleNamespace(
             authenticated=True,
@@ -157,7 +157,7 @@ class ReputationRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"mod_id": 7, "rating": 100, "votes_count": 1})
         self.assertEqual(mod.rating, 100)
-        self.assertEqual(author.reputation, 4.1)
+        self.assertEqual(author.reputation, 4.0)
         self.assertEqual(session.commit_count, 1)
         self.assertEqual(len(session.added), 2)
         self.assertEqual(getattr(session.added[-1], "target_type", None), "mod")
@@ -170,14 +170,14 @@ class ReputationRouteTests(unittest.TestCase):
         self.assertEqual(publish_event.await_args.kwargs["extra"]["rating"], 100)
         self.assertEqual(publish_event.await_args.kwargs["extra"]["votes_count"], 1)
 
-    def test_mod_rating_updates_author_reputation_on_second_vote(self) -> None:
+    def test_mod_rating_updates_mod_without_second_author_reputation(self) -> None:
         mod = SimpleNamespace(id=7, name="Cool Mod", rating=9)
         author = SimpleNamespace(id=11, username="Author", reputation=4.9)
         current_vote = SimpleNamespace(value=-1, updated_at=datetime.datetime(2026, 5, 3, 12, 0, 0))
         session = _RatingSession(
             get_map={sql_catalog.Mod: mod},
             scalar_results=[current_vote],
-            execute_results=[[author], [(7, 1, 1)]],
+            execute_results=[[(7, 1, 1)]],
         )
         vote_access = SimpleNamespace(
             authenticated=True,
@@ -197,7 +197,7 @@ class ReputationRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"mod_id": 7, "rating": 100, "votes_count": 1})
         self.assertEqual(mod.rating, 100)
-        self.assertAlmostEqual(author.reputation, 5.1)
+        self.assertEqual(author.reputation, 4.9)
         self.assertEqual(session.commit_count, 1)
         self.assertEqual(len(session.added), 1)
         self.assertEqual(getattr(session.added[-1], "target_type", None), "mod")
@@ -207,13 +207,13 @@ class ReputationRouteTests(unittest.TestCase):
         self.assertEqual(publish_event.await_args.kwargs["extra"]["rating"], 100)
         self.assertEqual(publish_event.await_args.kwargs["extra"]["votes_count"], 1)
 
-    def test_modpack_rating_updates_modpack_and_author_reputation_by_tenth_point(self) -> None:
+    def test_modpack_rating_updates_modpack_without_author_reputation(self) -> None:
         modpack = SimpleNamespace(id=17, name="Cool Pack", rating=0)
         author = SimpleNamespace(id=21, username="Pack Author", reputation=1.5)
         session = _RatingSession(
             get_map={sql_catalog.Modpack: modpack},
             scalar_results=[None],
-            execute_results=[[author], [(17, 1, 1)]],
+            execute_results=[[(17, 1, 1)]],
         )
         vote_access = SimpleNamespace(
             authenticated=True,
@@ -231,7 +231,7 @@ class ReputationRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"modpack_id": 17, "rating": 100, "votes_count": 1})
         self.assertEqual(modpack.rating, 100)
-        self.assertEqual(author.reputation, 1.6)
+        self.assertEqual(author.reputation, 1.5)
         self.assertEqual(session.commit_count, 1)
         self.assertEqual(len(session.added), 2)
         self.assertEqual(getattr(session.added[-1], "target_type", None), "modpack")
@@ -660,7 +660,10 @@ class ReputationRouteTests(unittest.TestCase):
             votes_count=5,
             mute_until=None,
         )
-        session = _RatingSession(get_map={sql_account.Account: profile})
+        session = _RatingSession(
+            get_map={sql_account.Account: profile},
+            execute_results=[[SimpleNamespace(votes_count=2, positive_votes=1)]],
+        )
 
         with patch.object(api_profile.account, "AsyncSessionLocal", return_value=session):
             response = self.client.get("/profiles/7")
@@ -668,8 +671,8 @@ class ReputationRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()["general"]
         self.assertEqual(body["id"], 7)
-        self.assertEqual(body["rating"], 87)
-        self.assertEqual(body["votes_count"], 5)
+        self.assertEqual(body["rating"], 50)
+        self.assertEqual(body["votes_count"], 2)
         self.assertNotIn("reputation", body)
 
     def test_profile_rating_history_returns_items(self) -> None:

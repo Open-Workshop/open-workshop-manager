@@ -1080,8 +1080,7 @@ async def get_mod(
         "Sets the current user's vote for a mod.\n\n"
         "Send `value=1` to upvote, `value=-1` to downvote, or `value=0` to clear "
         "the current vote. Mod ratings are stored as approval percentage in the "
-        "database, and author reputation changes by 0.1 point per mod vote, which "
-        "is 1 point for every 10 mod rating points."
+        "database."
     ),
     status_code=200,
     response_model=ModRatingRead,

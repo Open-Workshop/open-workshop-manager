@@ -124,7 +124,6 @@ async def main() -> int:
             registration_date=now,
             comments=0,
             author_mods=0,
-            reputation=0,
             admin=bool(args.admin),
         )
 
