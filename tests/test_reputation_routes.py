@@ -137,7 +137,7 @@ class ReputationRouteTests(unittest.TestCase):
         session = _RatingSession(
             get_map={sql_catalog.Mod: mod},
             scalar_results=[None],
-            execute_results=[[author]],
+            execute_results=[[author], [(7, 1, 1)]],
         )
         vote_access = SimpleNamespace(
             authenticated=True,
@@ -155,8 +155,8 @@ class ReputationRouteTests(unittest.TestCase):
             response = self.client.put("/mods/7/rating", json={"value": 1})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"mod_id": 7, "rating": 1})
-        self.assertEqual(mod.rating, 1)
+        self.assertEqual(response.json(), {"mod_id": 7, "rating": 100, "votes_count": 1})
+        self.assertEqual(mod.rating, 100)
         self.assertEqual(author.reputation, 4.1)
         self.assertEqual(session.commit_count, 1)
         self.assertEqual(len(session.added), 2)
@@ -167,15 +167,17 @@ class ReputationRouteTests(unittest.TestCase):
         self.assertEqual(publish_event.await_args.args[0], api_mod.mod_events.MOD_EVENT_RATED)
         self.assertEqual(publish_event.await_args.args[1], 7)
         self.assertEqual(publish_event.await_args.kwargs["extra"]["vote_value"], 1)
-        self.assertEqual(publish_event.await_args.kwargs["extra"]["rating"], 1)
+        self.assertEqual(publish_event.await_args.kwargs["extra"]["rating"], 100)
+        self.assertEqual(publish_event.await_args.kwargs["extra"]["votes_count"], 1)
 
     def test_mod_rating_updates_author_reputation_on_second_vote(self) -> None:
         mod = SimpleNamespace(id=7, name="Cool Mod", rating=9)
         author = SimpleNamespace(id=11, username="Author", reputation=4.9)
+        current_vote = SimpleNamespace(value=-1, updated_at=datetime.datetime(2026, 5, 3, 12, 0, 0))
         session = _RatingSession(
             get_map={sql_catalog.Mod: mod},
-            scalar_results=[None],
-            execute_results=[[author]],
+            scalar_results=[current_vote],
+            execute_results=[[author], [(7, 1, 1)]],
         )
         vote_access = SimpleNamespace(
             authenticated=True,
@@ -193,16 +195,17 @@ class ReputationRouteTests(unittest.TestCase):
             response = self.client.put("/mods/7/rating", json={"value": 1})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"mod_id": 7, "rating": 10})
-        self.assertEqual(mod.rating, 10)
-        self.assertEqual(author.reputation, 5.0)
+        self.assertEqual(response.json(), {"mod_id": 7, "rating": 100, "votes_count": 1})
+        self.assertEqual(mod.rating, 100)
+        self.assertAlmostEqual(author.reputation, 5.1)
         self.assertEqual(session.commit_count, 1)
-        self.assertEqual(len(session.added), 2)
+        self.assertEqual(len(session.added), 1)
         self.assertEqual(getattr(session.added[-1], "target_type", None), "mod")
-        self.assertEqual(getattr(session.added[-1], "mod_delta", None), 1)
-        self.assertEqual(getattr(session.added[-1], "reputation_delta", None), 0.1)
+        self.assertEqual(getattr(session.added[-1], "mod_delta", None), 2)
+        self.assertEqual(getattr(session.added[-1], "reputation_delta", None), 0.2)
         publish_event.assert_awaited_once()
-        self.assertEqual(publish_event.await_args.kwargs["extra"]["rating"], 10)
+        self.assertEqual(publish_event.await_args.kwargs["extra"]["rating"], 100)
+        self.assertEqual(publish_event.await_args.kwargs["extra"]["votes_count"], 1)
 
     def test_modpack_rating_updates_modpack_and_author_reputation_by_tenth_point(self) -> None:
         modpack = SimpleNamespace(id=17, name="Cool Pack", rating=0)
@@ -210,7 +213,7 @@ class ReputationRouteTests(unittest.TestCase):
         session = _RatingSession(
             get_map={sql_catalog.Modpack: modpack},
             scalar_results=[None],
-            execute_results=[[author]],
+            execute_results=[[author], [(17, 1, 1)]],
         )
         vote_access = SimpleNamespace(
             authenticated=True,
@@ -226,8 +229,8 @@ class ReputationRouteTests(unittest.TestCase):
             response = self.client.put("/modpacks/17/rating", json={"value": 1})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"modpack_id": 17, "rating": 1})
-        self.assertEqual(modpack.rating, 1)
+        self.assertEqual(response.json(), {"modpack_id": 17, "rating": 100, "votes_count": 1})
+        self.assertEqual(modpack.rating, 100)
         self.assertEqual(author.reputation, 1.6)
         self.assertEqual(session.commit_count, 1)
         self.assertEqual(len(session.added), 2)
@@ -283,6 +286,7 @@ class ReputationRouteTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["id"], 17)
         self.assertEqual(body["current_vote"], -1)
+        self.assertEqual(body["votes_count"], 0)
         self.assertEqual(body["authors"], {"21": {"owner": True}})
 
     def test_get_modpack_includes_tags_and_resources(self) -> None:
@@ -357,6 +361,7 @@ class ReputationRouteTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["id"], 17)
         self.assertEqual(body["current_vote"], 1)
+        self.assertEqual(body["votes_count"], 0)
         self.assertEqual(body["authors"], {"21": {"owner": True}})
         self.assertEqual(body["tags"], [
             {"id": 3, "name": "Adventure"},
@@ -608,12 +613,14 @@ class ReputationRouteTests(unittest.TestCase):
         self.assertEqual(body["id"], 7)
         self.assertEqual(body["rating"], 13)
         self.assertEqual(body["current_vote"], -1)
+        self.assertEqual(body["votes_count"], 0)
 
-    def test_profile_rating_updates_reputation(self) -> None:
-        profile = SimpleNamespace(id=7, username="User", reputation=12.0)
+    def test_profile_rating_updates_approval_percentage(self) -> None:
+        profile = SimpleNamespace(id=7, username="User", reputation=12.0, rating=0, votes_count=0)
         session = _RatingSession(
             get_map={sql_account.Account: profile},
             scalar_results=[None],
+            execute_results=[[(7, 1, 0)]],
         )
         access_result = SimpleNamespace(
             authenticated=True,
@@ -629,12 +636,41 @@ class ReputationRouteTests(unittest.TestCase):
             response = self.client.put("/profiles/7/rating", json={"value": -1})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"profile_id": 7, "reputation": 11.0})
-        self.assertEqual(profile.reputation, 11.0)
+        self.assertEqual(response.json(), {"profile_id": 7, "rating": 0, "votes_count": 1})
+        self.assertEqual(profile.reputation, 12.0)
+        self.assertEqual(profile.rating, 0)
+        self.assertEqual(profile.votes_count, 1)
         self.assertEqual(session.commit_count, 1)
         self.assertEqual(len(session.added), 2)
         self.assertEqual(getattr(session.added[-1], "target_type", None), "profile")
         self.assertEqual(getattr(session.added[-1], "reputation_delta", None), -1.0)
+
+    def test_get_profile_includes_rating_and_votes_count(self) -> None:
+        profile = SimpleNamespace(
+            id=7,
+            username="User",
+            about="About me",
+            avatar_url="",
+            grade="Tester",
+            comments=2,
+            author_mods=3,
+            registration_date=datetime.datetime(2026, 5, 3, 12, 0, 0),
+            reputation=123.0,
+            rating=87,
+            votes_count=5,
+            mute_until=None,
+        )
+        session = _RatingSession(get_map={sql_account.Account: profile})
+
+        with patch.object(api_profile.account, "AsyncSessionLocal", return_value=session):
+            response = self.client.get("/profiles/7")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()["general"]
+        self.assertEqual(body["id"], 7)
+        self.assertEqual(body["rating"], 87)
+        self.assertEqual(body["votes_count"], 5)
+        self.assertNotIn("reputation", body)
 
     def test_profile_rating_history_returns_items(self) -> None:
         profile = SimpleNamespace(id=7, username="User", reputation=11.0)

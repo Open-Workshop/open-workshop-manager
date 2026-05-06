@@ -222,22 +222,44 @@ async def _ensure_tags_exist(
         )
 
 
-async def _load_modpack_current_vote(request: Request, modpack_id: int) -> int | None:
-    access_state = await account.check_access(request=request)
-    if not access_state or not getattr(access_state, "authenticated", False):
-        return None
+async def _load_modpack_vote_state(request: Request, modpack_id: int) -> tuple[int | None, int]:
+    try:
+        access_state = await account.check_access(request=request)
+        current_vote: int | None = None
+        async with account.AsyncSessionLocal() as session:
+            if access_state and getattr(access_state, "authenticated", False):
+                voter_id = int(getattr(access_state, "owner_id", -1) or -1)
+                if voter_id >= 0:
+                    current_vote = await reputation.current_vote_value(
+                        session,
+                        voter_id=voter_id,
+                        target_type="modpack",
+                        target_id=int(modpack_id),
+                    )
 
-    voter_id = int(getattr(access_state, "owner_id", -1) or -1)
-    if voter_id < 0:
-        return None
+            vote_counts = await reputation.count_vote_counts(
+                session,
+                target_type="modpack",
+                target_ids=[modpack_id],
+            )
+        return current_vote, int(vote_counts.get(int(modpack_id), 0))
+    except Exception:
+        return None, 0
 
-    async with account.AsyncSessionLocal() as session:
-        return await reputation.current_vote_value(
-            session,
-            voter_id=voter_id,
-            target_type="modpack",
-            target_id=int(modpack_id),
-        )
+
+async def _load_modpack_vote_counts(modpack_ids: list[int]) -> dict[int, int]:
+    if not modpack_ids:
+        return {}
+
+    try:
+        async with account.AsyncSessionLocal() as session:
+            return await reputation.count_vote_counts(
+                session,
+                target_type="modpack",
+                target_ids=modpack_ids,
+            )
+    except Exception:
+        return {}
 
 
 async def _load_modpack_authors(
@@ -428,6 +450,7 @@ def _serialize_modpack(
     tags: list[TagRead] | None = None,
     resources: list[ResourceRead] | None = None,
     current_vote: int | None = None,
+    votes_count: int = 0,
 ) -> ModpackRead:
     payload: dict[str, object] = {
         "id": int(getattr(row, "id", 0) or 0),
@@ -442,6 +465,7 @@ def _serialize_modpack(
         "public": int(getattr(row, "public", 0) or 0),
         "adult": bool(getattr(row, "adult", False)),
         "rating": int(getattr(row, "rating", 0) or 0),
+        "votes_count": int(votes_count),
         "current_vote": current_vote,
         "downloads": (
             int(getattr(row, "downloads", 0))
@@ -572,6 +596,7 @@ async def list_modpacks(
         authors = await _load_modpack_authors(session, modpack_ids)
         tags = await _load_modpack_tags(session, modpack_ids)
         resources = await _load_modpack_resources(session, modpack_ids)
+        vote_counts = await _load_modpack_vote_counts(modpack_ids)
 
     items = [
         _serialize_modpack(
@@ -579,6 +604,7 @@ async def list_modpacks(
             authors=authors.get(int(row.id)),
             tags=tags.get(int(row.id)),
             resources=resources.get(int(row.id)),
+            votes_count=vote_counts.get(int(row.id), 0),
         ).model_dump(
             mode="json",
             exclude_none=True,
@@ -618,13 +644,14 @@ async def get_modpack(
         tags = await _load_modpack_tags(session, [modpack_id])
         resources = await _load_modpack_resources(session, [modpack_id])
 
-    current_vote = await _load_modpack_current_vote(request, modpack_id)
+    current_vote, votes_count = await _load_modpack_vote_state(request, modpack_id)
     return _serialize_modpack(
         row,
         authors=authors.get(modpack_id),
         tags=tags.get(modpack_id),
         resources=resources.get(modpack_id),
         current_vote=current_vote,
+        votes_count=votes_count,
     )
 
 
@@ -802,8 +829,8 @@ async def put_modpack_mods(
     tags=["Modpack"],
     summary="Rate modpack",
     description=(
-        "Sets the current user's vote for a modpack. Votes adjust the modpack rating by one point "
-        "per step and propagate reputation changes to all listed authors."
+        "Sets the current user's vote for a modpack. Votes update the stored approval "
+        "percentage in the database and propagate reputation changes to all listed authors."
     ),
     status_code=200,
     response_model=ModpackRatingRead,
@@ -831,14 +858,18 @@ async def put_modpack_rating(
 
         await tools.access_modpacks(request=request, modpack_ids=[modpack_id], catalog=True)
 
-        rating = await reputation.apply_modpack_vote(
+        summary = await reputation.apply_modpack_vote(
             session,
             voter_id=int(vote_access.owner_id),
             modpack=modpack,
             value=int(payload.value),
         )
         await session.commit()
-        return ModpackRatingRead(modpack_id=modpack_id, rating=rating)
+        return ModpackRatingRead(
+            modpack_id=modpack_id,
+            rating=summary.rating,
+            votes_count=summary.votes_count,
+        )
 
 
 @router.post(

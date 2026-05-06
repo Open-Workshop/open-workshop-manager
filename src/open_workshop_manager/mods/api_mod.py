@@ -129,22 +129,44 @@ def _raise_mod_not_found(request: Request) -> None:
     )
 
 
-async def _load_mod_current_vote(request: Request, mod_id: int) -> int | None:
-    access_state = await account.check_access(request=request)
-    if not access_state or not getattr(access_state, "authenticated", False):
-        return None
+async def _load_mod_vote_state(request: Request, mod_id: int) -> tuple[int | None, int]:
+    try:
+        access_state = await account.check_access(request=request)
+        current_vote: int | None = None
+        async with account.AsyncSessionLocal() as session:
+            if access_state and getattr(access_state, "authenticated", False):
+                voter_id = int(getattr(access_state, "owner_id", -1) or -1)
+                if voter_id >= 0:
+                    current_vote = await reputation.current_vote_value(
+                        session,
+                        voter_id=voter_id,
+                        target_type="mod",
+                        target_id=int(mod_id),
+                    )
 
-    voter_id = int(getattr(access_state, "owner_id", -1) or -1)
-    if voter_id < 0:
-        return None
+            vote_counts = await reputation.count_vote_counts(
+                session,
+                target_type="mod",
+                target_ids=[mod_id],
+            )
+        return current_vote, int(vote_counts.get(int(mod_id), 0))
+    except Exception:
+        return None, 0
 
-    async with account.AsyncSessionLocal() as session:
-        return await reputation.current_vote_value(
-            session,
-            voter_id=voter_id,
-            target_type="mod",
-            target_id=int(mod_id),
-        )
+
+async def _load_mod_vote_counts(mod_ids: list[int]) -> dict[int, int]:
+    if not mod_ids:
+        return {}
+
+    try:
+        async with account.AsyncSessionLocal() as session:
+            return await reputation.count_vote_counts(
+                session,
+                target_type="mod",
+                target_ids=mod_ids,
+            )
+    except Exception:
+        return {}
 
 
 def _raise_vote_right_denied(request: Request, right) -> None:
@@ -396,6 +418,7 @@ def _serialize_mod_base(row: catalog.Mod) -> dict[str, object]:
         "condition": "draft" if int(getattr(row, "condition", 0) or 0) != 0 else "published",
         "downloads": int(getattr(row, "downloads", 0) or 0),
         "rating": int(getattr(row, "rating", 0) or 0),
+        "votes_count": int(getattr(row, "votes_count", 0) or 0),
         "size": int(getattr(row, "size", 0) or 0),
         "size_unpacked": (
             int(getattr(row, "size_unpacked", 0))
@@ -462,10 +485,12 @@ async def _serialize_mod_with_includes(
     conflicts_scope: ConflictScope,
     *,
     current_vote: int | None = None,
+    votes_count: int = 0,
 ) -> ModRead:
     payload = _serialize_mod_base(row)
     if current_vote is not None:
         payload["current_vote"] = current_vote
+    payload["votes_count"] = int(votes_count)
     game_id = getattr(row, "game", None)
 
     if "short_description" not in include:
@@ -611,7 +636,7 @@ async def _update_game_mod_count(session, game_id: int, delta: int) -> None:
         "Use filters for IDs, tags, dependency rules, conflict exclusions, source fields, "
         "game, size ranges, and `include` to opt into extra fields such as `description`, `dates`, `game`, "
         "`tags`, `dependencies`, `conflicts`, `authors`, and `resources`.\n\n"
-        "Sorting also supports `rating`, which uses the raw mod vote count scale.\n\n"
+        "Sorting also supports `rating`, which uses the approval percentage stored in the database.\n\n"
         "When `include=conflicts` is requested, `scope` controls whether the response includes "
         "outgoing conflicts, incoming conflicts, or both directions merged together.\n\n"
         "Dependency filters accept bare mod IDs as `any`, or explicit rules such as "
@@ -846,9 +871,12 @@ async def list_mods(
         total = int((await session.scalar(count_stmt)) or 0)
         offset = page * page_size
         rows = (await session.execute(stmt.order_by(sort_clause).offset(offset).limit(page_size))).scalars().all()
+        mod_ids = [int(row.id) for row in rows]
+        vote_counts = await _load_mod_vote_counts(mod_ids)
 
         items: list[dict[str, object]] = []
         for row in rows:
+            row_vote_count = vote_counts.get(int(row.id), 0)
             if include_set:
                 items.append(
                     (
@@ -858,11 +886,13 @@ async def list_mods(
                             row,
                             include_set,
                             conflicts_scope,
+                            votes_count=row_vote_count,
                         )
                     ).model_dump(mode="json", exclude_none=True)
                 )
             else:
                 payload = _serialize_mod_base(row)
+                payload["votes_count"] = row_vote_count
                 payload.pop("short_description", None)
                 payload.pop("description", None)
                 payload.pop("created_at", None)
@@ -1023,7 +1053,7 @@ async def get_mod(
         if row.public > 0 or row.condition != 0:
             await tools.access_mods(request=request, mods_ids=[mod_id])
 
-        current_vote = await _load_mod_current_vote(request, mod_id)
+        current_vote, votes_count = await _load_mod_vote_state(request, mod_id)
 
         if include_set:
             return await _serialize_mod_with_includes(
@@ -1033,10 +1063,12 @@ async def get_mod(
                 include_set,
                 conflicts_scope,
                 current_vote=current_vote,
+                votes_count=votes_count,
             )
         payload = _serialize_mod_base(row)
         if current_vote is not None:
             payload["current_vote"] = current_vote
+        payload["votes_count"] = votes_count
         return ModRead.model_validate(payload)
 
 
@@ -1047,9 +1079,9 @@ async def get_mod(
     description=(
         "Sets the current user's vote for a mod.\n\n"
         "Send `value=1` to upvote, `value=-1` to downvote, or `value=0` to clear "
-        "the current vote. Mod ratings change by 1 point per vote step, and author "
-        "reputation changes by 0.1 point per mod vote, which is 1 point for every "
-        "10 mod rating points."
+        "the current vote. Mod ratings are stored as approval percentage in the "
+        "database, and author reputation changes by 0.1 point per mod vote, which "
+        "is 1 point for every 10 mod rating points."
     ),
     status_code=200,
     response_model=ModRatingRead,
@@ -1073,7 +1105,7 @@ async def put_mod_rating(
 
         await tools.access_mods(request=request, mods_ids=[mod_id], catalog=True)
 
-        rating = await reputation.apply_mod_vote(
+        summary = await reputation.apply_mod_vote(
             session,
             voter_id=int(vote_access.owner_id),
             mod=mod,
@@ -1089,10 +1121,15 @@ async def put_mod_rating(
             extra={
                 "voter_id": int(vote_access.owner_id),
                 "vote_value": int(payload.value),
-                "rating": rating,
+                "rating": summary.rating,
+                "votes_count": summary.votes_count,
             },
         )
-        return ModRatingRead(mod_id=mod_id, rating=rating)
+        return ModRatingRead(
+            mod_id=mod_id,
+            rating=summary.rating,
+            votes_count=summary.votes_count,
+        )
 
 
 @router.post(

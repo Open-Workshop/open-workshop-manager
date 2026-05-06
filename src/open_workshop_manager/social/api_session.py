@@ -562,6 +562,8 @@ async def _oauth_google_callback(
                     author_mods=0,
                     registration_date=datetime.datetime.now(),
                     reputation=0,
+                    rating=0,
+                    votes_count=0,
                 )
                 session.add(new_account)
                 await session.flush()
@@ -687,6 +689,8 @@ async def _oauth_yandex_callback(
                     author_mods=0,
                     registration_date=datetime.datetime.now(),
                     reputation=0,
+                    rating=0,
+                    votes_count=0,
                 )
                 session.add(new_account)
                 await session.flush()

@@ -122,6 +122,7 @@ class ModEventsTests(unittest.TestCase):
                         "voter_id": 99,
                         "vote_value": -1,
                         "rating": 40,
+                        "votes_count": 12,
                     },
                 )
             )
@@ -134,6 +135,7 @@ class ModEventsTests(unittest.TestCase):
         self.assertEqual(payload["voter_id"], 99)
         self.assertEqual(payload["vote_value"], -1)
         self.assertEqual(payload["rating"], 40)
+        self.assertEqual(payload["votes_count"], 12)
 
 
 if __name__ == "__main__":  # pragma: no cover

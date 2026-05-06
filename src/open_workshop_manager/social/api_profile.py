@@ -69,7 +69,8 @@ def _profile_general_payload(row: account.Account, now: datetime.datetime) -> Pr
         comments=int(getattr(row, "comments", 0) or 0),
         author_mods=int(getattr(row, "author_mods", 0) or 0),
         registration_date=getattr(row, "registration_date", now),
-        reputation=float(getattr(row, "reputation", 0) or 0.0),
+        rating=int(getattr(row, "rating", 0) or 0),
+        votes_count=int(getattr(row, "votes_count", 0) or 0),
         mute=bool(getattr(row, "mute_until", None) and getattr(row, "mute_until") > now),
         mute_until=getattr(row, "mute_until", None),
     )
@@ -273,15 +274,17 @@ async def get_profile(
     description=(
         "Sets the current user's vote for a profile.\n\n"
         "Send `value=1` to upvote, `value=-1` to downvote, or `value=0` to clear "
-        "the current vote. Profile reputation changes by 1 point per vote step, "
-        "while mod ratings change by 1 point per vote step and author reputation "
+        "the current vote. Profile votes update the stored approval percentage and "
+        "active vote count, while the response returns the updated approval "
+        "percentage and active vote count. "
+        "Mod ratings change by 1 point per vote step and author reputation "
         "changes by 0.1 point per mod vote, which is 1 point for every 10 mod "
         "rating points."
     ),
     status_code=200,
     response_model=ProfileRatingRead,
     response_model_exclude_none=True,
-    response_description="Updated profile reputation.",
+    response_description="Updated profile approval percentage.",
     responses={401: standarts.UNAUTHORIZED_RESPONSE_SPEC, 403: standarts.FORBIDDEN_RESPONSE_SPEC, 404: PROFILE_NOT_FOUND_RESPONSE},
 )
 async def put_profile_rating(
@@ -300,14 +303,18 @@ async def put_profile_rating(
         if row is None:
             _raise_profile_not_found(request)
 
-        reputation_value = await reputation.apply_profile_vote(
+        summary = await reputation.apply_profile_vote(
             session,
             voter_id=int(access_result.owner_id),
             profile=row,
             value=int(payload.value),
         )
         await session.commit()
-        return ProfileRatingRead(profile_id=user_id, reputation=reputation_value)
+        return ProfileRatingRead(
+            profile_id=user_id,
+            rating=summary.rating,
+            votes_count=summary.votes_count,
+        )
 
 
 @router.get(

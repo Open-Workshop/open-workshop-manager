@@ -72,6 +72,8 @@ class Account(Base):  # Аккаунты юзеров
     last_password_reset: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
     reputation: Mapped[float] = mapped_column(DOUBLE, default=0.0)
+    rating: Mapped[int] = mapped_column(Integer, default=0)
+    votes_count: Mapped[int] = mapped_column(Integer, default=0)
 
     # Права пользователей
     admin: Mapped[bool] = mapped_column(

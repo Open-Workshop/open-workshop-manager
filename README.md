@@ -175,8 +175,8 @@ Payload каждого события:
 `public` совпадает с полем мода в catalog: `0` - публичный и индексируемый,
 `1` - доступен по ссылке, `2` - непубличный. Для удаления используется тот же
 payload, но `event` будет `mod.deleted`. При голосовании за мод публикуется
-`mods.rated`, а в payload дополнительно приходят `vote_value`, `rating` и
-`voter_id`.
+`mods.rated`, а в payload дополнительно приходят `vote_value`, `rating`,
+`votes_count` и `voter_id`.
 
 Настройки:
 
@@ -250,8 +250,12 @@ export NATS_URLS='["nats://127.0.0.1:4222"]'
 ## Рейтинги
 
 - `PUT /mods/{mod_id}/rating` - поставить, изменить или снять голос за мод.
+- `PUT /modpacks/{modpack_id}/rating` - поставить, изменить или снять голос за модпак.
 - `PUT /profiles/{user_id}/rating` - поставить, изменить или снять голос за профиль.
 - `GET /profiles/{user_id}/rating/history` - посмотреть историю голосов пользователя.
+- `rating` у модов и модпаков хранится как процент одобрения, а `votes_count` показывает число активных голосов.
+- `PUT /profiles/{user_id}/rating` возвращает `rating` как процент одобрения и `votes_count` с числом активных голосов.
+- `GET /profiles/{user_id}` в `general` возвращает `rating` и `votes_count` вместо старого `reputation`.
 - В каталоге моды можно сортировать по `rating` через `sort=rating` или `sort=-rating`.
 - Рейтинг мода считается в масштабе `10:1` относительно репутации автора.
 - Голосование доступно только авторизованным пользователям с правом `vote_for_reputation` в Access.

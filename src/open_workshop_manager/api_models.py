@@ -193,7 +193,17 @@ class ModRead(ReadModel):
     public: int
     adult: bool
     condition: str
-    rating: int = 0
+    rating: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+        description="Approval percentage rounded to a whole number.",
+    )
+    votes_count: int = Field(
+        default=0,
+        ge=0,
+        description="Number of active votes used to calculate the approval percentage.",
+    )
     current_vote: int | None = None
     downloads: int | None = None
     size: int | None = None
@@ -229,7 +239,17 @@ class ModpackRead(ReadModel):
     game_id: int | None = None
     public: int
     adult: bool
-    rating: int = 0
+    rating: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+        description="Approval percentage rounded to a whole number.",
+    )
+    votes_count: int = Field(
+        default=0,
+        ge=0,
+        description="Number of active votes used to calculate the approval percentage.",
+    )
     current_vote: int | None = None
     downloads: int | None = None
     created_at: datetime.datetime | None = None
@@ -358,7 +378,15 @@ class ModpackListResponse(ListResponse[ModpackRead]):
 
 class ModpackRatingRead(ReadModel):
     modpack_id: int
-    rating: int
+    rating: int = Field(
+        ge=0,
+        le=100,
+        description="Approval percentage rounded to a whole number.",
+    )
+    votes_count: int = Field(
+        ge=0,
+        description="Number of active votes used to calculate the approval percentage.",
+    )
 
 
 class ModAuthorUpsert(ApiModel):
@@ -459,12 +487,28 @@ class RatingVoteUpsert(ApiModel):
 
 class ModRatingRead(ReadModel):
     mod_id: int
-    rating: int
+    rating: int = Field(
+        ge=0,
+        le=100,
+        description="Approval percentage rounded to a whole number.",
+    )
+    votes_count: int = Field(
+        ge=0,
+        description="Number of active votes used to calculate the approval percentage.",
+    )
 
 
 class ProfileRatingRead(ReadModel):
     profile_id: int
-    reputation: float
+    rating: int = Field(
+        ge=0,
+        le=100,
+        description="Approval percentage rounded to a whole number.",
+    )
+    votes_count: int = Field(
+        ge=0,
+        description="Number of active votes used to calculate the approval percentage.",
+    )
 
 
 class RatingHistoryRead(ReadModel):
@@ -586,7 +630,15 @@ class ProfileGeneralRead(ReadModel):
     comments: int
     author_mods: int
     registration_date: datetime.datetime
-    reputation: float
+    rating: int = Field(
+        ge=0,
+        le=100,
+        description="Approval percentage rounded to a whole number.",
+    )
+    votes_count: int = Field(
+        ge=0,
+        description="Number of active votes used to calculate the approval percentage.",
+    )
     mute: bool
     mute_until: datetime.datetime | None = None
 

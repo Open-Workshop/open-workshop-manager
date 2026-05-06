@@ -311,6 +311,7 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["items"][0]["rating"], 50)
+        self.assertEqual(body["items"][0]["votes_count"], 0)
         list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
         self.assertIn("ORDER BY mods.rating DESC", list_sql)
 
@@ -1365,6 +1366,7 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("adult", mod_read["required"])
         self.assertEqual(mod_read["properties"]["adult"]["type"], "boolean")
         self.assertIn("rating", mod_read["properties"])
+        self.assertIn("votes_count", mod_read["properties"])
         self.assertIn("current_vote", mod_read["properties"])
         self.assertIn("git_url", mod_read["properties"])
         self.assertIn("/modpacks/{modpack_id}/mods", schema["paths"])
@@ -1414,12 +1416,33 @@ class ModListSizeFilterTests(unittest.TestCase):
         modpack_read = schema["components"]["schemas"]["ModpackRead"]
         self.assertIn("adult", modpack_read["properties"])
         self.assertIn("rating", modpack_read["properties"])
+        self.assertIn("votes_count", modpack_read["properties"])
         self.assertIn("current_vote", modpack_read["properties"])
         self.assertIn("authors", modpack_read["properties"])
         self.assertIn("tags", modpack_read["properties"])
         self.assertIn("resources", modpack_read["properties"])
         self.assertNotIn("condition", modpack_read["properties"])
         self.assertNotIn("git_url", modpack_read["properties"])
+        mod_rating_read = schema["components"]["schemas"]["ModRatingRead"]
+        self.assertIn("rating", mod_rating_read["properties"])
+        self.assertIn("votes_count", mod_rating_read["properties"])
+        self.assertIn("mod_id", mod_rating_read["properties"])
+        modpack_rating_read = schema["components"]["schemas"]["ModpackRatingRead"]
+        self.assertIn("rating", modpack_rating_read["properties"])
+        self.assertIn("votes_count", modpack_rating_read["properties"])
+        self.assertIn("modpack_id", modpack_rating_read["properties"])
+        profile_rating_read = schema["components"]["schemas"]["ProfileRatingRead"]
+        self.assertIn("rating", profile_rating_read["properties"])
+        self.assertIn("votes_count", profile_rating_read["properties"])
+        self.assertIn("profile_id", profile_rating_read["properties"])
+        profile_general_read = schema["components"]["schemas"]["ProfileGeneralRead"]
+        self.assertIn("rating", profile_general_read["properties"])
+        self.assertIn("votes_count", profile_general_read["properties"])
+        self.assertIn("rating", profile_general_read["required"])
+        self.assertIn("votes_count", profile_general_read["required"])
+        self.assertEqual(profile_general_read["properties"]["rating"]["type"], "integer")
+        self.assertEqual(profile_general_read["properties"]["votes_count"]["type"], "integer")
+        self.assertNotIn("reputation", profile_general_read["properties"])
         resource_read = schema["components"]["schemas"]["ResourceRead"]
         self.assertIn("sort_order", resource_read["properties"])
         self.assertIn("sort_order", resource_read["required"])

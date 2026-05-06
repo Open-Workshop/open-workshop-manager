@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import datetime
+from collections.abc import Iterable
+from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from open_workshop_manager.sql_logic import sql_account as account
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 MOD_RATING_SCALE = 10
+
+
+@dataclass(frozen=True, slots=True)
+class VoteSummary:
+    rating: int = 0
+    votes_count: int = 0
 
 
 def _display_name(row: object, ident: int) -> str:
@@ -21,6 +29,16 @@ def _vote_history_key(row: object) -> tuple[str, int]:
         str(getattr(row, "target_type", "") or ""),
         int(getattr(row, "target_id", 0) or 0),
     )
+
+
+def _approval_percent(positive_votes: int, votes_count: int) -> int:
+    if votes_count <= 0:
+        return 0
+    return int((positive_votes * 200 + votes_count) // (2 * votes_count))
+
+
+def _normalize_target_ids(target_ids: Iterable[int]) -> list[int]:
+    return [target_id for target_id in dict.fromkeys(int(target_id) for target_id in target_ids) if target_id > 0]
 
 
 async def _current_vote(
@@ -106,13 +124,87 @@ async def _upsert_vote_history(
     row.created_at = created_at
 
 
+async def load_vote_summary(
+    session: AsyncSession,
+    *,
+    target_type: str,
+    target_id: int,
+) -> VoteSummary:
+    summaries = await load_vote_summaries(
+        session,
+        target_type=target_type,
+        target_ids=[target_id],
+    )
+    return summaries.get(int(target_id), VoteSummary())
+
+
+async def load_vote_summaries(
+    session: AsyncSession,
+    *,
+    target_type: str,
+    target_ids: Iterable[int],
+) -> dict[int, VoteSummary]:
+    ids = _normalize_target_ids(target_ids)
+    if not ids:
+        return {}
+
+    result = await session.execute(
+        select(
+            account.ReputationVote.target_id,
+            func.count().label("votes_count"),
+            func.coalesce(
+                func.sum(case((account.ReputationVote.value > 0, 1), else_=0)),
+                0,
+            ).label("positive_votes"),
+        )
+        .where(
+            account.ReputationVote.target_type == target_type,
+            account.ReputationVote.target_id.in_(ids),
+        )
+        .group_by(account.ReputationVote.target_id)
+    )
+
+    votes_by_target: dict[int, VoteSummary] = {target_id: VoteSummary() for target_id in ids}
+    for target_id, votes_count, positive_votes in result.all():
+        target_key = int(target_id)
+        votes_by_target[target_key] = VoteSummary(
+            rating=_approval_percent(int(positive_votes or 0), int(votes_count or 0)),
+            votes_count=int(votes_count or 0),
+        )
+    return votes_by_target
+
+
+async def count_vote_counts(
+    session: AsyncSession,
+    *,
+    target_type: str,
+    target_ids: Iterable[int],
+) -> dict[int, int]:
+    ids = _normalize_target_ids(target_ids)
+    if not ids:
+        return {}
+
+    result = await session.execute(
+        select(
+            account.ReputationVote.target_id,
+            func.count().label("votes_count"),
+        )
+        .where(
+            account.ReputationVote.target_type == target_type,
+            account.ReputationVote.target_id.in_(ids),
+        )
+        .group_by(account.ReputationVote.target_id)
+    )
+    return {int(target_id): int(votes_count or 0) for target_id, votes_count in result.all()}
+
+
 async def apply_profile_vote(
     session: AsyncSession,
     *,
     voter_id: int,
     profile: account.Account,
     value: int,
-) -> float:
+) -> VoteSummary:
     current_vote = await _current_vote(
         session,
         voter_id=voter_id,
@@ -121,7 +213,14 @@ async def apply_profile_vote(
     )
     previous_value = int(getattr(current_vote, "value", 0) or 0)
     if previous_value == value:
-        return float(getattr(profile, "reputation", 0) or 0.0)
+        summary = await load_vote_summary(
+            session,
+            target_type="profile",
+            target_id=int(profile.id),
+        )
+        profile.rating = summary.rating
+        profile.votes_count = summary.votes_count
+        return summary
 
     delta = value - previous_value
     now = datetime.datetime.now()
@@ -143,7 +242,13 @@ async def apply_profile_vote(
         current_vote.value = value
         current_vote.updated_at = now
 
-    profile.reputation = float(getattr(profile, "reputation", 0) or 0.0) + float(delta)
+    summary = await load_vote_summary(
+        session,
+        target_type="profile",
+        target_id=int(profile.id),
+    )
+    profile.rating = summary.rating
+    profile.votes_count = summary.votes_count
     await _upsert_vote_history(
         session,
         voter_id=voter_id,
@@ -156,7 +261,7 @@ async def apply_profile_vote(
         mod_delta=0,
         created_at=now,
     )
-    return float(profile.reputation)
+    return summary
 
 
 async def apply_mod_vote(
@@ -165,7 +270,7 @@ async def apply_mod_vote(
     voter_id: int,
     mod: catalog.Mod,
     value: int,
-) -> int:
+) -> VoteSummary:
     return await _apply_content_vote(
         session,
         voter_id=voter_id,
@@ -183,7 +288,7 @@ async def apply_modpack_vote(
     voter_id: int,
     modpack: catalog.Modpack,
     value: int,
-) -> int:
+) -> VoteSummary:
     return await _apply_content_vote(
         session,
         voter_id=voter_id,
@@ -204,7 +309,7 @@ async def _apply_content_vote(
     value: int,
     relation_table,
     relation_target_column: str,
-) -> int:
+) -> VoteSummary:
     current_vote = await _current_vote(
         session,
         voter_id=voter_id,
@@ -213,12 +318,16 @@ async def _apply_content_vote(
     )
     previous_value = int(getattr(current_vote, "value", 0) or 0)
     if previous_value == value:
-        return int(getattr(item, "rating", 0) or 0)
+        summary = await load_vote_summary(
+            session,
+            target_type=target_type,
+            target_id=int(item.id),
+        )
+        item.rating = summary.rating
+        return summary
 
     delta = value - previous_value
     now = datetime.datetime.now()
-    previous_rating = int(getattr(item, "rating", 0) or 0)
-    updated_rating = previous_rating + delta
     author_delta = delta / MOD_RATING_SCALE
 
     if current_vote is None:
@@ -238,8 +347,6 @@ async def _apply_content_vote(
     else:
         current_vote.value = value
         current_vote.updated_at = now
-
-    item.rating = updated_rating
 
     authors_result = await session.execute(
         select(account.Account)
@@ -269,7 +376,13 @@ async def _apply_content_vote(
         mod_delta=delta,
         created_at=now,
     )
-    return int(getattr(item, "rating", 0) or 0)
+    summary = await load_vote_summary(
+        session,
+        target_type=target_type,
+        target_id=int(item.id),
+    )
+    item.rating = summary.rating
+    return summary
 
 
 async def current_vote_value(
