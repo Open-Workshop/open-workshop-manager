@@ -237,6 +237,7 @@ class ModpackRead(ReadModel):
         description="Opaque source-specific identifier for the modpack.",
     )
     game_id: int | None = None
+    game: GameRead | None = None
     public: int
     adult: bool
     rating: int = Field(

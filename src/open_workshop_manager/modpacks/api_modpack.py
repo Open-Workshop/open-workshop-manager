@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import re
+from typing import Literal
 
 from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy import delete, func, insert, select, update
@@ -15,6 +16,7 @@ from open_workshop_manager.api_helpers import (
     make_list_response,
 )
 from open_workshop_manager.api_models import (
+    GameRead,
     ModAuthorUpsert,
     ModpackCreate,
     ModpackListResponse,
@@ -36,6 +38,26 @@ from open_workshop_manager.sql_logic import sql_account as account
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
+
+ModpackIncludeField = Literal[
+    "short_description",
+    "description",
+    "dates",
+    "game",
+    "tags",
+    "authors",
+    "resources",
+]
+
+MODPACK_INCLUDE_FIELDS = {
+    "short_description",
+    "description",
+    "dates",
+    "game",
+    "tags",
+    "authors",
+    "resources",
+}
 
 MODPACK_BAD_REQUEST_RESPONSE = standarts.response_spec(
     standarts.build_problem(
@@ -417,6 +439,118 @@ def _normalize_modpack_mods(items: list[ModpackModUpsert]) -> list[ModpackModUps
     return normalized
 
 
+def _normalize_modpack_sources(primary: list[str], legacy: list[str]) -> list[str]:
+    return list(dict.fromkeys([*primary, *legacy]))
+
+
+def _raise_unsupported_include(request: Request, field: str) -> None:
+    raise standarts.StandardAPIError(
+        status_code=400,
+        title="Bad Request",
+        detail="Unsupported include field.",
+        code="UNSUPPORTED_INCLUDE_FIELD",
+        instance=str(request.url),
+        context={"field": field, "allowed": sorted(MODPACK_INCLUDE_FIELDS)},
+    )
+
+
+def _normalize_include(request: Request, include: list[str]) -> set[str]:
+    normalized = {item.strip() for item in include if item and item.strip()}
+    unknown = normalized.difference(MODPACK_INCLUDE_FIELDS)
+    if unknown:
+        _raise_unsupported_include(request, sorted(unknown)[0])
+    return normalized
+
+
+def _serialize_modpack_base(
+    row: catalog.Modpack,
+    *,
+    current_vote: int | None = None,
+    votes_count: int = 0,
+) -> dict[str, object]:
+    return {
+        "id": int(getattr(row, "id", 0) or 0),
+        "name": str(getattr(row, "name", "") or ""),
+        "short_description": getattr(row, "short_description", None),
+        "description": getattr(row, "description", None),
+        "source": str(getattr(row, "source", "") or ""),
+        "source_id": _normalize_source_id(getattr(row, "source_id", None)),
+        "game_id": (
+            int(getattr(row, "game", 0)) if getattr(row, "game", None) is not None else None
+        ),
+        "public": int(getattr(row, "public", 0) or 0),
+        "adult": bool(getattr(row, "adult", False)),
+        "rating": int(getattr(row, "rating", 0) or 0),
+        "votes_count": int(votes_count),
+        "current_vote": current_vote,
+        "downloads": (
+            int(getattr(row, "downloads", 0))
+            if getattr(row, "downloads", None) is not None
+            else None
+        ),
+        "created_at": getattr(row, "date_creation", None),
+        "updated_at": getattr(row, "date_edit", None),
+    }
+
+
+def _serialize_modpack(
+    row: catalog.Modpack,
+    *,
+    authors: dict[int, dict[str, bool]] | None = None,
+    tags: list[TagRead] | None = None,
+    resources: list[ResourceRead] | None = None,
+    current_vote: int | None = None,
+    votes_count: int = 0,
+) -> ModpackRead:
+    payload = _serialize_modpack_base(
+        row,
+        current_vote=current_vote,
+        votes_count=votes_count,
+    )
+    payload["authors"] = authors
+    payload["tags"] = tags
+    payload["resources"] = resources
+    return ModpackRead.model_validate(payload)
+
+
+async def _load_modpack_games(
+    session,
+    game_ids: list[int],
+) -> dict[int, dict[str, object]]:
+    if not game_ids:
+        return {}
+
+    result = await session.execute(
+        select(catalog.Game).where(catalog.Game.id.in_(game_ids))
+    )
+    games_by_id: dict[int, dict[str, object]] = {}
+    for game in result.scalars().all():
+        game_id = int(getattr(game, "id", 0) or 0)
+        if game_id <= 0:
+            continue
+        games_by_id[game_id] = GameRead(
+            id=game_id,
+            name=str(getattr(game, "name", "") or ""),
+            short_description=getattr(game, "short_description", None),
+            description=getattr(game, "description", None),
+            type=str(getattr(game, "type", "game") or "game"),
+            source=str(getattr(game, "source", "local") or "local"),
+            source_id=_normalize_source_id(getattr(game, "source_id", None)),
+            mods_count=(
+                int(getattr(game, "mods_count", 0))
+                if getattr(game, "mods_count", None) is not None
+                else None
+            ),
+            mods_downloads=(
+                int(getattr(game, "mods_downloads", 0))
+                if getattr(game, "mods_downloads", None) is not None
+                else None
+            ),
+            created_at=getattr(game, "creation_date", None),
+        ).model_dump(mode="json", exclude_none=True)
+    return games_by_id
+
+
 async def _store_modpack_mods(
     session,
     modpack_id: int,
@@ -443,44 +577,6 @@ async def _store_modpack_mods(
     await session.execute(insert(catalog.modpacks_and_mods), values)
 
 
-def _serialize_modpack(
-    row: catalog.Modpack,
-    *,
-    authors: dict[int, dict[str, bool]] | None = None,
-    tags: list[TagRead] | None = None,
-    resources: list[ResourceRead] | None = None,
-    current_vote: int | None = None,
-    votes_count: int = 0,
-) -> ModpackRead:
-    payload: dict[str, object] = {
-        "id": int(getattr(row, "id", 0) or 0),
-        "name": str(getattr(row, "name", "") or ""),
-        "short_description": getattr(row, "short_description", None),
-        "description": getattr(row, "description", None),
-        "source": str(getattr(row, "source", "") or ""),
-        "source_id": _normalize_source_id(getattr(row, "source_id", None)),
-        "game_id": (
-            int(getattr(row, "game", 0)) if getattr(row, "game", None) is not None else None
-        ),
-        "public": int(getattr(row, "public", 0) or 0),
-        "adult": bool(getattr(row, "adult", False)),
-        "rating": int(getattr(row, "rating", 0) or 0),
-        "votes_count": int(votes_count),
-        "current_vote": current_vote,
-        "downloads": (
-            int(getattr(row, "downloads", 0))
-            if getattr(row, "downloads", None) is not None
-            else None
-        ),
-        "created_at": getattr(row, "date_creation", None),
-        "updated_at": getattr(row, "date_edit", None),
-        "authors": authors,
-        "tags": tags,
-        "resources": resources,
-    }
-    return ModpackRead.model_validate(payload)
-
-
 @router.get(
     "/modpacks",
     tags=["Modpack"],
@@ -488,7 +584,10 @@ def _serialize_modpack(
     description=(
         "Returns a paginated list of modpacks.\n\n"
         "Use `show_not_public=true` together with `author_id` to include hidden modpacks "
-        "that are visible to the current author context."
+        "that are visible to the current author context.\n\n"
+        "Use filters for IDs, tags, excluded tags, source fields, game, and `include` to "
+        "opt into `short_description`, `description`, `dates`, `game`, `tags`, `authors`, "
+        "and `resources`."
     ),
     status_code=200,
     response_model=ModpackListResponse,
@@ -506,7 +605,11 @@ async def list_modpacks(
     ),
     page: int = Query(0, ge=0, description="Zero-based page index."),
     name: str | None = Query(default=None, max_length=LIMITS.mod.name_max),
-    source: list[str] = Query(default_factory=list),
+    ids: list[int] = Query(default_factory=list, description="Limit results to these modpack IDs."),
+    tags: list[int] = Query(default_factory=list, description="Require all of these tag IDs."),
+    excluded_tags: list[int] = Query(default_factory=list, description="Exclude any modpack that has one of these tags."),
+    sources: list[str] = Query(default_factory=list, description="Source names to filter by."),
+    source: list[str] = Query(default_factory=list, include_in_schema=False),
     source_ids: list[str] = Query(default_factory=list),
     author_id: int | None = Query(default=None, ge=1),
     game_id: int | None = Query(default=None, ge=1),
@@ -517,8 +620,14 @@ async def list_modpacks(
         default="downloads",
         description="Sort field, optionally prefixed with `-` for descending order.",
     ),
+    include: list[ModpackIncludeField] = Query(
+        default_factory=list,
+        description="Additional fields to include in each modpack object.",
+    ),
 ):
     show_not_public = bool(show_not_public and author_id is not None)
+    include_set = _normalize_include(request, include)
+    source_filters = _normalize_modpack_sources(sources, source)
     source_ids_normalized = [
         normalized
         for normalized in (
@@ -534,6 +643,8 @@ async def list_modpacks(
 
     async with catalog.AsyncSessionLocal() as session:
         stmt = select(catalog.Modpack).where(catalog.Modpack.condition == 0)
+        if ids:
+            stmt = stmt.where(catalog.Modpack.id.in_(ids))
         if author_id is not None:
             stmt = stmt.where(
                 catalog.Modpack.id.in_(
@@ -548,12 +659,24 @@ async def list_modpacks(
             stmt = stmt.where(catalog.Modpack.public == int(public))
         if adult in (0, 1):
             stmt = stmt.where(catalog.Modpack.adult == bool(adult))
-        if source:
-            stmt = stmt.where(catalog.Modpack.source.in_(source))
+        if source_filters:
+            stmt = stmt.where(catalog.Modpack.source.in_(source_filters))
         if source_ids_normalized:
             stmt = stmt.where(catalog.Modpack.source_id.in_(source_ids_normalized))
         if name:
             stmt = stmt.where(catalog.Modpack.name.ilike(f"%{name.strip()}%"))
+        if tags:
+            for tag_id in tags:
+                stmt = stmt.where(catalog.Modpack.tags.any(catalog.Tag.id == tag_id))
+        if excluded_tags:
+            stmt = stmt.where(
+                ~select(1)
+                .where(
+                    catalog.modpacks_tags.c.modpack_id == catalog.Modpack.id,
+                    catalog.modpacks_tags.c.tag_id.in_(excluded_tags),
+                )
+                .exists()
+            )
 
         if show_not_public:
             candidate_ids = [
@@ -593,24 +716,58 @@ async def list_modpacks(
         ).scalars().all()
 
         modpack_ids = [int(row.id) for row in rows]
-        authors = await _load_modpack_authors(session, modpack_ids)
-        tags = await _load_modpack_tags(session, modpack_ids)
-        resources = await _load_modpack_resources(session, modpack_ids)
+        authors = await _load_modpack_authors(session, modpack_ids) if "authors" in include_set else {}
+        tags = await _load_modpack_tags(session, modpack_ids) if "tags" in include_set else {}
+        resources = await _load_modpack_resources(session, modpack_ids) if "resources" in include_set else {}
+        games_by_id = (
+            await _load_modpack_games(
+                session,
+                [int(getattr(row, "game", 0) or 0) for row in rows if getattr(row, "game", None) is not None],
+            )
+            if "game" in include_set
+            else {}
+        )
         vote_counts = await _load_modpack_vote_counts(modpack_ids)
 
-    items = [
-        _serialize_modpack(
-            row,
-            authors=authors.get(int(row.id)),
-            tags=tags.get(int(row.id)),
-            resources=resources.get(int(row.id)),
-            votes_count=vote_counts.get(int(row.id), 0),
-        ).model_dump(
-            mode="json",
-            exclude_none=True,
+    items: list[dict[str, object]] = []
+    for row in rows:
+        payload = _serialize_modpack_base(row, votes_count=vote_counts.get(int(row.id), 0))
+
+        if "short_description" not in include_set:
+            payload.pop("short_description", None)
+        if "description" not in include_set:
+            payload.pop("description", None)
+        if "dates" not in include_set:
+            payload.pop("created_at", None)
+            payload.pop("updated_at", None)
+
+        if "game" in include_set:
+            game_id = int(getattr(row, "game", 0) or 0) if getattr(row, "game", None) is not None else None
+            if game_id is not None and game_id in games_by_id:
+                payload["game"] = games_by_id[game_id]
+            else:
+                payload.pop("game", None)
+        else:
+            payload.pop("game", None)
+
+        if "tags" in include_set:
+            payload["tags"] = tags.get(int(row.id))
+        else:
+            payload.pop("tags", None)
+
+        if "authors" in include_set:
+            payload["authors"] = authors.get(int(row.id))
+        else:
+            payload.pop("authors", None)
+
+        if "resources" in include_set:
+            payload["resources"] = resources.get(int(row.id))
+        else:
+            payload.pop("resources", None)
+
+        items.append(
+            ModpackRead.model_validate(payload).model_dump(mode="json", exclude_none=True)
         )
-        for row in rows
-    ]
     return make_list_response(items, page=page, page_size=page_size, total=total)
 
 

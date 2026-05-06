@@ -154,6 +154,39 @@ def _mod(
     )
 
 
+def _modpack(
+    *,
+    modpack_id: int = 17,
+    name: str = "Sized Pack",
+    short_description: str = "Pack Short",
+    description: str = "Pack Long",
+    source: str = "local",
+    source_id: str | int | None = "pack-11",
+    game: int | None = 1,
+    public: int = 0,
+    adult: bool = False,
+    condition: int = 0,
+    downloads: int = 24,
+    rating: int = 0,
+) -> types.SimpleNamespace:
+    return types.SimpleNamespace(
+        id=modpack_id,
+        name=name,
+        short_description=short_description,
+        description=description,
+        source=source,
+        source_id=source_id,
+        game=game,
+        public=public,
+        adult=adult,
+        condition=condition,
+        downloads=downloads,
+        rating=rating,
+        date_creation=datetime.datetime(2026, 4, 27, 12, 0, 0),
+        date_edit=datetime.datetime(2026, 4, 27, 12, 10, 0),
+    )
+
+
 def _account(
     *,
     account_id: int = 123,
@@ -631,6 +664,94 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(access_call["author_id"], 7)
         self.assertTrue(access_call["catalog"])
         self.assertTrue(access_call["check_mode"])
+
+    def test_modpack_list_filters_by_ids_tags_excluded_tags_sources(self) -> None:
+        session = _RecordingSession(
+            scalar_values=[1],
+            execute_results=[
+                [_modpack(modpack_id=17, game=2)],
+                [(17, 21, True)],
+                [(17, 3, "Adventure"), (17, 5, "QoL")],
+                [_resource(owner_type="modpacks", owner_id=17, type_="banner", sort_order=0)],
+                [_game(game_id=2)],
+            ],
+        )
+
+        with patch.object(self.api_modpack.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(
+                f"{self.main_url}/modpacks",
+                params={
+                    "page": 0,
+                    "page_size": 20,
+                    "ids": [17, 18],
+                    "tags": [3, 5],
+                    "excluded_tags": [9],
+                    "game_id": 2,
+                    "sources": ["steam"],
+                    "source_ids": ["pack-11"],
+                    "include": ["short_description", "description", "dates", "game", "tags", "authors", "resources"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["pagination"]["total"], 1)
+        self.assertEqual(body["items"][0]["id"], 17)
+        self.assertEqual(body["items"][0]["short_description"], "Pack Short")
+        self.assertEqual(body["items"][0]["description"], "Pack Long")
+        self.assertIn("created_at", body["items"][0])
+        self.assertIn("updated_at", body["items"][0])
+        self.assertEqual(body["items"][0]["game"]["id"], 2)
+        self.assertEqual(body["items"][0]["tags"], [
+            {"id": 3, "name": "Adventure"},
+            {"id": 5, "name": "QoL"},
+        ])
+        self.assertEqual(body["items"][0]["authors"], {"21": {"owner": True}})
+        self.assertEqual(body["items"][0]["resources"][0]["owner_type"], "modpacks")
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 5)
+        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("modpacks", count_sql)
+        self.assertIn("modpacks", list_sql)
+        self.assertIn("modpacks_tags", count_sql)
+        self.assertIn("modpacks_tags", list_sql)
+        self.assertIn("tag_id", count_sql)
+        self.assertIn("tag_id", list_sql)
+        self.assertIn("source_id", count_sql)
+        self.assertIn("source_id", list_sql)
+        self.assertIn("steam", count_sql)
+        self.assertIn("steam", list_sql)
+
+    def test_modpack_list_accepts_legacy_source_alias(self) -> None:
+        session = _RecordingSession(
+            scalar_values=[1],
+            execute_results=[[_modpack(modpack_id=18)]],
+        )
+
+        with patch.object(self.api_modpack.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(
+                f"{self.main_url}/modpacks",
+                params={
+                    "page": 0,
+                    "page_size": 20,
+                    "source": ["steam"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["pagination"]["total"], 1)
+        self.assertNotIn("short_description", body["items"][0])
+        self.assertNotIn("description", body["items"][0])
+        self.assertNotIn("game", body["items"][0])
+        self.assertNotIn("tags", body["items"][0])
+        self.assertNotIn("authors", body["items"][0])
+        self.assertNotIn("resources", body["items"][0])
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 1)
+        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("steam", list_sql)
 
     def test_mod_info_includes_dependency_collection(self) -> None:
         session = _RecordingSession(
@@ -1334,6 +1455,10 @@ class ModListSizeFilterTests(unittest.TestCase):
             include_enum("/mods/{mod_id}", "get"),
             {"short_description", "description", "dates", "game", "tags", "dependencies", "conflicts", "authors", "resources"},
         )
+        self.assertEqual(
+            include_enum("/modpacks", "get"),
+            {"short_description", "description", "dates", "game", "tags", "authors", "resources"},
+        )
         scope_enum = lambda path, method: next(
             parameter
             for parameter in schema["paths"][path][method]["parameters"]
@@ -1351,6 +1476,15 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("author_id", parameter_names("/mods/feed", "get"))
         self.assertIn("user", parameter_names("/mods/feed", "get"))
         self.assertIn("sort", parameter_names("/resources", "get"))
+        modpack_params = parameter_names("/modpacks", "get")
+        self.assertIn("ids", modpack_params)
+        self.assertIn("tags", modpack_params)
+        self.assertIn("excluded_tags", modpack_params)
+        self.assertIn("sources", modpack_params)
+        self.assertIn("source_ids", modpack_params)
+        self.assertIn("game_id", modpack_params)
+        self.assertIn("include", modpack_params)
+        self.assertNotIn("source", modpack_params)
         modpack_adult = next(
             parameter
             for parameter in schema["paths"]["/modpacks"]["get"]["parameters"]
@@ -1418,6 +1552,7 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("rating", modpack_read["properties"])
         self.assertIn("votes_count", modpack_read["properties"])
         self.assertIn("current_vote", modpack_read["properties"])
+        self.assertIn("game", modpack_read["properties"])
         self.assertIn("authors", modpack_read["properties"])
         self.assertIn("tags", modpack_read["properties"])
         self.assertIn("resources", modpack_read["properties"])
