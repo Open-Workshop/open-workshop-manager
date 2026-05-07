@@ -716,6 +716,39 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("group_id is null", count_sql)
         self.assertIn("group_id is null", list_sql)
 
+    def test_orphan_tag_list_requires_admin_and_checks_usage_relations(self) -> None:
+        tag = types.SimpleNamespace(id=10, name="Gameplay")
+        session = _RecordingSession(rows=[tag], scalar_values=[1])
+        access_mock = AsyncMock(return_value=True)
+
+        with patch.object(self.api_tag.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_tag.tools,
+            "access_admin",
+            access_mock,
+        ):
+            response = self.client.get(f"{self.main_url}/tags/orphaned", params={"name": "game"})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(
+            body["items"],
+            [{"id": 10, "name": "Gameplay"}],
+        )
+        self.assertEqual(body["pagination"]["total"], 1)
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 1)
+        access_mock.assert_awaited_once()
+        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("unity_mods_tags", count_sql)
+        self.assertIn("modpacks_tags", count_sql)
+        self.assertIn("unity_allowed_mods_tags", count_sql)
+        self.assertTrue("not (exists" in count_sql or "not exists" in count_sql)
+        self.assertIn("unity_mods_tags", list_sql)
+        self.assertIn("modpacks_tags", list_sql)
+        self.assertIn("unity_allowed_mods_tags", list_sql)
+        self.assertTrue("not (exists" in list_sql or "not exists" in list_sql)
+
     def test_tag_detail_includes_group_when_loaded(self) -> None:
         group = types.SimpleNamespace(id=5, name="Resolution")
         tag = types.SimpleNamespace(id=123, name="1920x1080", group=group)
@@ -802,6 +835,33 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("game_id = 7", count_sql)
         self.assertIn("unity_allowed_mods_tags", list_sql)
         self.assertIn("game_id = 7", list_sql)
+
+    def test_orphan_tag_group_list_requires_admin_and_checks_empty_groups(self) -> None:
+        group = types.SimpleNamespace(id=5, name="Resolution")
+        session = _RecordingSession(rows=[group], scalar_values=[1])
+        access_mock = AsyncMock(return_value=True)
+
+        with patch.object(self.api_tag_group.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_tag_group.tools,
+            "access_admin",
+            access_mock,
+        ):
+            response = self.client.get(f"{self.main_url}/tag-groups/orphaned", params={"name": "res"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["items"], [{"id": 5, "name": "Resolution"}])
+        self.assertEqual(response.json()["pagination"]["total"], 1)
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 1)
+        access_mock.assert_awaited_once()
+        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("tag_groups", count_sql)
+        self.assertIn("tags", count_sql)
+        self.assertTrue("not (exists" in count_sql or "not exists" in count_sql)
+        self.assertIn("tag_groups", list_sql)
+        self.assertIn("tags", list_sql)
+        self.assertTrue("not (exists" in list_sql or "not exists" in list_sql)
 
     def test_tag_group_tags_can_filter_by_game(self) -> None:
         group = types.SimpleNamespace(id=5, name="Resolution")
@@ -1661,6 +1721,14 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("show_not_public", parameter_names("/mods/feed", "get"))
         self.assertIn("author_id", parameter_names("/mods/feed", "get"))
         self.assertIn("user", parameter_names("/mods/feed", "get"))
+        self.assertEqual(
+            parameter_names("/tags/orphaned", "get"),
+            {"page", "page_size", "name", "ids"},
+        )
+        self.assertEqual(
+            parameter_names("/tag-groups/orphaned", "get"),
+            {"page", "page_size", "name", "ids"},
+        )
         self.assertIn("game_id", parameter_names("/tag-groups", "get"))
         self.assertIn("game_id", parameter_names("/tag-groups/{group_id}/tags", "get"))
         self.assertIn("ids", parameter_names("/tag-groups/{group_id}/tags", "get"))
@@ -1729,8 +1797,10 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("/mods/build/conflicts", schema["paths"])
         self.assertIn("/mods/build/dependencies/missing", schema["paths"])
         self.assertIn("/tags", schema["paths"])
+        self.assertIn("/tags/orphaned", schema["paths"])
         self.assertIn("/tags/{tag_id}", schema["paths"])
         self.assertIn("/tag-groups", schema["paths"])
+        self.assertIn("/tag-groups/orphaned", schema["paths"])
         self.assertIn("/tag-groups/{group_id}", schema["paths"])
         self.assertIn("/tag-groups/{group_id}/tags", schema["paths"])
         self.assertIn("/modpacks", schema["paths"])

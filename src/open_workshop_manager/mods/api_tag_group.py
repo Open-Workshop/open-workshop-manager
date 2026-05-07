@@ -83,6 +83,10 @@ def _game_group_exists_condition(game_id: int):
     )
 
 
+def _tag_group_is_orphan_condition():
+    return ~select(1).select_from(catalog.Tag).where(catalog.Tag.group_id == catalog.TagGroup.id).exists()
+
+
 @router.get(
     "/tag-groups",
     tags=["Tag Group"],
@@ -130,6 +134,61 @@ async def list_tag_groups(
                 list_stmt.order_by(catalog.TagGroup.name, catalog.TagGroup.id)
                 .offset(offset)
                 .limit(page_size)
+            )
+        ).scalars().all()
+
+    items = [serialize_tag_group(row).model_dump(mode="json", exclude_none=True) for row in rows]
+    return make_list_response(items, page=page, page_size=page_size, total=total)
+
+
+@router.get(
+    "/tag-groups/orphaned",
+    tags=["Tag Group"],
+    summary="List orphaned tag groups",
+    description="Returns tag groups that do not contain any tags. Admin privileges are required.",
+    status_code=200,
+    response_model=TagGroupListResponse,
+    response_model_exclude_none=True,
+    response_description="Paginated orphan tag group list.",
+    responses={403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC},
+)
+async def list_orphaned_tag_groups(
+    request: Request,
+    page_size: int = Query(
+        LIMITS.page.default,
+        ge=LIMITS.page.min,
+        le=LIMITS.page.max,
+        description="Maximum number of tag groups to return per page.",
+    ),
+    page: int = Query(0, ge=0, description="Zero-based page index."),
+    name: str | None = Query(
+        default=None,
+        max_length=LIMITS.tag.name_max,
+        description="Case-insensitive substring filter for the tag group name.",
+    ),
+    ids: list[int] = Query(default_factory=list, description="Limit results to these tag group IDs."),
+):
+    await tools.access_admin(request=request)
+
+    orphan_condition = _tag_group_is_orphan_condition()
+    async with catalog.AsyncSessionLocal() as session:
+        count_stmt = select(func.count()).select_from(catalog.TagGroup).where(orphan_condition)
+        list_stmt = select(catalog.TagGroup).where(orphan_condition)
+
+        if name:
+            condition = catalog.TagGroup.name.ilike(f"%{name}%")
+            count_stmt = count_stmt.where(condition)
+            list_stmt = list_stmt.where(condition)
+
+        if ids:
+            count_stmt = count_stmt.where(catalog.TagGroup.id.in_(ids))
+            list_stmt = list_stmt.where(catalog.TagGroup.id.in_(ids))
+
+        total = int((await session.scalar(count_stmt)) or 0)
+        offset = page * page_size
+        rows = (
+            await session.execute(
+                list_stmt.order_by(catalog.TagGroup.name, catalog.TagGroup.id).offset(offset).limit(page_size)
             )
         ).scalars().all()
 

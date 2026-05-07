@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Query, Request, Response
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, select
 from sqlalchemy.orm import joinedload
 
 from open_workshop_manager import standarts, tools
@@ -65,6 +65,20 @@ def _raise_tag_group_not_found(request: Request) -> None:
     )
 
 
+def _tag_is_orphan_condition():
+    return and_(
+        ~select(1).select_from(catalog.mods_tags).where(catalog.mods_tags.c.tag_id == catalog.Tag.id).exists(),
+        ~select(1)
+        .select_from(catalog.modpacks_tags)
+        .where(catalog.modpacks_tags.c.tag_id == catalog.Tag.id)
+        .exists(),
+        ~select(1)
+        .select_from(catalog.allowed_mods_tags)
+        .where(catalog.allowed_mods_tags.c.tag_id == catalog.Tag.id)
+        .exists(),
+    )
+
+
 @router.get(
     "/tags",
     tags=["Tag"],
@@ -113,6 +127,61 @@ async def list_tags(
         total = int((await session.scalar(count_stmt)) or 0)
         offset = page * page_size
         rows = (await session.execute(list_stmt.offset(offset).limit(page_size))).scalars().all()
+
+    items = [_serialize_tag(row).model_dump(mode="json", exclude_none=True) for row in rows]
+    return make_list_response(items, page=page, page_size=page_size, total=total)
+
+
+@router.get(
+    "/tags/orphaned",
+    tags=["Tag"],
+    summary="List orphaned tags",
+    description="Returns tags that are not attached to any game, mod, or modpack. Admin privileges are required.",
+    status_code=200,
+    response_model=TagListResponse,
+    response_model_exclude_none=True,
+    response_description="Paginated orphan tag list.",
+    responses={403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC},
+)
+async def list_orphaned_tags(
+    request: Request,
+    page_size: int = Query(
+        LIMITS.page.default,
+        ge=LIMITS.page.min,
+        le=LIMITS.page.max,
+        description="Maximum number of tags to return per page.",
+    ),
+    page: int = Query(0, ge=0, description="Zero-based page index."),
+    name: str | None = Query(
+        default=None,
+        max_length=LIMITS.tag.name_max,
+        description="Case-insensitive substring filter for the tag name.",
+    ),
+    ids: list[int] = Query(default_factory=list, description="Limit results to these tag IDs."),
+):
+    await tools.access_admin(request=request)
+
+    orphan_condition = _tag_is_orphan_condition()
+    async with catalog.AsyncSessionLocal() as session:
+        count_stmt = select(func.count()).select_from(catalog.Tag).where(orphan_condition)
+        list_stmt = select(catalog.Tag).where(orphan_condition)
+
+        if name:
+            condition = catalog.Tag.name.ilike(f"%{name}%")
+            count_stmt = count_stmt.where(condition)
+            list_stmt = list_stmt.where(condition)
+
+        if ids:
+            count_stmt = count_stmt.where(catalog.Tag.id.in_(ids))
+            list_stmt = list_stmt.where(catalog.Tag.id.in_(ids))
+
+        total = int((await session.scalar(count_stmt)) or 0)
+        offset = page * page_size
+        rows = (
+            await session.execute(
+                list_stmt.order_by(catalog.Tag.name, catalog.Tag.id).offset(offset).limit(page_size)
+            )
+        ).scalars().all()
 
     items = [_serialize_tag(row).model_dump(mode="json", exclude_none=True) for row in rows]
     return make_list_response(items, page=page, page_size=page_size, total=total)
