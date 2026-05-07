@@ -716,6 +716,39 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("group_id is null", count_sql)
         self.assertIn("group_id is null", list_sql)
 
+    def test_tag_list_can_include_games_and_orphaned(self) -> None:
+        tag = types.SimpleNamespace(id=10, name="Gameplay", group=None)
+        session = _RecordingSession(
+            execute_results=[
+                [tag],
+                [(10, 7), (10, 8)],
+                [10],
+            ],
+            scalar_values=[1],
+        )
+
+        with patch.object(self.api_tag.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(
+                f"{self.main_url}/tags",
+                params={"name": "game", "include": ["games", "orphaned"]},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(
+            body["items"],
+            [
+                {
+                    "id": 10,
+                    "name": "Gameplay",
+                    "orphaned": True,
+                    "games": [7, 8],
+                }
+            ],
+        )
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 3)
+
     def test_orphan_tag_list_requires_admin_and_checks_usage_relations(self) -> None:
         tag = types.SimpleNamespace(id=10, name="Gameplay")
         session = _RecordingSession(rows=[tag], scalar_values=[1])
@@ -749,13 +782,20 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("unity_allowed_mods_tags", list_sql)
         self.assertTrue("not (exists" in list_sql or "not exists" in list_sql)
 
-    def test_tag_detail_includes_group_when_loaded(self) -> None:
+    def test_tag_detail_includes_requested_fields(self) -> None:
         group = types.SimpleNamespace(id=5, name="Resolution")
         tag = types.SimpleNamespace(id=123, name="1920x1080", group=group)
-        session = _RecordingSession(get_value=tag)
+        session = _RecordingSession(
+            get_map={(self.api_tag.catalog.Tag, 123): tag},
+            execute_results=[[7, 8]],
+            scalar_values=[False],
+        )
 
         with patch.object(self.api_tag.catalog, "AsyncSessionLocal", return_value=session):
-            response = self.client.get(f"{self.main_url}/tags/123")
+            response = self.client.get(
+                f"{self.main_url}/tags/123",
+                params={"include": ["group", "games", "orphaned"]},
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -764,6 +804,8 @@ class ModListSizeFilterTests(unittest.TestCase):
                 "id": 123,
                 "name": "1920x1080",
                 "group": {"id": 5, "name": "Resolution"},
+                "orphaned": False,
+                "games": [7, 8],
             },
         )
 
@@ -1705,6 +1747,9 @@ class ModListSizeFilterTests(unittest.TestCase):
             include_enum("/modpacks", "get"),
             {"short_description", "description", "dates", "game", "tags", "authors", "resources"},
         )
+        self.assertEqual(include_enum("/tags", "get"), {"orphaned", "group", "games"})
+        self.assertEqual(include_enum("/tags/orphaned", "get"), {"orphaned", "group", "games"})
+        self.assertEqual(include_enum("/tags/{tag_id}", "get"), {"orphaned", "group", "games"})
         scope_enum = lambda path, method: next(
             parameter
             for parameter in schema["paths"][path][method]["parameters"]
@@ -1721,10 +1766,12 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("show_not_public", parameter_names("/mods/feed", "get"))
         self.assertIn("author_id", parameter_names("/mods/feed", "get"))
         self.assertIn("user", parameter_names("/mods/feed", "get"))
+        self.assertIn("include", parameter_names("/tags", "get"))
         self.assertEqual(
             parameter_names("/tags/orphaned", "get"),
-            {"page", "page_size", "name", "ids"},
+            {"page", "page_size", "name", "ids", "include"},
         )
+        self.assertIn("include", parameter_names("/tags/{tag_id}", "get"))
         self.assertEqual(
             parameter_names("/tag-groups/orphaned", "get"),
             {"page", "page_size", "name", "ids"},
@@ -1822,6 +1869,16 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("resources", modpack_read["properties"])
         self.assertNotIn("condition", modpack_read["properties"])
         self.assertNotIn("git_url", modpack_read["properties"])
+        tag_read = schema["components"]["schemas"]["TagRead"]
+        self.assertIn("group", tag_read["properties"])
+        self.assertIn("orphaned", tag_read["properties"])
+        self.assertIn("games", tag_read["properties"])
+        games_schema = tag_read["properties"]["games"]
+        if "items" in games_schema:
+            self.assertEqual(games_schema["items"]["type"], "integer")
+        else:
+            array_schema = next(item for item in games_schema["anyOf"] if item.get("type") == "array")
+            self.assertEqual(array_schema["items"]["type"], "integer")
         mod_rating_read = schema["components"]["schemas"]["ModRatingRead"]
         self.assertIn("rating", mod_rating_read["properties"])
         self.assertIn("votes_count", mod_rating_read["properties"])

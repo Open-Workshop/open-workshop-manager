@@ -132,7 +132,9 @@ class TagGroupListResponse(ListResponse[TagGroupRead]):
 class TagRead(ReadModel):
     id: int
     name: str
+    orphaned: bool | None = None
     group: TagGroupRead | None = None
+    games: list[int] | None = None
 
 
 class TagCreate(ApiModel):

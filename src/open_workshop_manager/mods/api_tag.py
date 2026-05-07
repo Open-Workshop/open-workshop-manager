@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy import and_, delete, func, select
 from sqlalchemy.orm import joinedload
@@ -14,10 +16,24 @@ from open_workshop_manager.api_helpers import (
 )
 from open_workshop_manager.api_models import TagCreate, TagListResponse, TagPatch, TagRead
 from open_workshop_manager.limits import LIMITS
-from open_workshop_manager.mods.tag_serialization import serialize_tag
+from open_workshop_manager.mods.tag_serialization import serialize_tag, serialize_tag_group
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
+
+TagIncludeField = Literal["orphaned", "group", "games"]
+
+TAG_INCLUDE_FIELDS = {"orphaned", "group", "games"}
+
+TAG_BAD_REQUEST_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        400,
+        title="Bad Request",
+        detail="The tag request contains invalid filters or include fields.",
+        code="BAD_REQUEST",
+    ),
+    "Invalid request parameters.",
+)
 
 TAG_NOT_FOUND_RESPONSE = standarts.response_spec(
     standarts.build_problem(
@@ -65,6 +81,25 @@ def _raise_tag_group_not_found(request: Request) -> None:
     )
 
 
+def _raise_unsupported_include(request: Request, field: str) -> None:
+    raise standarts.StandardAPIError(
+        status_code=400,
+        title="Bad Request",
+        detail="Unsupported include field.",
+        code="UNSUPPORTED_INCLUDE_FIELD",
+        instance=str(request.url),
+        context={"field": field, "allowed": sorted(TAG_INCLUDE_FIELDS)},
+    )
+
+
+def _normalize_include(request: Request, include: list[str]) -> set[str]:
+    normalized = {item.strip() for item in include if item and item.strip()}
+    unknown = normalized.difference(TAG_INCLUDE_FIELDS)
+    if unknown:
+        _raise_unsupported_include(request, sorted(unknown)[0])
+    return normalized
+
+
 def _tag_is_orphan_condition():
     return and_(
         ~select(1).select_from(catalog.mods_tags).where(catalog.mods_tags.c.tag_id == catalog.Tag.id).exists(),
@@ -79,15 +114,127 @@ def _tag_is_orphan_condition():
     )
 
 
+def _serialize_tag_base(tag: catalog.Tag) -> dict[str, object]:
+    return {
+        "id": int(tag.id),
+        "name": str(tag.name),
+    }
+
+
+async def _load_tag_games_map(session, tag_ids: list[int]) -> dict[int, list[int]]:
+    if not tag_ids:
+        return {}
+
+    rows = (
+        await session.execute(
+            select(catalog.allowed_mods_tags.c.tag_id, catalog.allowed_mods_tags.c.game_id)
+            .where(catalog.allowed_mods_tags.c.tag_id.in_(tag_ids))
+            .order_by(catalog.allowed_mods_tags.c.tag_id, catalog.allowed_mods_tags.c.game_id)
+        )
+    ).all()
+    games_by_tag: dict[int, list[int]] = {int(tag_id): [] for tag_id in tag_ids}
+    for tag_id, game_id in rows:
+        games_by_tag.setdefault(int(tag_id), []).append(int(game_id))
+    return games_by_tag
+
+
+async def _load_orphaned_tag_ids(session, tag_ids: list[int]) -> set[int]:
+    if not tag_ids:
+        return set()
+
+    rows = (
+        await session.execute(
+            select(catalog.Tag.id)
+            .where(catalog.Tag.id.in_(tag_ids))
+            .where(_tag_is_orphan_condition())
+            .order_by(catalog.Tag.id)
+        )
+    ).scalars().all()
+    return {int(tag_id) for tag_id in rows}
+
+
+async def _serialize_tag_with_includes(
+    session,
+    tag: catalog.Tag,
+    include: set[str],
+    *,
+    orphaned: bool | None = None,
+) -> TagRead:
+    payload = _serialize_tag_base(tag)
+
+    if "group" in include:
+        group = getattr(tag, "group", None)
+        if group is not None:
+            payload["group"] = serialize_tag_group(group).model_dump(mode="json", exclude_none=True)
+
+    if "games" in include:
+        game_ids = (
+            await session.execute(
+                select(catalog.allowed_mods_tags.c.game_id)
+                .where(catalog.allowed_mods_tags.c.tag_id == tag.id)
+                .order_by(catalog.allowed_mods_tags.c.game_id)
+            )
+        ).scalars().all()
+        payload["games"] = [int(game_id) for game_id in game_ids]
+
+    if "orphaned" in include:
+        if orphaned is None:
+            orphaned = bool(
+                await session.scalar(
+                    select(_tag_is_orphan_condition()).where(catalog.Tag.id == tag.id)
+                )
+            )
+        payload["orphaned"] = bool(orphaned)
+
+    return TagRead.model_validate(payload)
+
+
+async def _serialize_tags_with_includes(
+    session,
+    tags: list[catalog.Tag],
+    include: set[str],
+    *,
+    orphaned: bool | None = None,
+) -> list[TagRead]:
+    tag_ids = [int(tag.id) for tag in tags]
+    games_by_tag = await _load_tag_games_map(session, tag_ids) if "games" in include else {}
+    orphaned_ids = (
+        await _load_orphaned_tag_ids(session, tag_ids) if "orphaned" in include and orphaned is None else set()
+    )
+
+    items: list[TagRead] = []
+    for tag in tags:
+        payload = _serialize_tag_base(tag)
+
+        if "group" in include:
+            group = getattr(tag, "group", None)
+            if group is not None:
+                payload["group"] = serialize_tag_group(group).model_dump(mode="json", exclude_none=True)
+
+        if "games" in include:
+            payload["games"] = games_by_tag.get(int(tag.id), [])
+
+        if "orphaned" in include:
+            payload["orphaned"] = bool(orphaned if orphaned is not None else int(tag.id) in orphaned_ids)
+
+        items.append(TagRead.model_validate(payload))
+
+    return items
+
+
 @router.get(
     "/tags",
     tags=["Tag"],
     summary="List tags",
-    description="Returns a paginated list of tags with optional name, ID, and game filters.",
+    description=(
+        "Returns a paginated list of tags with optional name, ID, and game filters.\n\n"
+        "Use `include` to opt into `orphaned`, `group`, and `games`."
+    ),
     status_code=200,
     response_model=TagListResponse,
     response_model_exclude_none=True,
     response_description="Paginated tag list.",
+    responses={400: TAG_BAD_REQUEST_RESPONSE},
 )
 async def list_tags(
     request: Request,
@@ -105,10 +252,17 @@ async def list_tags(
     ),
     ids: list[int] = Query(default_factory=list, description="Limit results to these tag IDs."),
     game_id: int | None = Query(default=None, ge=1, description="Filter by game ID."),
+    include: list[TagIncludeField] = Query(
+        default_factory=list,
+        description="Additional fields to include in each tag object.",
+    ),
 ):
+    include_set = _normalize_include(request, include)
     async with catalog.AsyncSessionLocal() as session:
         count_stmt = select(func.count()).select_from(catalog.Tag).where(catalog.Tag.group_id.is_(None))
         list_stmt = select(catalog.Tag).where(catalog.Tag.group_id.is_(None))
+        if "group" in include_set:
+            list_stmt = list_stmt.options(joinedload(catalog.Tag.group))
 
         if name:
             condition = catalog.Tag.name.ilike(f"%{name}%")
@@ -127,8 +281,8 @@ async def list_tags(
         total = int((await session.scalar(count_stmt)) or 0)
         offset = page * page_size
         rows = (await session.execute(list_stmt.offset(offset).limit(page_size))).scalars().all()
+        items = await _serialize_tags_with_includes(session, rows, include_set)
 
-    items = [_serialize_tag(row).model_dump(mode="json", exclude_none=True) for row in rows]
     return make_list_response(items, page=page, page_size=page_size, total=total)
 
 
@@ -136,12 +290,15 @@ async def list_tags(
     "/tags/orphaned",
     tags=["Tag"],
     summary="List orphaned tags",
-    description="Returns tags that are not attached to any game, mod, or modpack. Admin privileges are required.",
+    description=(
+        "Returns tags that are not attached to any game, mod, or modpack. Admin privileges are required.\n\n"
+        "Use `include` to opt into `orphaned`, `group`, and `games`."
+    ),
     status_code=200,
     response_model=TagListResponse,
     response_model_exclude_none=True,
     response_description="Paginated orphan tag list.",
-    responses={403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC},
+    responses={400: TAG_BAD_REQUEST_RESPONSE, 403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC},
 )
 async def list_orphaned_tags(
     request: Request,
@@ -158,13 +315,20 @@ async def list_orphaned_tags(
         description="Case-insensitive substring filter for the tag name.",
     ),
     ids: list[int] = Query(default_factory=list, description="Limit results to these tag IDs."),
+    include: list[TagIncludeField] = Query(
+        default_factory=list,
+        description="Additional fields to include in each tag object.",
+    ),
 ):
     await tools.access_admin(request=request)
+    include_set = _normalize_include(request, include)
 
     orphan_condition = _tag_is_orphan_condition()
     async with catalog.AsyncSessionLocal() as session:
         count_stmt = select(func.count()).select_from(catalog.Tag).where(orphan_condition)
         list_stmt = select(catalog.Tag).where(orphan_condition)
+        if "group" in include_set:
+            list_stmt = list_stmt.options(joinedload(catalog.Tag.group))
 
         if name:
             condition = catalog.Tag.name.ilike(f"%{name}%")
@@ -182,8 +346,8 @@ async def list_orphaned_tags(
                 list_stmt.order_by(catalog.Tag.name, catalog.Tag.id).offset(offset).limit(page_size)
             )
         ).scalars().all()
+        items = await _serialize_tags_with_includes(session, rows, include_set, orphaned=True)
 
-    items = [_serialize_tag(row).model_dump(mode="json", exclude_none=True) for row in rows]
     return make_list_response(items, page=page, page_size=page_size, total=total)
 
 
@@ -191,25 +355,30 @@ async def list_orphaned_tags(
     "/tags/{tag_id}",
     tags=["Tag"],
     summary="Get tag",
-    description="Returns a single tag by ID.",
+    description="Returns a single tag by ID. Use `include` to opt into `orphaned`, `group`, and `games`.",
     status_code=200,
     response_model=TagRead,
     response_model_exclude_none=True,
     response_description="Tag resource.",
-    responses={404: TAG_NOT_FOUND_RESPONSE},
+    responses={400: TAG_BAD_REQUEST_RESPONSE, 404: TAG_NOT_FOUND_RESPONSE},
 )
-async def get_tag(request: Request, tag_id: int) -> TagRead:
+async def get_tag(
+    request: Request,
+    tag_id: int,
+    include: list[TagIncludeField] = Query(
+        default_factory=list,
+        description="Additional fields to include in the tag object.",
+    ),
+) -> TagRead:
+    include_set = _normalize_include(request, include)
     async with catalog.AsyncSessionLocal() as session:
-        tag = await session.get(
-            catalog.Tag,
-            tag_id,
-            options=(joinedload(catalog.Tag.group),),
-        )
+        options = (joinedload(catalog.Tag.group),) if "group" in include_set else ()
+        tag = await session.get(catalog.Tag, tag_id, options=options)
 
-    if tag is None:
-        _raise_tag_not_found(request)
+        if tag is None:
+            _raise_tag_not_found(request)
 
-    return _serialize_tag(tag)
+        return await _serialize_tag_with_includes(session, tag, include_set)
 
 
 @router.post(
