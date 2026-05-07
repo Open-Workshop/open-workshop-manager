@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query, Request
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 
 from open_workshop_manager import standarts, tools
 from open_workshop_manager.api_helpers import make_list_response, unique_ints
-from open_workshop_manager.api_models import GenreListResponse, GenreRead, TagListResponse, TagRead
+from open_workshop_manager.api_models import GenreListResponse, GenreRead, TagListResponse
 from open_workshop_manager.limits import LIMITS
+from open_workshop_manager.mods.tag_serialization import serialize_tag
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
@@ -39,7 +41,7 @@ def _serialize_genres(rows) -> list[dict[str, object]]:
 
 
 def _serialize_tags(rows) -> list[dict[str, object]]:
-    return [TagRead(id=int(row.id), name=str(row.name)).model_dump(mode="json", exclude_none=True) for row in rows]
+    return [serialize_tag(row).model_dump(mode="json", exclude_none=True) for row in rows]
 
 
 @router.get(
@@ -91,7 +93,10 @@ async def get_game_tags(request: Request, game_id: int) -> dict[str, object]:
             await session.execute(
                 select(catalog.Tag)
                 .join(catalog.allowed_mods_tags)
-                .where(catalog.allowed_mods_tags.c.game_id == game_id)
+                .where(
+                    catalog.allowed_mods_tags.c.game_id == game_id,
+                    catalog.Tag.group_id.is_(None),
+                )
                 .order_by(catalog.Tag.name)
             )
         ).scalars().all()
@@ -144,7 +149,7 @@ async def get_mod_tags_map(
         for mod_id in mod_ids:
             query = select(catalog.Tag).join(catalog.mods_tags).where(
                 catalog.mods_tags.c.mod_id == mod_id
-            )
+            ).options(joinedload(catalog.Tag.group))
             if tag_ids:
                 query = query.where(catalog.Tag.id.in_(tag_ids))
             tags = (await session.execute(query)).scalars().all()

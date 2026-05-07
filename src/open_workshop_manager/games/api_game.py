@@ -164,7 +164,10 @@ async def _serialize_game_with_includes(
             await session.execute(
                 select(catalog.Tag)
                 .join(catalog.allowed_mods_tags)
-                .where(catalog.allowed_mods_tags.c.game_id == row.id)
+                .where(
+                    catalog.allowed_mods_tags.c.game_id == row.id,
+                    catalog.Tag.group_id.is_(None),
+                )
                 .order_by(catalog.Tag.name)
             )
         ).scalars().all()

@@ -65,17 +65,21 @@ class _RecordingSession:
         execute_results: list[list[object]] | None = None,
         scalar_values: list[object] | None = None,
         get_value: object | None = None,
+        get_map: dict[object, object] | None = None,
         allow_writes: bool = False,
     ) -> None:
         self.rows = rows or []
         self.execute_results = list(execute_results or [])
         self.scalar_values = list(scalar_values or [])
         self.get_value = get_value
+        self.get_map = get_map or {}
         self.allow_writes = allow_writes
         self.execute_statements: list[object] = []
         self.scalar_statements: list[object] = []
+        self.added: list[object] = []
         self.commit_count = 0
         self.flush_count = 0
+        self.next_id = 100
 
     async def __aenter__(self) -> "_RecordingSession":
         return self
@@ -101,6 +105,13 @@ class _RecordingSession:
         return _DummyResult(self.rows)
 
     async def get(self, *args, **kwargs) -> object | None:
+        if self.get_map and args:
+            model = args[0]
+            ident = args[1] if len(args) > 1 else None
+            if (model, ident) in self.get_map:
+                return self.get_map[(model, ident)]
+            if model in self.get_map:
+                return self.get_map[model]
         return self.get_value
 
     async def commit(self) -> None:
@@ -111,7 +122,16 @@ class _RecordingSession:
     async def flush(self) -> None:
         if not self.allow_writes:
             raise AssertionError("Unexpected flush")
+        for item in self.added:
+            if getattr(item, "id", None) is None:
+                setattr(item, "id", self.next_id)
+                self.next_id += 1
         self.flush_count += 1
+
+    def add(self, item: object) -> None:
+        if not self.allow_writes:
+            raise AssertionError(f"Unexpected add: {item!r}")
+        self.added.append(item)
 
 
 def _mod(
@@ -273,8 +293,11 @@ class ModListSizeFilterTests(unittest.TestCase):
         standarts = import_module("open_workshop_manager.standarts")
         cls.api_mod = import_module("open_workshop_manager.mods.api_mod")
         cls.api_mod_build = import_module("open_workshop_manager.mods.api_mod_build")
+        cls.api_tag = import_module("open_workshop_manager.mods.api_tag")
+        cls.api_tag_group = import_module("open_workshop_manager.mods.api_tag_group")
         cls.api_modpack = import_module("open_workshop_manager.modpacks.api_modpack")
         cls.api_association = import_module("open_workshop_manager.association.api_association_control")
+        cls.api_association_getter = import_module("open_workshop_manager.association.api_association_getter")
         cls.api_game = import_module("open_workshop_manager.games.api_game")
         cls.api_resource = import_module("open_workshop_manager.mods.api_resource")
         cls.api_profile = import_module("open_workshop_manager.social.api_profile")
@@ -287,8 +310,11 @@ class ModListSizeFilterTests(unittest.TestCase):
         standarts.install_exception_handlers(app)
         app.include_router(cls.api_mod_build.router)
         app.include_router(cls.api_mod.router)
+        app.include_router(cls.api_tag.router)
+        app.include_router(cls.api_tag_group.router)
         app.include_router(cls.api_modpack.router)
         app.include_router(cls.api_association.router)
+        app.include_router(cls.api_association_getter.router)
         app.include_router(cls.api_game.router)
         app.include_router(cls.api_resource.router)
         app.include_router(cls.api_profile.router)
@@ -620,7 +646,10 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(body["context"]["field"], "unknown")
 
     def test_mod_feed_returns_range_bounds(self) -> None:
-        session = _RecordingSession(scalar_values=[17, 1024, 4096, 2048, 8192])
+        session = _RecordingSession(
+            execute_results=[[types.SimpleNamespace(id=5, name="Resolution")]],
+            scalar_values=[17, 1024, 4096, 2048, 8192],
+        )
 
         with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
             response = self.client.get(f"{self.main_url}/mods/feed", params={"game": 7})
@@ -630,13 +659,15 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(body["count"], 17)
         self.assertEqual(body["size"], {"min": 1024, "max": 4096})
         self.assertEqual(body["size_unpacked"], {"min": 2048, "max": 8192})
+        self.assertEqual(body["tag_groups"], [{"id": 5, "name": "Resolution"}])
+        self.assertEqual(len(session.execute_statements), 1)
         self.assertEqual(len(session.scalar_statements), 5)
         self.assertEqual(session.commit_count, 0)
         self.assertEqual(session.flush_count, 0)
 
     def test_mod_feed_can_include_non_public_author_mods(self) -> None:
         session = _RecordingSession(
-            rows=[_mod(mod_id=11, public=1), _mod(mod_id=12, public=0)],
+            execute_results=[[], [11, 12]],
             scalar_values=[2, 100, 200, 300, 400],
         )
         access_mock = AsyncMock(return_value=[11, 12])
@@ -656,7 +687,8 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(body["count"], 2)
         self.assertEqual(body["size"], {"min": 100, "max": 200})
         self.assertEqual(body["size_unpacked"], {"min": 300, "max": 400})
-        self.assertEqual(len(session.execute_statements), 1)
+        self.assertEqual(body["tag_groups"], [])
+        self.assertEqual(len(session.execute_statements), 2)
         self.assertEqual(len(session.scalar_statements), 5)
         access_mock.assert_awaited_once()
         access_call = access_mock.await_args.kwargs
@@ -665,13 +697,167 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertTrue(access_call["catalog"])
         self.assertTrue(access_call["check_mode"])
 
+    def test_tag_list_excludes_grouped_tags(self) -> None:
+        session = _RecordingSession(
+            rows=[types.SimpleNamespace(id=10, name="Gameplay")],
+            scalar_values=[1],
+        )
+
+        with patch.object(self.api_tag.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(f"{self.main_url}/tags", params={"name": "game"})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["items"], [{"id": 10, "name": "Gameplay"}])
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 1)
+        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("group_id is null", count_sql)
+        self.assertIn("group_id is null", list_sql)
+
+    def test_tag_detail_includes_group_when_loaded(self) -> None:
+        group = types.SimpleNamespace(id=5, name="Resolution")
+        tag = types.SimpleNamespace(id=123, name="1920x1080", group=group)
+        session = _RecordingSession(get_value=tag)
+
+        with patch.object(self.api_tag.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(f"{self.main_url}/tags/123")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "id": 123,
+                "name": "1920x1080",
+                "group": {"id": 5, "name": "Resolution"},
+            },
+        )
+
+    def test_create_tag_accepts_group_id(self) -> None:
+        group = self.api_tag.catalog.TagGroup(id=5, name="Resolution")
+        session = _RecordingSession(
+            get_map={self.api_tag.catalog.TagGroup: group},
+            allow_writes=True,
+        )
+
+        with patch.object(self.api_tag.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_tag.tools,
+            "access_admin",
+            AsyncMock(return_value=True),
+        ):
+            response = self.client.post(
+                f"{self.main_url}/tags",
+                json={"name": "1920x1080", "group_id": 5},
+            )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            response.json(),
+            {
+                "id": 100,
+                "name": "1920x1080",
+                "group": {"id": 5, "name": "Resolution"},
+            },
+        )
+        self.assertEqual(session.flush_count, 1)
+        self.assertEqual(session.commit_count, 1)
+
+    def test_patch_tag_allows_group_id_null(self) -> None:
+        group = types.SimpleNamespace(id=5, name="Resolution")
+        tag = types.SimpleNamespace(id=124, name="2560x1440", group_id=5, group=group)
+        session = _RecordingSession(
+            get_map={(self.api_tag.catalog.Tag, 124): tag},
+            allow_writes=True,
+        )
+
+        with patch.object(self.api_tag.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_tag.tools,
+            "access_admin",
+            AsyncMock(return_value=True),
+        ):
+            response = self.client.patch(
+                f"{self.main_url}/tags/124",
+                json={"group_id": None},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"id": 124, "name": "2560x1440"})
+        self.assertIsNone(tag.group_id)
+        self.assertIsNone(tag.group)
+        self.assertEqual(session.commit_count, 1)
+
+    def test_tag_groups_can_filter_by_game(self) -> None:
+        group = types.SimpleNamespace(id=5, name="Resolution")
+        session = _RecordingSession(execute_results=[[group]], scalar_values=[1])
+
+        with patch.object(self.api_tag_group.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(f"{self.main_url}/tag-groups", params={"game_id": 7})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["items"], [{"id": 5, "name": "Resolution"}])
+        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("unity_allowed_mods_tags", count_sql)
+        self.assertIn("game_id = 7", count_sql)
+        self.assertIn("unity_allowed_mods_tags", list_sql)
+        self.assertIn("game_id = 7", list_sql)
+
+    def test_tag_group_tags_can_filter_by_game(self) -> None:
+        group = types.SimpleNamespace(id=5, name="Resolution")
+        tag = types.SimpleNamespace(id=123, name="1920x1080", group=group)
+        session = _RecordingSession(
+            get_map={self.api_tag_group.catalog.TagGroup: group},
+            execute_results=[[tag]],
+            scalar_values=[1],
+        )
+
+        with patch.object(self.api_tag_group.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(
+                f"{self.main_url}/tag-groups/5/tags",
+                params={"game_id": 7},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["items"],
+            [
+                {
+                    "id": 123,
+                    "name": "1920x1080",
+                    "group": {"id": 5, "name": "Resolution"},
+                }
+            ],
+        )
+        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("unity_allowed_mods_tags", count_sql)
+        self.assertIn("game_id = 7", count_sql)
+
+    def test_delete_tag_group_rejects_non_empty_group(self) -> None:
+        group = types.SimpleNamespace(id=5, name="Resolution")
+        session = _RecordingSession(
+            get_map={self.api_tag_group.catalog.TagGroup: group},
+            scalar_values=[123],
+        )
+
+        with patch.object(self.api_tag_group.catalog, "AsyncSessionLocal", return_value=session), patch.object(
+            self.api_tag_group.tools,
+            "access_admin",
+            AsyncMock(return_value=True),
+        ):
+            response = self.client.delete(f"{self.main_url}/tag-groups/5")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "TAG_GROUP_NOT_EMPTY")
+        self.assertEqual(session.commit_count, 0)
+
     def test_modpack_list_filters_by_ids_tags_excluded_tags_sources(self) -> None:
         session = _RecordingSession(
             scalar_values=[1],
             execute_results=[
                 [_modpack(modpack_id=17, game=2)],
                 [(17, 21, True)],
-                [(17, 3, "Adventure"), (17, 5, "QoL")],
+                [(17, 3, "Adventure", None, None), (17, 5, "QoL", None, None)],
                 [_resource(owner_type="modpacks", owner_id=17, type_="banner", sort_order=0)],
                 [_game(game_id=2)],
             ],
@@ -1475,6 +1661,9 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("show_not_public", parameter_names("/mods/feed", "get"))
         self.assertIn("author_id", parameter_names("/mods/feed", "get"))
         self.assertIn("user", parameter_names("/mods/feed", "get"))
+        self.assertIn("game_id", parameter_names("/tag-groups", "get"))
+        self.assertIn("game_id", parameter_names("/tag-groups/{group_id}/tags", "get"))
+        self.assertIn("ids", parameter_names("/tag-groups/{group_id}/tags", "get"))
         self.assertIn("sort", parameter_names("/resources", "get"))
         modpack_params = parameter_names("/modpacks", "get")
         self.assertIn("ids", modpack_params)
@@ -1539,6 +1728,11 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("/mods/{mod_id}/rating", schema["paths"])
         self.assertIn("/mods/build/conflicts", schema["paths"])
         self.assertIn("/mods/build/dependencies/missing", schema["paths"])
+        self.assertIn("/tags", schema["paths"])
+        self.assertIn("/tags/{tag_id}", schema["paths"])
+        self.assertIn("/tag-groups", schema["paths"])
+        self.assertIn("/tag-groups/{group_id}", schema["paths"])
+        self.assertIn("/tag-groups/{group_id}/tags", schema["paths"])
         self.assertIn("/modpacks", schema["paths"])
         self.assertIn("/modpacks/{modpack_id}", schema["paths"])
         self.assertIn("/modpacks/{modpack_id}/rating", schema["paths"])
@@ -1583,6 +1777,16 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("sort_order", resource_read["required"])
         resource_create = schema["components"]["schemas"]["ResourceCreate"]
         self.assertIn("modpacks", resource_create["properties"]["owner_type"]["enum"])
+        tag_read = schema["components"]["schemas"]["TagRead"]
+        self.assertIn("group", tag_read["properties"])
+        tag_create = schema["components"]["schemas"]["TagCreate"]
+        self.assertIn("group_id", tag_create["properties"])
+        tag_patch = schema["components"]["schemas"]["TagPatch"]
+        self.assertIn("group_id", tag_patch["properties"])
+        self.assertIn("TagGroupRead", schema["components"]["schemas"])
+        self.assertIn("TagGroupListResponse", schema["components"]["schemas"])
+        mod_feed_read = schema["components"]["schemas"]["ModFeedRead"]
+        self.assertIn("tag_groups", mod_feed_read["properties"])
         mod_params = parameter_names("/mods", "get")
         self.assertIn("excluded_conflicts", mod_params)
         dependencies_param = next(

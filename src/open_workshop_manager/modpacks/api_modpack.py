@@ -29,6 +29,7 @@ from open_workshop_manager.api_models import (
     ModpackModsUpsert,
     RatingVoteUpsert,
     TagListResponse,
+    TagGroupRead,
     ResourceRead,
     TagRead,
     stringify_source_id,
@@ -347,16 +348,22 @@ async def _load_modpack_tags(
         return {}
 
     tag_table = catalog.Tag.__table__
+    group_table = catalog.TagGroup.__table__
     result = await session.execute(
         select(
             catalog.modpacks_tags.c.modpack_id,
             tag_table.c.id,
             tag_table.c.name,
+            group_table.c.id,
+            group_table.c.name,
         )
         .select_from(
             catalog.modpacks_tags.join(
                 tag_table,
                 tag_table.c.id == catalog.modpacks_tags.c.tag_id,
+            ).outerjoin(
+                group_table,
+                group_table.c.id == tag_table.c.group_id,
             )
         )
         .where(catalog.modpacks_tags.c.modpack_id.in_(modpack_ids))
@@ -368,9 +375,21 @@ async def _load_modpack_tags(
     )
 
     tags_by_modpack: dict[int, list[TagRead]] = {modpack_id: [] for modpack_id in modpack_ids}
-    for modpack_id, tag_id, tag_name in result.all():
+    for row in result.all():
+        if len(row) == 3:
+            modpack_id, tag_id, tag_name = row
+            group_id = None
+            group_name = None
+        else:
+            modpack_id, tag_id, tag_name, group_id, group_name = row
         tags_by_modpack.setdefault(int(modpack_id), []).append(
-            TagRead(id=int(tag_id), name=str(tag_name))
+            TagRead(
+                id=int(tag_id),
+                name=str(tag_name),
+                group=TagGroupRead(id=int(group_id), name=str(group_name))
+                if group_id is not None
+                else None,
+            )
         )
     return tags_by_modpack
 

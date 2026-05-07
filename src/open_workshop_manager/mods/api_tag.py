@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy import delete, func, select
+from sqlalchemy.orm import joinedload
 
 from open_workshop_manager import standarts, tools
 from open_workshop_manager.api_helpers import (
@@ -13,6 +14,7 @@ from open_workshop_manager.api_helpers import (
 )
 from open_workshop_manager.api_models import TagCreate, TagListResponse, TagPatch, TagRead
 from open_workshop_manager.limits import LIMITS
+from open_workshop_manager.mods.tag_serialization import serialize_tag
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
@@ -28,8 +30,19 @@ TAG_NOT_FOUND_RESPONSE = standarts.response_spec(
 )
 
 
+TAG_GROUP_NOT_FOUND_RESPONSE = standarts.response_spec(
+    standarts.build_problem(
+        404,
+        title="Not Found",
+        detail="Tag group not found.",
+        code="TAG_GROUP_NOT_FOUND",
+    ),
+    "Tag group not found.",
+)
+
+
 def _serialize_tag(tag: catalog.Tag) -> TagRead:
-    return TagRead(id=int(tag.id), name=str(tag.name))
+    return serialize_tag(tag)
 
 
 def _raise_tag_not_found(request: Request) -> None:
@@ -38,6 +51,16 @@ def _raise_tag_not_found(request: Request) -> None:
         title="Not Found",
         detail="Tag not found.",
         code="TAG_NOT_FOUND",
+        instance=str(request.url),
+    )
+
+
+def _raise_tag_group_not_found(request: Request) -> None:
+    raise standarts.StandardAPIError(
+        status_code=404,
+        title="Not Found",
+        detail="Tag group not found.",
+        code="TAG_GROUP_NOT_FOUND",
         instance=str(request.url),
     )
 
@@ -70,8 +93,8 @@ async def list_tags(
     game_id: int | None = Query(default=None, ge=1, description="Filter by game ID."),
 ):
     async with catalog.AsyncSessionLocal() as session:
-        count_stmt = select(func.count()).select_from(catalog.Tag)
-        list_stmt = select(catalog.Tag)
+        count_stmt = select(func.count()).select_from(catalog.Tag).where(catalog.Tag.group_id.is_(None))
+        list_stmt = select(catalog.Tag).where(catalog.Tag.group_id.is_(None))
 
         if name:
             condition = catalog.Tag.name.ilike(f"%{name}%")
@@ -108,7 +131,11 @@ async def list_tags(
 )
 async def get_tag(request: Request, tag_id: int) -> TagRead:
     async with catalog.AsyncSessionLocal() as session:
-        tag = await session.get(catalog.Tag, tag_id)
+        tag = await session.get(
+            catalog.Tag,
+            tag_id,
+            options=(joinedload(catalog.Tag.group),),
+        )
 
     if tag is None:
         _raise_tag_not_found(request)
@@ -125,13 +152,22 @@ async def get_tag(request: Request, tag_id: int) -> TagRead:
     response_model=TagRead,
     response_model_exclude_none=True,
     response_description="Created tag resource.",
-    responses={403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC},
+    responses={
+        403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC,
+        404: TAG_GROUP_NOT_FOUND_RESPONSE,
+    },
 )
 async def create_tag(response: Response, request: Request, payload: TagCreate) -> TagRead:
     await tools.access_admin(request=request)
 
     async with catalog.AsyncSessionLocal() as session:
-        tag = catalog.Tag(name=payload.name)
+        group = None
+        if payload.group_id is not None:
+            group = await session.get(catalog.TagGroup, payload.group_id)
+            if group is None:
+                _raise_tag_group_not_found(request)
+
+        tag = catalog.Tag(name=payload.name, group=group)
         session.add(tag)
         await session.flush()
         await session.commit()
@@ -170,9 +206,24 @@ async def patch_tag(
     )
 
     async with catalog.AsyncSessionLocal() as session:
-        tag = await session.get(catalog.Tag, tag_id)
+        tag = await session.get(
+            catalog.Tag,
+            tag_id,
+            options=(joinedload(catalog.Tag.group),),
+        )
         if tag is None:
             _raise_tag_not_found(request)
+
+        if "group_id" in data:
+            group_id = data.pop("group_id")
+            if group_id is None:
+                tag.group = None
+                tag.group_id = None
+            else:
+                group = await session.get(catalog.TagGroup, group_id)
+                if group is None:
+                    _raise_tag_group_not_found(request)
+                tag.group = group
 
         for key, value in data.items():
             setattr(tag, key, value)

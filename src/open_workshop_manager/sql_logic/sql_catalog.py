@@ -47,6 +47,17 @@ allowed_mods_tags = Table(
     Column("tag_id", Integer, ForeignKey("tags.id")),
 )
 
+Index(
+    "ix_allowed_mods_tags_game_tag",
+    allowed_mods_tags.c.game_id,
+    allowed_mods_tags.c.tag_id,
+)
+Index(
+    "ix_allowed_mods_tags_tag_game",
+    allowed_mods_tags.c.tag_id,
+    allowed_mods_tags.c.game_id,
+)
+
 mods_tags = Table(
     "unity_mods_tags",
     Base.metadata,  # Теги для игр
@@ -311,15 +322,31 @@ class Genre(Base):  # Жанры для игр
     name: Mapped[str] = mapped_column(String(128))
 
 
+class TagGroup(Base):
+    __tablename__ = "tag_groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128))
+
+
 class Tag(Base):  # Теги для модов
     __tablename__ = "tags"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(128))
+    group_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("tag_groups.id"),
+        nullable=True,
+    )
+    group: Mapped[TagGroup | None] = relationship("TagGroup", backref="tags")
 
     associated_games: Mapped[list["Game"]] = relationship(
         "Game", secondary=allowed_mods_tags, backref="tags", viewonly=True
     )
+
+
+Index("ix_tags_group_id_name_id", Tag.group_id, Tag.name, Tag.id)
 
 
 async def init_models() -> None:

@@ -32,6 +32,7 @@ from open_workshop_manager.mods.api_mod_build import router as mod_build_router
 from open_workshop_manager.mods.api_mod import router as mod_router
 from open_workshop_manager.mods.api_resource import router as resource_router
 from open_workshop_manager.mods.api_tag import router as tag_router
+from open_workshop_manager.mods.api_tag_group import router as tag_group_router
 from open_workshop_manager.modpacks.api_modpack import router as modpack_router
 from open_workshop_manager.uploads import api_uploads as upload_api
 from open_workshop_manager.uploads.api_uploads import router as upload_router
@@ -332,6 +333,7 @@ app.include_router(mod_router)
 app.include_router(modpack_router)
 app.include_router(genre_router)
 app.include_router(tag_router)
+app.include_router(tag_group_router)
 app.include_router(resource_router)
 app.include_router(upload_router)
 app.include_router(association_control_router)

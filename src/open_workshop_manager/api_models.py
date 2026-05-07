@@ -112,17 +112,37 @@ class GenreListResponse(ListResponse[GenreRead]):
     pass
 
 
-class TagRead(ReadModel):
+class TagGroupRead(ReadModel):
     id: int
     name: str
 
 
+class TagGroupCreate(ApiModel):
+    name: str = Field(min_length=1, max_length=LIMITS.tag.name_max)
+
+
+class TagGroupPatch(ApiModel):
+    name: str | None = Field(default=None, min_length=1, max_length=LIMITS.tag.name_max)
+
+
+class TagGroupListResponse(ListResponse[TagGroupRead]):
+    pass
+
+
+class TagRead(ReadModel):
+    id: int
+    name: str
+    group: TagGroupRead | None = None
+
+
 class TagCreate(ApiModel):
     name: str = Field(min_length=1, max_length=LIMITS.tag.name_max)
+    group_id: int | None = Field(default=None, ge=1)
 
 
 class TagPatch(ApiModel):
     name: str | None = Field(default=None, min_length=1, max_length=LIMITS.tag.name_max)
+    group_id: int | None = Field(default=None, ge=1)
 
 
 class TagListResponse(ListResponse[TagRead]):
@@ -421,6 +441,7 @@ class ModFeedRead(ReadModel):
     count: int
     size: IntRangeRead
     size_unpacked: IntRangeRead
+    tag_groups: list[TagGroupRead] = Field(default_factory=list)
 
 
 class IntListResponse(ListResponse[int]):

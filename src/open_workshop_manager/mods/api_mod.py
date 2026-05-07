@@ -9,7 +9,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy import and_, case, delete, func, or_, select, update
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, joinedload
 
 from open_workshop_manager import mod_events, reputation, standarts, tools
 from open_workshop_manager.api_helpers import (
@@ -31,10 +31,10 @@ from open_workshop_manager.api_models import (
     ModDependencyRead,
     RatingVoteUpsert,
     TagListResponse,
-    TagRead,
     stringify_source_id,
 )
 from open_workshop_manager.limits import LIMITS
+from open_workshop_manager.mods.tag_serialization import serialize_tag, serialize_tag_group
 from open_workshop_manager.settings import STORAGE_URL
 from open_workshop_manager.sql_logic import sql_account as account
 from open_workshop_manager.sql_logic import sql_catalog as catalog
@@ -402,6 +402,30 @@ def _exclude_dependency_requirement(
     )
 
 
+async def _load_mod_feed_tag_groups(session, game: int) -> list[dict[str, object]]:
+    allowed_tag_exists = (
+        select(1)
+        .select_from(
+            catalog.Tag.__table__.join(
+                catalog.allowed_mods_tags,
+                catalog.allowed_mods_tags.c.tag_id == catalog.Tag.id,
+            )
+        )
+        .where(catalog.Tag.group_id == catalog.TagGroup.id)
+    )
+    if game > 0:
+        allowed_tag_exists = allowed_tag_exists.where(catalog.allowed_mods_tags.c.game_id == game)
+
+    groups = (
+        await session.execute(
+            select(catalog.TagGroup)
+            .where(allowed_tag_exists.exists())
+            .order_by(catalog.TagGroup.name, catalog.TagGroup.id)
+        )
+    ).scalars().all()
+    return [serialize_tag_group(group).model_dump(mode="json", exclude_none=True) for group in groups]
+
+
 def _serialize_mod_base(row: catalog.Mod) -> dict[str, object]:
     game_id = getattr(row, "game", None)
     return {
@@ -530,10 +554,11 @@ async def _serialize_mod_with_includes(
                 select(catalog.Tag)
                 .join(catalog.mods_tags)
                 .where(catalog.mods_tags.c.mod_id == row.id)
+                .options(joinedload(catalog.Tag.group))
                 .order_by(catalog.Tag.name)
             )
         ).scalars().all()
-        payload["tags"] = [TagRead(id=int(tag.id), name=tag.name).model_dump(mode="json", exclude_none=True) for tag in tags]
+        payload["tags"] = [serialize_tag(tag).model_dump(mode="json", exclude_none=True) for tag in tags]
 
     if "dependencies" in include:
         dependencies = (
@@ -950,6 +975,8 @@ async def get_mod_feed(
         if game > 0:
             stmt = stmt.where(catalog.Mod.game == game)
 
+        tag_groups = await _load_mod_feed_tag_groups(session, game)
+
         if show_not_public:
             candidate_ids = [
                 int(mod_id)
@@ -964,6 +991,7 @@ async def get_mod_feed(
                     "count": 0,
                     "size": {"min": None, "max": None},
                     "size_unpacked": {"min": None, "max": None},
+                    "tag_groups": tag_groups,
                 }
 
             allowed_ids = await tools.access_mods(
@@ -978,6 +1006,7 @@ async def get_mod_feed(
                     "count": 0,
                     "size": {"min": None, "max": None},
                     "size_unpacked": {"min": None, "max": None},
+                    "tag_groups": tag_groups,
                 }
 
             stmt = stmt.where(catalog.Mod.id.in_(allowed_ids))
@@ -1007,6 +1036,7 @@ async def get_mod_feed(
             "min": int(size_unpacked_min) if size_unpacked_min is not None else None,
             "max": int(size_unpacked_max) if size_unpacked_max is not None else None,
         },
+        "tag_groups": tag_groups,
     }
 
 
@@ -1525,11 +1555,12 @@ async def get_mod_tags(request: Request, mod_id: int) -> dict[str, object]:
                 select(catalog.Tag)
                 .join(catalog.mods_tags)
                 .where(catalog.mods_tags.c.mod_id == mod_id)
+                .options(joinedload(catalog.Tag.group))
                 .order_by(catalog.Tag.name)
             )
         ).scalars().all()
 
-    items = [TagRead(id=int(tag.id), name=tag.name).model_dump(mode="json", exclude_none=True) for tag in rows]
+    items = [serialize_tag(tag).model_dump(mode="json", exclude_none=True) for tag in rows]
     return make_list_response(items, page=0, page_size=max(len(items), 1), total=len(items))
 
 
