@@ -264,6 +264,19 @@ def _game(
     )
 
 
+def _tag(
+    *,
+    tag_id: int = 10,
+    name: str = "Gameplay",
+    group: types.SimpleNamespace | None = None,
+) -> types.SimpleNamespace:
+    return types.SimpleNamespace(
+        id=tag_id,
+        name=name,
+        group=group,
+    )
+
+
 def _resource(
     *,
     resource_id: int = 55,
@@ -1579,6 +1592,74 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertNotIn("mods_count", body)
         self.assertNotIn("mods_downloads", body)
         self.assertNotIn("created_at", body)
+
+    def test_game_info_includes_grouped_tags(self) -> None:
+        group = types.SimpleNamespace(id=5, name="Resolution")
+        session = _RecordingSession(get_value=_game(), execute_results=[[_tag(), _tag(tag_id=11, name="1920x1080", group=group)]])
+
+        with patch.object(self.api_game.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(f"{self.main_url}/games/1", params={"include": ["tags"]})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(
+            body["tags"],
+            [
+                {"id": 10, "name": "Gameplay"},
+                {"id": 11, "name": "1920x1080", "group": {"id": 5, "name": "Resolution"}},
+            ],
+        )
+        self.assertEqual(len(session.scalar_statements), 0)
+        self.assertEqual(len(session.execute_statements), 1)
+
+    def test_games_list_includes_grouped_tags(self) -> None:
+        group = types.SimpleNamespace(id=5, name="Resolution")
+        game = _game()
+        session = _RecordingSession(
+            execute_results=[
+                [game],
+                [_tag(), _tag(tag_id=11, name="1920x1080", group=group)],
+            ],
+            scalar_values=[1],
+        )
+
+        with patch.object(self.api_game.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(f"{self.main_url}/games", params={"include": ["tags"]})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(
+            body["items"][0]["tags"],
+            [
+                {"id": 10, "name": "Gameplay"},
+                {"id": 11, "name": "1920x1080", "group": {"id": 5, "name": "Resolution"}},
+            ],
+        )
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 2)
+
+    def test_game_tags_endpoint_includes_grouped_tags(self) -> None:
+        group = types.SimpleNamespace(id=5, name="Resolution")
+        session = _RecordingSession(
+            get_value=_game(),
+            execute_results=[[_tag(), _tag(tag_id=11, name="1920x1080", group=group)]],
+        )
+
+        with patch.object(self.api_association_getter.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(f"{self.main_url}/games/1/tags")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(
+            body["items"],
+            [
+                {"id": 10, "name": "Gameplay"},
+                {"id": 11, "name": "1920x1080", "group": {"id": 5, "name": "Resolution"}},
+            ],
+        )
+        self.assertEqual(body["pagination"]["total"], 2)
+        self.assertEqual(len(session.scalar_statements), 0)
+        self.assertEqual(len(session.execute_statements), 1)
 
     def test_resources_list_is_get_safe(self) -> None:
         session = _RecordingSession(rows=[_resource(sort_order=5)], scalar_values=[1])

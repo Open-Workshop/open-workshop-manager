@@ -7,6 +7,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy import delete, func, select
+from sqlalchemy.orm import joinedload
 
 from open_workshop_manager import standarts, tools
 from open_workshop_manager.api_helpers import (
@@ -21,10 +22,10 @@ from open_workshop_manager.api_models import (
     GameRead,
     GenreRead,
     ResourceRead,
-    TagRead,
     stringify_source_id,
 )
 from open_workshop_manager.limits import LIMITS
+from open_workshop_manager.mods.tag_serialization import serialize_tag
 from open_workshop_manager.sql_logic import sql_catalog as catalog
 
 router = APIRouter()
@@ -115,6 +116,18 @@ def _normalize_includes(request: Request, include: list[str]) -> set[str]:
     return normalized
 
 
+async def _load_game_tags(session, game_id: int) -> list[catalog.Tag]:
+    return (
+        await session.execute(
+            select(catalog.Tag)
+            .join(catalog.allowed_mods_tags)
+            .where(catalog.allowed_mods_tags.c.game_id == game_id)
+            .options(joinedload(catalog.Tag.group))
+            .order_by(catalog.Tag.group_id, catalog.Tag.name, catalog.Tag.id)
+        )
+    ).scalars().all()
+
+
 def _serialize_game_base(row: catalog.Game) -> dict[str, object]:
     return {
         "id": int(row.id),
@@ -160,18 +173,8 @@ async def _serialize_game_with_includes(
         payload["genres"] = [GenreRead(id=int(item.id), name=item.name).model_dump(mode="json") for item in genres]
 
     if "tags" in include:
-        tags = (
-            await session.execute(
-                select(catalog.Tag)
-                .join(catalog.allowed_mods_tags)
-                .where(
-                    catalog.allowed_mods_tags.c.game_id == row.id,
-                    catalog.Tag.group_id.is_(None),
-                )
-                .order_by(catalog.Tag.name)
-            )
-        ).scalars().all()
-        payload["tags"] = [TagRead(id=int(item.id), name=item.name).model_dump(mode="json") for item in tags]
+        tags = await _load_game_tags(session, row.id)
+        payload["tags"] = [serialize_tag(item).model_dump(mode="json", exclude_none=True) for item in tags]
 
     if "resources" in include:
         resources = (
@@ -201,7 +204,7 @@ async def _serialize_game_with_includes(
         "- `dates`\n"
         "- `statistics`\n"
         "- `genres`\n"
-        "- `tags`\n"
+        "- `tags` (including grouped tags)\n"
         "- `resources`\n\n"
         "Use `sort` with `-` for descending order."
     ),
@@ -321,7 +324,7 @@ async def list_games(
         "- `dates`\n"
         "- `statistics`\n"
         "- `genres`\n"
-        "- `tags`\n"
+        "- `tags` (including grouped tags)\n"
         "- `resources`"
     ),
     status_code=200,

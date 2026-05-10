@@ -77,7 +77,7 @@ async def get_game_genres(request: Request, game_id: int) -> dict[str, object]:
     "/games/{game_id}/tags",
     tags=["Game", "Tag", "Association"],
     summary="List game tags",
-    description="Returns all tags allowed for a game.",
+    description="Returns all tags allowed for a game, including grouped tags.",
     status_code=200,
     response_model=TagListResponse,
     response_model_exclude_none=True,
@@ -93,11 +93,9 @@ async def get_game_tags(request: Request, game_id: int) -> dict[str, object]:
             await session.execute(
                 select(catalog.Tag)
                 .join(catalog.allowed_mods_tags)
-                .where(
-                    catalog.allowed_mods_tags.c.game_id == game_id,
-                    catalog.Tag.group_id.is_(None),
-                )
-                .order_by(catalog.Tag.name)
+                .where(catalog.allowed_mods_tags.c.game_id == game_id)
+                .options(joinedload(catalog.Tag.group))
+                .order_by(catalog.Tag.group_id, catalog.Tag.name, catalog.Tag.id)
             )
         ).scalars().all()
 
