@@ -418,7 +418,7 @@ async def oauth_authorize(request: Request, service: str):
 
     if service == "yandex":
         state = secrets.token_urlsafe(32)
-        response = RedirectResponse(url=yandex_oauth.jget_authorization_url(state=state))
+        response = RedirectResponse(url=yandex_oauth.get_authorization_url(state=state))
         response.set_cookie(
             key=YANDEX_OAUTH_STATE_COOKIE,
             value=state,
