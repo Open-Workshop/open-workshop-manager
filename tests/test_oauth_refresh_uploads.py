@@ -388,6 +388,29 @@ class OAuthRefreshUploadTests(unittest.TestCase):
             ["POST", "GET", "GET"],
         )
 
+    def test_yandex_oauth_authorize_sets_state_cookie(self) -> None:
+        with patch.object(
+            api_session.secrets,
+            "token_urlsafe",
+            return_value="state-123",
+        ), patch.object(
+            api_session.yandex_oauth,
+            "get_authorization_url",
+            return_value="https://oauth.yandex.test/authorize?state=state-123",
+        ) as auth_url_mock:
+            response = self.client.get("/oauth/yandex/authorize", follow_redirects=False)
+
+        self.assertEqual(response.status_code, 307)
+        self.assertEqual(
+            response.headers["location"],
+            "https://oauth.yandex.test/authorize?state=state-123",
+        )
+        self.assertEqual(
+            response.cookies.get(api_session.YANDEX_OAUTH_STATE_COOKIE),
+            "state-123",
+        )
+        auth_url_mock.assert_called_once_with(state="state-123")
+
     def test_yandex_oauth_callback_links_existing_account(self) -> None:
         linked_account = SimpleNamespace(
             id=42,
@@ -437,7 +460,8 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         ):
             response = self.client.get(
                 "/oauth/yandex/callback",
-                params={"code": "auth-code", "cid": "device123"},
+                params={"code": "auth-code", "cid": "device123", "state": "state-123"},
+                cookies={api_session.YANDEX_OAUTH_STATE_COOKIE: "state-123"},
             )
 
         self.assertEqual(response.status_code, 200)
@@ -446,6 +470,23 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         self.assertEqual(session.commit_count, 2)
         self.assertEqual(response.cookies.get("accessToken"), "yandex-access-token")
         self.assertEqual(response.cookies.get("refreshToken"), "yandex-refresh-token")
+
+    def test_yandex_oauth_callback_rejects_state_mismatch(self) -> None:
+        token_mock = AsyncMock(side_effect=AssertionError("token exchange must not happen"))
+        with patch.object(
+            api_session.yandex_oauth,
+            "get_token_from_code",
+            token_mock,
+        ):
+            response = self.client.get(
+                "/oauth/yandex/callback",
+                params={"code": "auth-code", "state": "callback-state"},
+                cookies={api_session.YANDEX_OAUTH_STATE_COOKIE: "cookie-state"},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Yandex OAuth state mismatch", response.text)
+        token_mock.assert_not_awaited()
 
     def test_resource_image_create_uses_admin_access_for_games(self) -> None:
         resource = SimpleNamespace(

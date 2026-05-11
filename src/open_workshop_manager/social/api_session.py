@@ -7,6 +7,7 @@ import logging
 import json
 import os
 import random
+import secrets
 import string
 from functools import lru_cache
 from io import BytesIO
@@ -37,6 +38,7 @@ DEFAULT_GOOGLE_CREDENTIALS_PATH = FilePath(__file__).resolve().parents[3] / "cre
 GOOGLE_OAUTH_STATE_COOKIE = "googleOAuthState"
 GOOGLE_OAUTH_CODE_VERIFIER_COOKIE = "googleOAuthCodeVerifier"
 GOOGLE_OAUTH_COOKIE_MAX_AGE = 600
+YANDEX_OAUTH_STATE_COOKIE = "yandexOAuthState"
 
 
 class _GoogleWebConfig(TypedDict):
@@ -415,7 +417,18 @@ async def oauth_authorize(request: Request, service: str):
         return response
 
     if service == "yandex":
-        return RedirectResponse(url=yandex_oauth.get_authorization_url())
+        state = secrets.token_urlsafe(32)
+        response = RedirectResponse(url=yandex_oauth.get_authorization_url(state=state))
+        response.set_cookie(
+            key=YANDEX_OAUTH_STATE_COOKIE,
+            value=state,
+            secure=config.COOKIE_SECURE,
+            samesite=config.COOKIE_SAMESITE,
+            httponly=True,
+            max_age=GOOGLE_OAUTH_COOKIE_MAX_AGE,
+            path="/",
+        )
+        return response
 
     _raise_bad_request(request, "Unsupported OAuth service.", code="UNSUPPORTED_OAUTH_SERVICE")
 
@@ -621,8 +634,16 @@ async def _oauth_yandex_callback(
     request: Request,
     response: Response,
     code: str,
+    state: str | None,
     cid: str | None,
 ) -> str:
+    cookie_state = request.cookies.get(YANDEX_OAUTH_STATE_COOKIE, "")
+    if not cookie_state or not state or state != cookie_state:
+        raise standarts.BadRequestError(
+            detail="Yandex OAuth state mismatch",
+            instance=str(request.url),
+        )
+
     device_id = cid if cid and 6 <= len(cid) <= 50 and cid.isalnum() else None
 
     try:
@@ -734,6 +755,7 @@ async def _oauth_yandex_callback(
         )
         await session.commit()
 
+    response.delete_cookie(key=YANDEX_OAUTH_STATE_COOKIE, path="/")
     _set_session_cookies(
         response=response,
         access_token=sessions_data["access"]["token"],
@@ -774,6 +796,7 @@ async def oauth_callback(
             request=request,
             response=response,
             code=code,
+            state=state,
             cid=cid,
         )
 
