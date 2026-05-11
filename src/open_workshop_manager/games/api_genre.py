@@ -32,6 +32,15 @@ def _serialize_genre(genre: catalog.Genre) -> GenreRead:
     return GenreRead(id=int(genre.id), name=str(genre.name))
 
 
+async def _ensure_genre_crud_access(request: Request, right_name: str) -> None:
+    access_result = await tools.access_genres(request=request)
+    tools.require_access_right(
+        request,
+        access_result,
+        getattr(access_result, right_name, None),
+    )
+
+
 @router.get(
     "/genres",
     tags=["Genre"],
@@ -123,7 +132,7 @@ async def get_genre(request: Request, genre_id: int) -> GenreRead:
     responses={403: standarts.ADMIN_FORBIDDEN_RESPONSE_SPEC},
 )
 async def create_genre(response: Response, request: Request, payload: GenreCreate) -> GenreRead:
-    await tools.access_admin(request=request)
+    await _ensure_genre_crud_access(request, "add")
 
     async with catalog.AsyncSessionLocal() as session:
         genre = catalog.Genre(name=payload.name)
@@ -154,7 +163,7 @@ async def patch_genre(
     genre_id: int,
     payload: GenrePatch,
 ) -> GenreRead:
-    await tools.access_admin(request=request)
+    await _ensure_genre_crud_access(request, "edit")
 
     data = payload.model_dump(exclude_unset=True)
     ensure_non_empty_patch(data)
@@ -194,7 +203,7 @@ async def patch_genre(
     },
 )
 async def delete_genre(request: Request, genre_id: int) -> Response:
-    await tools.access_admin(request=request)
+    await _ensure_genre_crud_access(request, "delete")
 
     async with catalog.AsyncSessionLocal() as session:
         genre = await session.get(catalog.Genre, genre_id)

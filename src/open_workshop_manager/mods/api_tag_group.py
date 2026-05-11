@@ -87,6 +87,15 @@ def _tag_group_is_orphan_condition():
     return ~select(1).select_from(catalog.Tag).where(catalog.Tag.group_id == catalog.TagGroup.id).exists()
 
 
+async def _ensure_tag_group_crud_access(request: Request, right_name: str) -> None:
+    access_result = await tools.access_tags(request=request)
+    tools.require_access_right(
+        request,
+        access_result,
+        getattr(access_result, right_name, None),
+    )
+
+
 @router.get(
     "/tag-groups",
     tags=["Tag Group"],
@@ -168,7 +177,7 @@ async def list_orphaned_tag_groups(
     ),
     ids: list[int] = Query(default_factory=list, description="Limit results to these tag group IDs."),
 ):
-    await tools.access_admin(request=request)
+    await _ensure_tag_group_crud_access(request, "delete")
 
     orphan_condition = _tag_group_is_orphan_condition()
     async with catalog.AsyncSessionLocal() as session:
@@ -310,7 +319,7 @@ async def create_tag_group(
     request: Request,
     payload: TagGroupCreate,
 ) -> TagGroupRead:
-    await tools.access_admin(request=request)
+    await _ensure_tag_group_crud_access(request, "add")
 
     async with catalog.AsyncSessionLocal() as session:
         group = catalog.TagGroup(name=payload.name)
@@ -340,7 +349,7 @@ async def patch_tag_group(
     group_id: int,
     payload: TagGroupPatch,
 ) -> TagGroupRead:
-    await tools.access_admin(request=request)
+    await _ensure_tag_group_crud_access(request, "edit")
 
     data = payload.model_dump(exclude_unset=True)
     ensure_non_empty_patch(data)
@@ -375,7 +384,7 @@ async def patch_tag_group(
     },
 )
 async def delete_tag_group(request: Request, group_id: int) -> Response:
-    await tools.access_admin(request=request)
+    await _ensure_tag_group_crud_access(request, "delete")
 
     async with catalog.AsyncSessionLocal() as session:
         group = await session.get(catalog.TagGroup, group_id)

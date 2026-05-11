@@ -7,7 +7,7 @@ import sys
 import types
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -395,7 +395,7 @@ class OAuthRefreshUploadTests(unittest.TestCase):
             return_value="state-123",
         ), patch.object(
             api_session.yandex_oauth,
-            "get_authorization_url",
+            "jget_authorization_url",
             return_value="https://oauth.yandex.test/authorize?state=state-123",
         ) as auth_url_mock:
             response = self.client.get("/oauth/yandex/authorize", follow_redirects=False)
@@ -488,7 +488,7 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         self.assertIn("Yandex OAuth state mismatch", response.text)
         token_mock.assert_not_awaited()
 
-    def test_resource_image_create_uses_admin_access_for_games(self) -> None:
+    def test_resource_image_create_uses_game_screenshot_access_for_games(self) -> None:
         resource = SimpleNamespace(
             id=None,
             type="screenshot",
@@ -501,7 +501,15 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         )
         session = _MutableSession(next_id=555)
 
-        access_admin = AsyncMock(return_value=True)
+        access_game_action = AsyncMock(
+            return_value=SimpleNamespace(
+                authenticated=True,
+                owner_id=42,
+                edit=SimpleNamespace(
+                    screenshots=SimpleNamespace(value=True, reason="", reason_code="")
+                ),
+            )
+        )
         access_mods = AsyncMock(side_effect=AssertionError("access_mods must not be called"))
         captured_payload: dict[str, object] = {}
 
@@ -514,8 +522,8 @@ class OAuthRefreshUploadTests(unittest.TestCase):
 
         with patch.object(api_uploads.config, "TRANSFER_JWT_SECRET", "secret", create=True), patch.object(
             api_uploads.tools,
-            "access_admin",
-            access_admin,
+            "access_game_action",
+            access_game_action,
         ), patch.object(
             api_uploads.tools,
             "access_mods",
@@ -560,7 +568,7 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         self.assertEqual(captured_payload["callback_action"], "resource_add")
         self.assertEqual(captured_payload["resource_sort_order"], 17)
         self.assertEqual(captured_payload["target_path"], "games/7/555.webp")
-        access_admin.assert_awaited_once()
+        access_game_action.assert_awaited_once_with(request=ANY, game_id=7)
         access_mods.assert_not_awaited()
 
     def test_resource_image_create_uses_modpack_access_for_modpacks(self) -> None:
@@ -577,7 +585,7 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         session = _MutableSession(next_id=555)
 
         access_modpacks = AsyncMock(return_value=True)
-        access_admin = AsyncMock(side_effect=AssertionError("access_admin must not be called"))
+        access_game_action = AsyncMock(side_effect=AssertionError("access_game_action must not be called"))
         access_mods = AsyncMock(side_effect=AssertionError("access_mods must not be called"))
         captured_payload: dict[str, object] = {}
 
@@ -590,8 +598,8 @@ class OAuthRefreshUploadTests(unittest.TestCase):
 
         with patch.object(api_uploads.config, "TRANSFER_JWT_SECRET", "secret", create=True), patch.object(
             api_uploads.tools,
-            "access_admin",
-            access_admin,
+            "access_game_action",
+            access_game_action,
         ), patch.object(
             api_uploads.tools,
             "access_mods",
@@ -641,7 +649,7 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         self.assertEqual(captured_payload["resource_sort_order"], 17)
         self.assertEqual(captured_payload["target_path"], "modpacks/7/555.webp")
         access_modpacks.assert_awaited_once()
-        access_admin.assert_not_awaited()
+        access_game_action.assert_not_awaited()
         access_mods.assert_not_awaited()
 
     def test_profile_avatar_create_uses_avatar_file_kind(self) -> None:

@@ -245,7 +245,8 @@ async def _require_resource_owner_access(
         await tools.access_modpacks(request=request, modpack_ids=[owner_id], edit=True)
         return
     if owner_type == "games":
-        await tools.access_admin(request=request)
+        access_result = await tools.access_game_action(request=request, game_id=owner_id)
+        tools.require_access_right(request, access_result, access_result.edit.screenshots)
         return
     raise standarts.UnsupportedOwnerTypeError(instance=str(request.url))
 

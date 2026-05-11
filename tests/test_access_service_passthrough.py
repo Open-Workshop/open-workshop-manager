@@ -257,6 +257,151 @@ class AccessServicePassThroughTests(unittest.TestCase):
         self.assertFalse(result.edit.value)
         self.assertTrue(result.delete.value)
 
+    def test_resolve_genres_uses_access_patch_endpoint(self) -> None:
+        access_payload = {
+            "authenticated": True,
+            "owner_id": 42,
+            "add": {
+                "value": True,
+                "reason": "ok",
+                "reason_code": "allowed",
+            },
+            "edit": {
+                "value": True,
+                "reason": "ok",
+                "reason_code": "allowed",
+            },
+            "delete": {
+                "value": False,
+                "reason": "no delete",
+                "reason_code": "forbidden",
+            },
+        }
+
+        request_json = AsyncMock(return_value=access_payload)
+        with patch.object(access_client, "_request_json", request_json):
+            result = asyncio.run(access_client.resolve_genres())
+
+        request_json.assert_awaited_once_with(
+            "PATCH",
+            "/genres",
+            None,
+            cookies={},
+        )
+        self.assertTrue(result.add.value)
+        self.assertTrue(result.edit.value)
+        self.assertFalse(result.delete.value)
+
+    def test_resolve_game_add_uses_access_put_endpoint(self) -> None:
+        access_payload = {
+            "authenticated": True,
+            "owner_id": 42,
+            "add": {
+                "value": True,
+                "reason": "ok",
+                "reason_code": "allowed",
+            },
+        }
+
+        request_json = AsyncMock(return_value=access_payload)
+        with patch.object(access_client, "_request_json", request_json):
+            result = asyncio.run(access_client.resolve_game_add())
+
+        request_json.assert_awaited_once_with(
+            "PUT",
+            "/game",
+            None,
+            cookies={},
+        )
+        self.assertTrue(result.add.value)
+
+    def test_resolve_game_uses_access_post_endpoint(self) -> None:
+        access_payload = {
+            "authenticated": True,
+            "owner_id": 42,
+            "edit": {
+                "title": {
+                    "value": True,
+                    "reason": "ok",
+                    "reason_code": "allowed",
+                },
+                "description": {
+                    "value": True,
+                    "reason": "ok",
+                    "reason_code": "allowed",
+                },
+                "short_description": {
+                    "value": True,
+                    "reason": "ok",
+                    "reason_code": "allowed",
+                },
+                "screenshots": {
+                    "value": True,
+                    "reason": "ok",
+                    "reason_code": "allowed",
+                },
+                "tags": {
+                    "value": False,
+                    "reason": "no tags",
+                    "reason_code": "forbidden",
+                },
+                "genres": {
+                    "value": True,
+                    "reason": "ok",
+                    "reason_code": "allowed",
+                },
+            },
+            "delete": {
+                "value": False,
+                "reason": "no delete",
+                "reason_code": "forbidden",
+            },
+        }
+
+        request_json = AsyncMock(return_value=access_payload)
+        with patch.object(access_client, "_request_json", request_json):
+            result = asyncio.run(access_client.resolve_game(game_id=7))
+
+        request_json.assert_awaited_once_with(
+            "POST",
+            "/game/7",
+            {},
+            cookies={},
+        )
+        self.assertTrue(result.edit.title.value)
+        self.assertFalse(result.edit.tags.value)
+        self.assertFalse(result.delete.value)
+
+    def test_legacy_access_admin_uses_access_service_not_local_session(self) -> None:
+        request = types.SimpleNamespace(cookies={}, url="http://manager.test/admin")
+        access_payload = access_client.GameAddResponse.model_validate(
+            {
+                "authenticated": True,
+                "owner_id": 42,
+                "add": {
+                    "value": True,
+                    "reason": "ok",
+                    "reason_code": "allowed",
+                },
+            }
+        )
+
+        with (
+            patch.object(
+                access_client,
+                "resolve_game_add",
+                AsyncMock(return_value=access_payload),
+            ) as resolve_game_add,
+            patch.object(
+                tools.account,
+                "check_access",
+                AsyncMock(side_effect=AssertionError("local admin check must not be used")),
+            ),
+        ):
+            self.assertTrue(asyncio.run(tools.access_admin(request)))
+
+        resolve_game_add.assert_awaited_once_with(request=request)
+
     def test_access_mods_uses_catalog_right_for_catalog_mode(self) -> None:
         request = types.SimpleNamespace(cookies={})
         access_result = {

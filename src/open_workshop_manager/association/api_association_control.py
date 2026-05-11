@@ -93,7 +93,8 @@ async def _delete_assoc(request: Request, *, table, delete_where) -> None:
     status_code=204,
 )
 async def add_game_genre(request: Request, game_id: int, genre_id: int):
-    await tools.access_admin(request=request)
+    access_result = await tools.access_game_action(request=request, game_id=game_id)
+    tools.require_access_right(request, access_result, access_result.edit.genres)
     await _ensure_game_exists(request, game_id)
     await _ensure_genre_exists(request, genre_id)
 
@@ -122,7 +123,8 @@ async def add_game_genre(request: Request, game_id: int, genre_id: int):
     status_code=204,
 )
 async def delete_game_genre(request: Request, game_id: int, genre_id: int):
-    await tools.access_admin(request=request)
+    access_result = await tools.access_game_action(request=request, game_id=game_id)
+    tools.require_access_right(request, access_result, access_result.edit.genres)
     await _ensure_game_exists(request, game_id)
     await _ensure_genre_exists(request, genre_id)
 
@@ -146,7 +148,8 @@ async def delete_game_genre(request: Request, game_id: int, genre_id: int):
     status_code=204,
 )
 async def add_game_tag(request: Request, game_id: int, tag_id: int):
-    await tools.access_admin(request=request)
+    access_result = await tools.access_game_action(request=request, game_id=game_id)
+    tools.require_access_right(request, access_result, access_result.edit.tags)
     await _ensure_game_exists(request, game_id)
     await _ensure_tag_exists(request, tag_id)
 
@@ -175,7 +178,8 @@ async def add_game_tag(request: Request, game_id: int, tag_id: int):
     status_code=204,
 )
 async def delete_game_tag(request: Request, game_id: int, tag_id: int):
-    await tools.access_admin(request=request)
+    access_result = await tools.access_game_action(request=request, game_id=game_id)
+    tools.require_access_right(request, access_result, access_result.edit.tags)
     await _ensure_game_exists(request, game_id)
     await _ensure_tag_exists(request, tag_id)
 

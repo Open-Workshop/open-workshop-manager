@@ -252,6 +252,7 @@ def _tag_access(
 ) -> types.SimpleNamespace:
     return types.SimpleNamespace(
         authenticated=authenticated,
+        owner_id=42 if authenticated else -1,
         add=types.SimpleNamespace(
             value=add,
             reason="ok" if add else "no add",
@@ -932,10 +933,10 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(len(session.scalar_statements), 1)
         self.assertEqual(len(session.execute_statements), 3)
 
-    def test_orphan_tag_list_requires_admin_and_checks_usage_relations(self) -> None:
+    def test_orphan_tag_list_requires_tag_delete_and_checks_usage_relations(self) -> None:
         tag = types.SimpleNamespace(id=10, name="Gameplay")
         session = _RecordingSession(rows=[tag], scalar_values=[1])
-        access_mock = AsyncMock(return_value=True)
+        access_mock = AsyncMock(return_value=_tag_access())
 
         with (
             patch.object(
@@ -943,7 +944,7 @@ class ModListSizeFilterTests(unittest.TestCase):
             ),
             patch.object(
                 self.api_tag.tools,
-                "access_admin",
+                "access_tags",
                 access_mock,
             ),
         ):
@@ -1186,10 +1187,10 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("unity_allowed_mods_tags", list_sql)
         self.assertIn("game_id = 7", list_sql)
 
-    def test_orphan_tag_group_list_requires_admin_and_checks_empty_groups(self) -> None:
+    def test_orphan_tag_group_list_requires_tag_delete_and_checks_empty_groups(self) -> None:
         group = types.SimpleNamespace(id=5, name="Resolution")
         session = _RecordingSession(rows=[group], scalar_values=[1])
-        access_mock = AsyncMock(return_value=True)
+        access_mock = AsyncMock(return_value=_tag_access())
 
         with (
             patch.object(
@@ -1197,7 +1198,7 @@ class ModListSizeFilterTests(unittest.TestCase):
             ),
             patch.object(
                 self.api_tag_group.tools,
-                "access_admin",
+                "access_tags",
                 access_mock,
             ),
         ):
@@ -1273,8 +1274,8 @@ class ModListSizeFilterTests(unittest.TestCase):
             ),
             patch.object(
                 self.api_tag_group.tools,
-                "access_admin",
-                AsyncMock(return_value=True),
+                "access_tags",
+                AsyncMock(return_value=_tag_access()),
             ),
         ):
             response = self.client.delete(f"{self.main_url}/tag-groups/5")

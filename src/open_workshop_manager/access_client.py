@@ -359,6 +359,44 @@ async def resolve_tags(
     return SimpleCrudResponse.model_validate(data)
 
 
+async def resolve_genres(
+    *,
+    request: Request | None = None,
+) -> SimpleCrudResponse:
+    data = await _request_json(
+        "PATCH",
+        "/genres",
+        None,
+        cookies=_session_cookies(request),
+    )
+    return SimpleCrudResponse.model_validate(data)
+
+
+async def resolve_game_add(
+    *,
+    request: Request | None = None,
+) -> GameAddResponse:
+    return await _put_model(
+        "/game",
+        None,
+        GameAddResponse,
+        cookies=_session_cookies(request),
+    )
+
+
+async def resolve_game(
+    *,
+    request: Request | None = None,
+    game_id: int,
+) -> GameResponse:
+    return await _post_model(
+        f"/game/{game_id}",
+        {},
+        GameResponse,
+        cookies=_session_cookies(request),
+    )
+
+
 async def resolve_mod(
     *,
     request: Request | None = None,

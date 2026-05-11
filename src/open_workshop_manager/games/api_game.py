@@ -375,7 +375,8 @@ async def create_game(
     request: Request,
     payload: GameCreate,
 ) -> GameRead:
-    await tools.access_admin(request=request)
+    access_result = await tools.access_game_add(request=request)
+    tools.require_access_right(request, access_result, access_result.add)
 
     async with catalog.AsyncSessionLocal() as session:
         game = catalog.Game(
@@ -420,7 +421,17 @@ async def patch_game(
     game_id: int,
     payload: GamePatch,
 ) -> GameRead:
-    await tools.access_admin(request=request)
+    access_result = await tools.access_game_action(request=request, game_id=game_id)
+    edit_rights = access_result.edit
+    tools.require_any_access_right(
+        request,
+        access_result,
+        [
+            edit_rights.title,
+            edit_rights.description,
+            edit_rights.short_description,
+        ],
+    )
 
     data = payload.model_dump(exclude_unset=True)
     ensure_non_empty_patch(data)
@@ -430,6 +441,16 @@ async def patch_game(
         ("name", "type", "source"),
         detail="Game patch fields cannot be null.",
     )
+    field_rights = {
+        "name": edit_rights.title,
+        "type": edit_rights.title,
+        "source": edit_rights.title,
+        "source_id": edit_rights.title,
+        "description": edit_rights.description,
+        "short_description": edit_rights.short_description,
+    }
+    for field_name in data:
+        tools.require_access_right(request, access_result, field_rights.get(field_name))
 
     async with catalog.AsyncSessionLocal() as session:
         game = await session.get(catalog.Game, game_id)
@@ -483,7 +504,8 @@ async def patch_game(
     },
 )
 async def delete_game(request: Request, game_id: int) -> Response:
-    await tools.access_admin(request=request)
+    access_result = await tools.access_game_action(request=request, game_id=game_id)
+    tools.require_access_right(request, access_result, access_result.delete)
 
     async with catalog.AsyncSessionLocal() as session:
         game = await session.get(catalog.Game, game_id)

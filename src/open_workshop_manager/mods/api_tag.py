@@ -258,16 +258,12 @@ async def _serialize_tags_with_includes(
 
 async def _ensure_tag_crud_access(request: Request, *right_names: str) -> None:
     access_result = await tools.access_tags(request=request)
-    if not access_result.authenticated:
-        raise standarts.UnauthorizedError(instance=str(request.url))
     for right_name in right_names:
-        right = getattr(access_result, right_name, None)
-        if not getattr(right, "value", False):
-            raise standarts.ForbiddenError(
-                detail=getattr(right, "reason", "Forbidden"),
-                instance=str(request.url),
-                context={"reason_code": getattr(right, "reason_code", "forbidden")},
-            )
+        tools.require_access_right(
+            request,
+            access_result,
+            getattr(access_result, right_name, None),
+        )
 
 
 async def _copy_tag_associations(
@@ -403,7 +399,7 @@ async def list_orphaned_tags(
         description="Additional fields to include in each tag object.",
     ),
 ):
-    await tools.access_admin(request=request)
+    await _ensure_tag_crud_access(request, "delete")
     include_set = _normalize_include(request, include)
 
     orphan_condition = _tag_is_orphan_condition()

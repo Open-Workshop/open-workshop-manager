@@ -175,28 +175,63 @@ def _allowed_mod_ids(
     return allowed_ids
 
 
+def require_access_authenticated(request: Request, access_result: object) -> None:
+    try:
+        owner_id = int(getattr(access_result, "owner_id", -1))
+    except (TypeError, ValueError):
+        owner_id = -1
+
+    if not getattr(access_result, "authenticated", False) or owner_id < 0:
+        raise standarts.UnauthorizedError(instance=str(request.url))
+
+
+def _raise_forbidden_from_right(request: Request, right: object | None) -> None:
+    raise standarts.ForbiddenError(
+        detail=getattr(right, "reason", "Forbidden"),
+        instance=str(request.url),
+        context={"reason_code": getattr(right, "reason_code", "forbidden")},
+    )
+
+
+def require_access_right(
+    request: Request,
+    access_result: object,
+    right: object | None,
+) -> None:
+    require_access_authenticated(request, access_result)
+    if not getattr(right, "value", False):
+        _raise_forbidden_from_right(request, right)
+
+
+def require_any_access_right(
+    request: Request,
+    access_result: object,
+    rights: Sequence[object | None],
+) -> None:
+    require_access_authenticated(request, access_result)
+    if any(getattr(right, "value", False) for right in rights):
+        return
+    fallback_right = next((right for right in rights if right is not None), None)
+    _raise_forbidden_from_right(request, fallback_right)
+
+
 async def access_admin(request: Request) -> bool:
     """
-    Asynchronously checks if the user has admin access.
+    Asynchronously checks a legacy admin-only gate through the access service.
 
     Args:
         request (Request): The request object.
 
     Returns:
-        bool: True when the current session belongs to an admin user.
+        bool: True when the access service grants the legacy admin-only right.
 
     Raises:
         standarts.UnauthorizedError: If the session is invalid.
-        standarts.AdminRequiredError: If the session is valid but the user is not an admin.
+        standarts.ForbiddenError: If the access service denies the legacy admin-only right.
     """
-    access_result = await account.check_access(request=request)
-    if not access_result or access_result.get("owner_id", -1) < 0:
-        raise standarts.UnauthorizedError(instance=str(request.url))
-
-    if access_result.admin:
-        return True
-
-    raise standarts.AdminRequiredError(instance=str(request.url))
+    access_result = await access_game_add(request=request)
+    require_access_right(request, access_result, access_result.add)
+    return True
 
 
 def str_to_list(string: str | list) -> list:
@@ -442,6 +477,41 @@ async def access_tags(
     try:
         return await access_client.resolve_tags(
             request=request,
+        )
+    except access_client.AccessServiceError as exc:
+        _raise_access_service_error(str(request.url), exc)
+
+
+async def access_genres(
+    request: Request,
+) -> access_client.SimpleCrudResponse:
+    try:
+        return await access_client.resolve_genres(
+            request=request,
+        )
+    except access_client.AccessServiceError as exc:
+        _raise_access_service_error(str(request.url), exc)
+
+
+async def access_game_add(
+    request: Request,
+) -> access_client.GameAddResponse:
+    try:
+        return await access_client.resolve_game_add(
+            request=request,
+        )
+    except access_client.AccessServiceError as exc:
+        _raise_access_service_error(str(request.url), exc)
+
+
+async def access_game_action(
+    request: Request,
+    game_id: int,
+) -> access_client.GameResponse:
+    try:
+        return await access_client.resolve_game(
+            request=request,
+            game_id=game_id,
         )
     except access_client.AccessServiceError as exc:
         _raise_access_service_error(str(request.url), exc)

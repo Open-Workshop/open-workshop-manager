@@ -84,7 +84,11 @@ async def _require_owner_access(request: Request, owner_type: str, owner_id: int
     if owner_type == "modpacks":
         await tools.access_modpacks(request=request, modpack_ids=[owner_id], edit=edit)
         return
-    await tools.access_admin(request=request)
+    if owner_type == "games":
+        access_result = await tools.access_game_action(request=request, game_id=owner_id)
+        tools.require_access_right(request, access_result, access_result.edit.screenshots)
+        return
+    raise standarts.UnsupportedOwnerTypeError(instance=str(request.url))
 
 
 @router.get(
