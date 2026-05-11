@@ -1643,10 +1643,14 @@ class ModListSizeFilterTests(unittest.TestCase):
         session = _RecordingSession(
             get_value=_game(),
             execute_results=[[_tag(), _tag(tag_id=11, name="1920x1080", group=group)]],
+            scalar_values=[2],
         )
 
         with patch.object(self.api_association_getter.catalog, "AsyncSessionLocal", return_value=session):
-            response = self.client.get(f"{self.main_url}/games/1/tags")
+            response = self.client.get(
+                f"{self.main_url}/games/1/tags",
+                params={"page": 0, "page_size": 20},
+            )
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -1657,9 +1661,51 @@ class ModListSizeFilterTests(unittest.TestCase):
                 {"id": 11, "name": "1920x1080", "group": {"id": 5, "name": "Resolution"}},
             ],
         )
-        self.assertEqual(body["pagination"]["total"], 2)
-        self.assertEqual(len(session.scalar_statements), 0)
+        self.assertEqual(
+            body["pagination"],
+            {
+                "page": 0,
+                "page_size": 20,
+                "offset": 0,
+                "total": 2,
+                "has_next": False,
+                "has_previous": False,
+            },
+        )
+        self.assertEqual(len(session.scalar_statements), 1)
         self.assertEqual(len(session.execute_statements), 1)
+
+    def test_game_tags_endpoint_filters_by_name_and_ids(self) -> None:
+        group = types.SimpleNamespace(id=5, name="Resolution")
+        session = _RecordingSession(
+            get_value=_game(),
+            execute_results=[[_tag(tag_id=11, name="1920x1080", group=group)]],
+            scalar_values=[1],
+        )
+
+        with patch.object(self.api_association_getter.catalog, "AsyncSessionLocal", return_value=session):
+            response = self.client.get(
+                f"{self.main_url}/games/1/tags",
+                params={"page": 0, "page_size": 20, "name": "1920", "ids": [11, 12]},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["items"],
+            [
+                {"id": 11, "name": "1920x1080", "group": {"id": 5, "name": "Resolution"}},
+            ],
+        )
+        self.assertEqual(len(session.scalar_statements), 1)
+        self.assertEqual(len(session.execute_statements), 1)
+        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertIn("lower(tags.name) like lower('%1920%')", count_sql)
+        self.assertIn("1920", count_sql)
+        self.assertIn("in (11, 12)", count_sql)
+        self.assertIn("lower(tags.name) like lower('%1920%')", list_sql)
+        self.assertIn("1920", list_sql)
+        self.assertIn("in (11, 12)", list_sql)
 
     def test_resources_list_is_get_safe(self) -> None:
         session = _RecordingSession(rows=[_resource(sort_order=5)], scalar_values=[1])
@@ -1848,6 +1894,10 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("author_id", parameter_names("/mods/feed", "get"))
         self.assertIn("user", parameter_names("/mods/feed", "get"))
         self.assertIn("include", parameter_names("/tags", "get"))
+        self.assertIn("page", parameter_names("/games/{game_id}/tags", "get"))
+        self.assertIn("page_size", parameter_names("/games/{game_id}/tags", "get"))
+        self.assertIn("name", parameter_names("/games/{game_id}/tags", "get"))
+        self.assertIn("ids", parameter_names("/games/{game_id}/tags", "get"))
         self.assertEqual(
             parameter_names("/tags/orphaned", "get"),
             {"page", "page_size", "name", "ids", "include"},

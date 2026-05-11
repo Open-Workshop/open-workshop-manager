@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Query, Request
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import joinedload
 
 from open_workshop_manager import standarts, tools
@@ -77,30 +77,72 @@ async def get_game_genres(request: Request, game_id: int) -> dict[str, object]:
     "/games/{game_id}/tags",
     tags=["Game", "Tag", "Association"],
     summary="List game tags",
-    description="Returns all tags allowed for a game, including grouped tags.",
+    description=(
+        "Returns a paginated list of tags allowed for a game, including grouped tags. "
+        "Use name and ID filters to search within the game tag set."
+    ),
     status_code=200,
     response_model=TagListResponse,
     response_model_exclude_none=True,
     response_description="Paginated tag list.",
 )
-async def get_game_tags(request: Request, game_id: int) -> dict[str, object]:
+async def get_game_tags(
+    request: Request,
+    game_id: int,
+    page_size: int = Query(
+        LIMITS.page.default,
+        ge=LIMITS.page.min,
+        le=LIMITS.page.max,
+        description="Maximum number of tags to return per page.",
+    ),
+    page: int = Query(0, ge=0, description="Zero-based page index."),
+    name: str | None = Query(
+        default=None,
+        max_length=LIMITS.tag.name_max,
+        description="Case-insensitive substring filter for the tag name.",
+    ),
+    ids: list[int] = Query(default_factory=list, description="Limit results to these tag IDs."),
+) -> dict[str, object]:
+    ids = unique_ints(ids)
     async with catalog.AsyncSessionLocal() as session:
         game = await session.get(catalog.Game, game_id)
         if game is None:
             _raise_game_not_found(request)
 
+        count_stmt = (
+            select(func.count())
+            .select_from(catalog.Tag)
+            .join(catalog.allowed_mods_tags)
+            .where(catalog.allowed_mods_tags.c.game_id == game_id)
+        )
+        list_stmt = (
+            select(catalog.Tag)
+            .join(catalog.allowed_mods_tags)
+            .where(catalog.allowed_mods_tags.c.game_id == game_id)
+            .options(joinedload(catalog.Tag.group))
+        )
+
+        if name:
+            condition = catalog.Tag.name.ilike(f"%{name}%")
+            count_stmt = count_stmt.where(condition)
+            list_stmt = list_stmt.where(condition)
+
+        if ids:
+            count_stmt = count_stmt.where(catalog.Tag.id.in_(ids))
+            list_stmt = list_stmt.where(catalog.Tag.id.in_(ids))
+
+        total = int((await session.scalar(count_stmt)) or 0)
+        offset = page * page_size
         rows = (
             await session.execute(
-                select(catalog.Tag)
-                .join(catalog.allowed_mods_tags)
-                .where(catalog.allowed_mods_tags.c.game_id == game_id)
-                .options(joinedload(catalog.Tag.group))
-                .order_by(catalog.Tag.group_id, catalog.Tag.name, catalog.Tag.id)
+                list_stmt.order_by(catalog.Tag.group_id, catalog.Tag.name, catalog.Tag.id)
+                .offset(offset)
+                .limit(page_size)
             )
         ).scalars().all()
 
     items = _serialize_tags(rows)
-    return make_list_response(items, page=0, page_size=max(len(items), 1), total=len(items))
+    return make_list_response(items, page=page, page_size=page_size, total=total)
 
 
 @router.get(
