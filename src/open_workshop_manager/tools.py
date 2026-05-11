@@ -98,7 +98,9 @@ def decode_transfer_jwt(token: str, audience: str) -> dict | None:
     if not secret:
         return None
     try:
-        return jwt.decode(token, secret, algorithms=[TRANSFER_JWT_ALG], audience=audience)
+        return jwt.decode(
+            token, secret, algorithms=[TRANSFER_JWT_ALG], audience=audience
+        )
     except jwt.PyJWTError:
         return None
 
@@ -127,7 +129,9 @@ def _raise_access_service_error(
             instance=instance,
         ) from exc
     if status_code is not None:
-        detail = getattr(exc, "response_text", None) or "Access service rejected request"
+        detail = (
+            getattr(exc, "response_text", None) or "Access service rejected request"
+        )
         raise HTTPException(status_code=status_code, detail=detail) from exc
     raise standarts.InternalServerError(
         detail="Access service unavailable",
@@ -432,6 +436,17 @@ async def access_modpack_add(
         _raise_access_service_error(str(request.url), exc)
 
 
+async def access_tags(
+    request: Request,
+) -> access_client.SimpleCrudResponse:
+    try:
+        return await access_client.resolve_tags(
+            request=request,
+        )
+    except access_client.AccessServiceError as exc:
+        _raise_access_service_error(str(request.url), exc)
+
+
 async def access_profile(
     request: Request,
     profile_id: int,
@@ -449,10 +464,16 @@ async def access_vote_for_reputation(
     request: Request,
 ) -> access_client.ProfileResponse:
     access_result = await account.check_access(request=request)
-    if not access_result or not access_result.authenticated or access_result.owner_id < 0:
+    if (
+        not access_result
+        or not access_result.authenticated
+        or access_result.owner_id < 0
+    ):
         raise standarts.UnauthorizedError(instance=str(request.url))
 
-    profile_access = await access_profile(request=request, profile_id=access_result.owner_id)
+    profile_access = await access_profile(
+        request=request, profile_id=access_result.owner_id
+    )
     if not profile_access.authenticated:
         raise standarts.UnauthorizedError(instance=str(request.url))
 
@@ -768,7 +789,9 @@ async def delete_resources(
         len(resources_ids),
     )
     async with catalog.AsyncSessionLocal() as session:
-        query = select(catalog.Resource).where(catalog.Resource.owner_type == owner_type)
+        query = select(catalog.Resource).where(
+            catalog.Resource.owner_type == owner_type
+        )
 
         if owner_id > 0:
             query = query.where(catalog.Resource.owner_id == owner_id)
@@ -842,9 +865,11 @@ def sort_mods(sort_by: str, dependents_count_stmt=None):
         "public": catalog.Mod.public,
         "adult": catalog.Mod.adult,
         "game_id": catalog.Mod.game,
-        "dependents_count": dependents_count_stmt
-        if dependents_count_stmt is not None
-        else catalog.Mod.downloads,
+        "dependents_count": (
+            dependents_count_stmt
+            if dependents_count_stmt is not None
+            else catalog.Mod.downloads
+        ),
     }
     return _sort_clause(sort_by, mapping, default="downloads")
 

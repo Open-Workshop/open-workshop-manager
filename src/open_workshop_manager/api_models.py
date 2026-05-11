@@ -67,17 +67,25 @@ class GameRead(ReadModel):
 
 class GameCreate(ApiModel):
     name: str = Field(min_length=1, max_length=LIMITS.game.name_max)
-    short_description: str | None = Field(default=None, max_length=LIMITS.game.short_desc_max)
+    short_description: str | None = Field(
+        default=None, max_length=LIMITS.game.short_desc_max
+    )
     description: str | None = Field(default=None, max_length=LIMITS.game.desc_max)
     type: Literal["game", "app"] = "game"
 
 
 class GamePatch(ApiModel):
-    name: str | None = Field(default=None, min_length=1, max_length=LIMITS.game.name_max)
-    short_description: str | None = Field(default=None, max_length=LIMITS.game.short_desc_max)
+    name: str | None = Field(
+        default=None, min_length=1, max_length=LIMITS.game.name_max
+    )
+    short_description: str | None = Field(
+        default=None, max_length=LIMITS.game.short_desc_max
+    )
     description: str | None = Field(default=None, max_length=LIMITS.game.desc_max)
     type: Literal["game", "app"] | None = None
-    source: str | None = Field(default=None, min_length=1, max_length=LIMITS.game.source_max)
+    source: str | None = Field(
+        default=None, min_length=1, max_length=LIMITS.game.source_max
+    )
     source_id: str | None = Field(
         default=None,
         min_length=1,
@@ -105,7 +113,9 @@ class GenreCreate(ApiModel):
 
 
 class GenrePatch(ApiModel):
-    name: str | None = Field(default=None, min_length=1, max_length=LIMITS.genre.name_max)
+    name: str | None = Field(
+        default=None, min_length=1, max_length=LIMITS.genre.name_max
+    )
 
 
 class GenreListResponse(ListResponse[GenreRead]):
@@ -147,6 +157,16 @@ class TagPatch(ApiModel):
     group_id: int | None = Field(default=None, ge=1)
 
 
+class TagMerge(ApiModel):
+    tags: list[int] = Field(
+        min_length=2, description="Tag IDs to merge into a new tag."
+    )
+    group_id: int | None = Field(default=None, ge=1)
+    title: str | None = Field(
+        default=None, min_length=1, max_length=LIMITS.tag.name_max
+    )
+
+
 class TagListResponse(ListResponse[TagRead]):
     pass
 
@@ -166,14 +186,18 @@ class ResourceRead(ReadModel):
 class ResourceCreate(ApiModel):
     owner_type: Literal["mods", "games", "modpacks"]
     owner_id: int = Field(ge=1)
-    type: str = Field(min_length=LIMITS.resource.type_min, max_length=LIMITS.resource.type_max)
+    type: str = Field(
+        min_length=LIMITS.resource.type_min, max_length=LIMITS.resource.type_max
+    )
     sort_order: int = Field(
         default=0,
         ge=LIMITS.resource.sort_order_min,
         le=LIMITS.resource.sort_order_max,
         description="Manual ordering key for resource lists.",
     )
-    url: str = Field(min_length=LIMITS.resource.url_min, max_length=LIMITS.resource.url_max)
+    url: str = Field(
+        min_length=LIMITS.resource.url_min, max_length=LIMITS.resource.url_max
+    )
 
 
 class ResourcePatch(ApiModel):
@@ -309,7 +333,9 @@ class ModpackModsUpsert(ApiModel):
 
 class ModCreate(ApiModel):
     name: str = Field(min_length=1, max_length=LIMITS.mod.name_max)
-    short_description: str | None = Field(default=None, max_length=LIMITS.mod.short_desc_max)
+    short_description: str | None = Field(
+        default=None, max_length=LIMITS.mod.short_desc_max
+    )
     description: str | None = Field(default=None, max_length=LIMITS.mod.desc_max)
     source: str = Field(default="local", min_length=1, max_length=LIMITS.mod.source_max)
     source_id: str | None = Field(
@@ -318,7 +344,9 @@ class ModCreate(ApiModel):
         max_length=LIMITS.mod.source_id_max,
         description="Opaque source-specific identifier for the mod.",
     )
-    git_url: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.git_url_max)
+    git_url: str | None = Field(
+        default=None, min_length=1, max_length=LIMITS.mod.git_url_max
+    )
     game_id: int = Field(ge=1)
     public: int = Field(default=0, ge=0, le=2)
     adult: bool = False
@@ -332,16 +360,22 @@ class ModCreate(ApiModel):
 
 class ModPatch(ApiModel):
     name: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.name_max)
-    short_description: str | None = Field(default=None, max_length=LIMITS.mod.short_desc_max)
+    short_description: str | None = Field(
+        default=None, max_length=LIMITS.mod.short_desc_max
+    )
     description: str | None = Field(default=None, max_length=LIMITS.mod.desc_max)
-    source: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.source_max)
+    source: str | None = Field(
+        default=None, min_length=1, max_length=LIMITS.mod.source_max
+    )
     source_id: str | None = Field(
         default=None,
         min_length=1,
         max_length=LIMITS.mod.source_id_max,
         description="Opaque source-specific identifier for the mod.",
     )
-    git_url: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.git_url_max)
+    git_url: str | None = Field(
+        default=None, min_length=1, max_length=LIMITS.mod.git_url_max
+    )
     game_id: int | None = Field(default=None, ge=1)
     public: int | None = Field(default=None, ge=0, le=2)
     adult: bool | None = None
@@ -354,7 +388,9 @@ class ModPatch(ApiModel):
 
 class ModpackCreate(ApiModel):
     name: str = Field(min_length=1, max_length=LIMITS.mod.name_max)
-    short_description: str | None = Field(default=None, max_length=LIMITS.mod.short_desc_max)
+    short_description: str | None = Field(
+        default=None, max_length=LIMITS.mod.short_desc_max
+    )
     description: str | None = Field(default=None, max_length=LIMITS.mod.desc_max)
     source: str = Field(default="local", min_length=1, max_length=LIMITS.mod.source_max)
     source_id: str | None = Field(
@@ -376,9 +412,13 @@ class ModpackCreate(ApiModel):
 
 class ModpackPatch(ApiModel):
     name: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.name_max)
-    short_description: str | None = Field(default=None, max_length=LIMITS.mod.short_desc_max)
+    short_description: str | None = Field(
+        default=None, max_length=LIMITS.mod.short_desc_max
+    )
     description: str | None = Field(default=None, max_length=LIMITS.mod.desc_max)
-    source: str | None = Field(default=None, min_length=1, max_length=LIMITS.mod.source_max)
+    source: str | None = Field(
+        default=None, min_length=1, max_length=LIMITS.mod.source_max
+    )
     source_id: str | None = Field(
         default=None,
         min_length=1,

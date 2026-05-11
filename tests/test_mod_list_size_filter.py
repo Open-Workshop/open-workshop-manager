@@ -100,7 +100,10 @@ class _RecordingSession:
         if self.execute_results:
             return _DummyResult(self.execute_results.pop(0))
         selected_columns = list(getattr(stmt, "selected_columns", []))
-        if len(selected_columns) == 1 and getattr(selected_columns[0], "name", None) == "id":
+        if (
+            len(selected_columns) == 1
+            and getattr(selected_columns[0], "name", None) == "id"
+        ):
             return _DummyResult([int(getattr(row, "id", row)) for row in self.rows])
         return _DummyResult(self.rows)
 
@@ -240,6 +243,33 @@ def _profile(
     )
 
 
+def _tag_access(
+    *,
+    authenticated: bool = True,
+    add: bool = True,
+    edit: bool = True,
+    delete: bool = True,
+) -> types.SimpleNamespace:
+    return types.SimpleNamespace(
+        authenticated=authenticated,
+        add=types.SimpleNamespace(
+            value=add,
+            reason="ok" if add else "no add",
+            reason_code="allowed" if add else "forbidden",
+        ),
+        edit=types.SimpleNamespace(
+            value=edit,
+            reason="ok" if edit else "no edit",
+            reason_code="allowed" if edit else "forbidden",
+        ),
+        delete=types.SimpleNamespace(
+            value=delete,
+            reason="ok" if delete else "no delete",
+            reason_code="allowed" if delete else "forbidden",
+        ),
+    )
+
+
 def _game(
     *,
     game_id: int = 1,
@@ -309,8 +339,12 @@ class ModListSizeFilterTests(unittest.TestCase):
         cls.api_tag = import_module("open_workshop_manager.mods.api_tag")
         cls.api_tag_group = import_module("open_workshop_manager.mods.api_tag_group")
         cls.api_modpack = import_module("open_workshop_manager.modpacks.api_modpack")
-        cls.api_association = import_module("open_workshop_manager.association.api_association_control")
-        cls.api_association_getter = import_module("open_workshop_manager.association.api_association_getter")
+        cls.api_association = import_module(
+            "open_workshop_manager.association.api_association_control"
+        )
+        cls.api_association_getter = import_module(
+            "open_workshop_manager.association.api_association_getter"
+        )
         cls.api_game = import_module("open_workshop_manager.games.api_game")
         cls.api_resource = import_module("open_workshop_manager.mods.api_resource")
         cls.api_profile = import_module("open_workshop_manager.social.api_profile")
@@ -340,7 +374,9 @@ class ModListSizeFilterTests(unittest.TestCase):
     def test_mod_list_returns_items_and_pagination(self) -> None:
         session = _RecordingSession(rows=[_mod()], scalar_values=[1])
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/mods",
                 params={"page": 0, "page_size": 20, "sort": "-downloads"},
@@ -348,14 +384,17 @@ class ModListSizeFilterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(body["pagination"], {
-            "page": 0,
-            "page_size": 20,
-            "offset": 0,
-            "total": 1,
-            "has_next": False,
-            "has_previous": False,
-        })
+        self.assertEqual(
+            body["pagination"],
+            {
+                "page": 0,
+                "page_size": 20,
+                "offset": 0,
+                "total": 1,
+                "has_next": False,
+                "has_previous": False,
+            },
+        )
         self.assertEqual(body["items"][0]["id"], 7)
         self.assertEqual(body["items"][0]["source_id"], "11")
         self.assertIn("adult", body["items"][0])
@@ -366,15 +405,23 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(len(session.scalar_statements), 1)
         self.assertEqual(len(session.execute_statements), 1)
 
-        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True}))
-        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        count_sql = str(
+            session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})
+        )
+        list_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        )
         self.assertIn("mods.public = 0", count_sql)
         self.assertIn("mods.public = 0", list_sql)
 
     def test_mod_list_supports_rating_sort(self) -> None:
         session = _RecordingSession(rows=[_mod(rating=50)], scalar_values=[1])
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/mods",
                 params={"page": 0, "page_size": 20, "sort": "-rating"},
@@ -384,13 +431,19 @@ class ModListSizeFilterTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["items"][0]["rating"], 50)
         self.assertEqual(body["items"][0]["votes_count"], 0)
-        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        list_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        )
         self.assertIn("ORDER BY mods.rating DESC", list_sql)
 
     def test_mod_list_filters_by_author_alias(self) -> None:
         session = _RecordingSession(rows=[_mod(mod_id=11)], scalar_values=[1])
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/mods",
                 params={"page": 0, "page_size": 20, "sort": "-created_at", "user": 3},
@@ -402,8 +455,14 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(len(session.scalar_statements), 1)
         self.assertEqual(len(session.execute_statements), 1)
 
-        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True}))
-        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        count_sql = str(
+            session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})
+        )
+        list_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        )
         self.assertIn("mods_and_authors", count_sql)
         self.assertIn("user_id = 3", count_sql)
         self.assertIn("mods.public = 0", count_sql)
@@ -418,10 +477,15 @@ class ModListSizeFilterTests(unittest.TestCase):
         )
         access_mock = AsyncMock(return_value=[11, 12])
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_mod.tools,
-            "access_mods",
-            access_mock,
+        with (
+            patch.object(
+                self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_mod.tools,
+                "access_mods",
+                access_mock,
+            ),
         ):
             response = self.client.get(
                 f"{self.main_url}/mods",
@@ -447,9 +511,19 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertTrue(access_call["catalog"])
         self.assertTrue(access_call["check_mode"])
 
-        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True}))
-        candidate_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
-        list_sql = str(session.execute_statements[1].compile(compile_kwargs={"literal_binds": True}))
+        count_sql = str(
+            session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})
+        )
+        candidate_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        )
+        list_sql = str(
+            session.execute_statements[1].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        )
         self.assertNotIn("mods.public = 0", count_sql)
         self.assertNotIn("mods.public = 0", candidate_sql)
         self.assertNotIn("mods.public = 0", list_sql)
@@ -459,18 +533,33 @@ class ModListSizeFilterTests(unittest.TestCase):
             with self.subTest(adult_value=adult_value):
                 session = _RecordingSession(rows=[_mod()], scalar_values=[1])
 
-                with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+                with patch.object(
+                    self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+                ):
                     response = self.client.get(
                         f"{self.main_url}/mods",
-                        params={"page": 0, "page_size": 20, "sort": "-downloads", "adult": adult_value},
+                        params={
+                            "page": 0,
+                            "page_size": 20,
+                            "sort": "-downloads",
+                            "adult": adult_value,
+                        },
                     )
 
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(len(session.scalar_statements), 1)
                 self.assertEqual(len(session.execute_statements), 1)
 
-                count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
-                list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+                count_sql = str(
+                    session.scalar_statements[0].compile(
+                        compile_kwargs={"literal_binds": True}
+                    )
+                ).lower()
+                list_sql = str(
+                    session.execute_statements[0].compile(
+                        compile_kwargs={"literal_binds": True}
+                    )
+                ).lower()
                 self.assertIn(f"mods.adult = {expected_sql_value}", count_sql)
                 self.assertIn(f"mods.adult = {expected_sql_value}", list_sql)
 
@@ -478,7 +567,9 @@ class ModListSizeFilterTests(unittest.TestCase):
         bare_session = _RecordingSession(rows=[_mod()], scalar_values=[1])
         explicit_session = _RecordingSession(rows=[_mod()], scalar_values=[1])
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=bare_session):
+        with patch.object(
+            self.api_mod.catalog, "AsyncSessionLocal", return_value=bare_session
+        ):
             bare_response = self.client.get(
                 f"{self.main_url}/mods",
                 params={
@@ -488,7 +579,9 @@ class ModListSizeFilterTests(unittest.TestCase):
                 },
             )
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=explicit_session):
+        with patch.object(
+            self.api_mod.catalog, "AsyncSessionLocal", return_value=explicit_session
+        ):
             explicit_response = self.client.get(
                 f"{self.main_url}/mods",
                 params={
@@ -505,10 +598,26 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(len(bare_session.execute_statements), 1)
         self.assertEqual(len(explicit_session.execute_statements), 1)
 
-        bare_count_sql = str(bare_session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
-        explicit_count_sql = str(explicit_session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
-        bare_list_sql = str(bare_session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
-        explicit_list_sql = str(explicit_session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        bare_count_sql = str(
+            bare_session.scalar_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
+        explicit_count_sql = str(
+            explicit_session.scalar_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
+        bare_list_sql = str(
+            bare_session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
+        explicit_list_sql = str(
+            explicit_session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
         self.assertEqual(bare_count_sql, explicit_count_sql)
         self.assertEqual(bare_list_sql, explicit_list_sql)
         self.assertIn("mods_dependencies", bare_count_sql)
@@ -517,7 +626,9 @@ class ModListSizeFilterTests(unittest.TestCase):
     def test_mod_list_filters_dependencies_by_per_item_modes(self) -> None:
         session = _RecordingSession(rows=[_mod()], scalar_values=[1])
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/mods",
                 params={
@@ -531,8 +642,14 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(len(session.scalar_statements), 1)
         self.assertEqual(len(session.execute_statements), 1)
 
-        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
-        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        count_sql = str(
+            session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        list_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
         self.assertIn("mods_dependencies", count_sql)
         self.assertIn("mods_dependencies", list_sql)
         self.assertIn("optional", count_sql)
@@ -545,7 +662,9 @@ class ModListSizeFilterTests(unittest.TestCase):
     def test_mod_list_excludes_conflicting_mods(self) -> None:
         session = _RecordingSession(rows=[_mod()], scalar_values=[1])
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/mods",
                 params={
@@ -559,8 +678,14 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(len(session.scalar_statements), 1)
         self.assertEqual(len(session.execute_statements), 1)
 
-        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
-        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        count_sql = str(
+            session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        list_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
         self.assertIn("mods_conflicts", count_sql)
         self.assertIn("mods_conflicts", list_sql)
         self.assertIn("conflict", count_sql)
@@ -574,7 +699,9 @@ class ModListSizeFilterTests(unittest.TestCase):
         bare_session = _RecordingSession(rows=[_mod()], scalar_values=[1])
         explicit_session = _RecordingSession(rows=[_mod()], scalar_values=[1])
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=bare_session):
+        with patch.object(
+            self.api_mod.catalog, "AsyncSessionLocal", return_value=bare_session
+        ):
             bare_response = self.client.get(
                 f"{self.main_url}/mods",
                 params={
@@ -584,7 +711,9 @@ class ModListSizeFilterTests(unittest.TestCase):
                 },
             )
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=explicit_session):
+        with patch.object(
+            self.api_mod.catalog, "AsyncSessionLocal", return_value=explicit_session
+        ):
             explicit_response = self.client.get(
                 f"{self.main_url}/mods",
                 params={
@@ -601,10 +730,26 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(len(bare_session.execute_statements), 1)
         self.assertEqual(len(explicit_session.execute_statements), 1)
 
-        bare_count_sql = str(bare_session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
-        explicit_count_sql = str(explicit_session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
-        bare_list_sql = str(bare_session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
-        explicit_list_sql = str(explicit_session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        bare_count_sql = str(
+            bare_session.scalar_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
+        explicit_count_sql = str(
+            explicit_session.scalar_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
+        bare_list_sql = str(
+            bare_session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
+        explicit_list_sql = str(
+            explicit_session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
         self.assertEqual(bare_count_sql, explicit_count_sql)
         self.assertEqual(bare_list_sql, explicit_list_sql)
         self.assertIn("mods_dependencies", bare_count_sql)
@@ -613,7 +758,9 @@ class ModListSizeFilterTests(unittest.TestCase):
     def test_mod_list_excludes_dependencies_by_per_item_modes(self) -> None:
         session = _RecordingSession(rows=[_mod()], scalar_values=[1])
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/mods",
                 params={
@@ -627,8 +774,14 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(len(session.scalar_statements), 1)
         self.assertEqual(len(session.execute_statements), 1)
 
-        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
-        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        count_sql = str(
+            session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        list_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
         self.assertIn("mods_dependencies", count_sql)
         self.assertIn("mods_dependencies", list_sql)
         self.assertIn("optional", count_sql)
@@ -664,7 +817,9 @@ class ModListSizeFilterTests(unittest.TestCase):
             scalar_values=[17, 1024, 4096, 2048, 8192],
         )
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(f"{self.main_url}/mods/feed", params={"game": 7})
 
         self.assertEqual(response.status_code, 200)
@@ -685,10 +840,15 @@ class ModListSizeFilterTests(unittest.TestCase):
         )
         access_mock = AsyncMock(return_value=[11, 12])
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_mod.tools,
-            "access_mods",
-            access_mock,
+        with (
+            patch.object(
+                self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_mod.tools,
+                "access_mods",
+                access_mock,
+            ),
         ):
             response = self.client.get(
                 f"{self.main_url}/mods/feed",
@@ -716,7 +876,9 @@ class ModListSizeFilterTests(unittest.TestCase):
             scalar_values=[1],
         )
 
-        with patch.object(self.api_tag.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_tag.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(f"{self.main_url}/tags", params={"name": "game"})
 
         self.assertEqual(response.status_code, 200)
@@ -724,8 +886,14 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(body["items"], [{"id": 10, "name": "Gameplay"}])
         self.assertEqual(len(session.scalar_statements), 1)
         self.assertEqual(len(session.execute_statements), 1)
-        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
-        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        count_sql = str(
+            session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        list_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
         self.assertIn("group_id is null", count_sql)
         self.assertIn("group_id is null", list_sql)
 
@@ -740,7 +908,9 @@ class ModListSizeFilterTests(unittest.TestCase):
             scalar_values=[1],
         )
 
-        with patch.object(self.api_tag.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_tag.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/tags",
                 params={"name": "game", "include": ["games", "orphaned"]},
@@ -767,12 +937,19 @@ class ModListSizeFilterTests(unittest.TestCase):
         session = _RecordingSession(rows=[tag], scalar_values=[1])
         access_mock = AsyncMock(return_value=True)
 
-        with patch.object(self.api_tag.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_tag.tools,
-            "access_admin",
-            access_mock,
+        with (
+            patch.object(
+                self.api_tag.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_tag.tools,
+                "access_admin",
+                access_mock,
+            ),
         ):
-            response = self.client.get(f"{self.main_url}/tags/orphaned", params={"name": "game"})
+            response = self.client.get(
+                f"{self.main_url}/tags/orphaned", params={"name": "game"}
+            )
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -784,8 +961,14 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(len(session.scalar_statements), 1)
         self.assertEqual(len(session.execute_statements), 1)
         access_mock.assert_awaited_once()
-        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
-        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        count_sql = str(
+            session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        list_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
         self.assertIn("unity_mods_tags", count_sql)
         self.assertIn("modpacks_tags", count_sql)
         self.assertIn("unity_allowed_mods_tags", count_sql)
@@ -804,7 +987,9 @@ class ModListSizeFilterTests(unittest.TestCase):
             scalar_values=[False],
         )
 
-        with patch.object(self.api_tag.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_tag.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/tags/123",
                 params={"include": ["group", "games", "orphaned"]},
@@ -829,10 +1014,15 @@ class ModListSizeFilterTests(unittest.TestCase):
             allow_writes=True,
         )
 
-        with patch.object(self.api_tag.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_tag.tools,
-            "access_admin",
-            AsyncMock(return_value=True),
+        with (
+            patch.object(
+                self.api_tag.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_tag.tools,
+                "access_tags",
+                AsyncMock(return_value=_tag_access()),
+            ),
         ):
             response = self.client.post(
                 f"{self.main_url}/tags",
@@ -859,10 +1049,15 @@ class ModListSizeFilterTests(unittest.TestCase):
             allow_writes=True,
         )
 
-        with patch.object(self.api_tag.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_tag.tools,
-            "access_admin",
-            AsyncMock(return_value=True),
+        with (
+            patch.object(
+                self.api_tag.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_tag.tools,
+                "access_tags",
+                AsyncMock(return_value=_tag_access()),
+            ),
         ):
             response = self.client.patch(
                 f"{self.main_url}/tags/124",
@@ -875,17 +1070,117 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIsNone(tag.group)
         self.assertEqual(session.commit_count, 1)
 
+    def test_merge_tags_creates_new_tag_and_moves_associations(self) -> None:
+        group = self.api_tag.catalog.TagGroup(id=9, name="Merged")
+        source_tags = [
+            types.SimpleNamespace(id=3, name="Old A"),
+            types.SimpleNamespace(id=5, name="Old B"),
+        ]
+        session = _RecordingSession(
+            execute_results=[source_tags],
+            get_map={self.api_tag.catalog.TagGroup: group},
+            allow_writes=True,
+        )
+        access_mock = AsyncMock(return_value=_tag_access())
+
+        with (
+            patch.object(
+                self.api_tag.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_tag.tools,
+                "access_tags",
+                access_mock,
+            ),
+        ):
+            response = self.client.post(
+                f"{self.main_url}/tags/merge",
+                json={"tags": [3, 5], "group_id": 9, "title": "Merged Tag"},
+            )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            response.json(),
+            {
+                "id": 100,
+                "name": "Merged Tag",
+                "group": {"id": 9, "name": "Merged"},
+            },
+        )
+        self.assertEqual(response.headers["Location"], "/tags/100")
+        access_mock.assert_awaited_once()
+        self.assertEqual(session.flush_count, 1)
+        self.assertEqual(session.commit_count, 1)
+        self.assertEqual(
+            sum(isinstance(stmt, Insert) for stmt in session.execute_statements), 3
+        )
+        self.assertEqual(
+            sum(isinstance(stmt, Delete) for stmt in session.execute_statements), 4
+        )
+
+    def test_merge_tags_defaults_title_to_first_requested_tag(self) -> None:
+        source_tags = [
+            types.SimpleNamespace(id=3, name="Old A"),
+            types.SimpleNamespace(id=5, name="Old B"),
+        ]
+        session = _RecordingSession(
+            execute_results=[source_tags],
+            allow_writes=True,
+        )
+        access_result = _tag_access()
+
+        with (
+            patch.object(
+                self.api_tag.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_tag.tools,
+                "access_tags",
+                AsyncMock(return_value=access_result),
+            ),
+        ):
+            response = self.client.post(
+                f"{self.main_url}/tags/merge",
+                json={"tags": [5, 3]},
+            )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json(), {"id": 100, "name": "Old B"})
+
+    def test_merge_tags_requires_tag_add_and_delete_rights(self) -> None:
+        access_mock = AsyncMock(return_value=_tag_access(delete=False))
+
+        with patch.object(self.api_tag.tools, "access_tags", access_mock):
+            response = self.client.post(
+                f"{self.main_url}/tags/merge",
+                json={"tags": [3, 5]},
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["context"], {"reason_code": "forbidden"})
+        access_mock.assert_awaited_once()
+
     def test_tag_groups_can_filter_by_game(self) -> None:
         group = types.SimpleNamespace(id=5, name="Resolution")
         session = _RecordingSession(execute_results=[[group]], scalar_values=[1])
 
-        with patch.object(self.api_tag_group.catalog, "AsyncSessionLocal", return_value=session):
-            response = self.client.get(f"{self.main_url}/tag-groups", params={"game_id": 7})
+        with patch.object(
+            self.api_tag_group.catalog, "AsyncSessionLocal", return_value=session
+        ):
+            response = self.client.get(
+                f"{self.main_url}/tag-groups", params={"game_id": 7}
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["items"], [{"id": 5, "name": "Resolution"}])
-        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
-        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        count_sql = str(
+            session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        list_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
         self.assertIn("unity_allowed_mods_tags", count_sql)
         self.assertIn("game_id = 7", count_sql)
         self.assertIn("unity_allowed_mods_tags", list_sql)
@@ -896,12 +1191,19 @@ class ModListSizeFilterTests(unittest.TestCase):
         session = _RecordingSession(rows=[group], scalar_values=[1])
         access_mock = AsyncMock(return_value=True)
 
-        with patch.object(self.api_tag_group.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_tag_group.tools,
-            "access_admin",
-            access_mock,
+        with (
+            patch.object(
+                self.api_tag_group.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_tag_group.tools,
+                "access_admin",
+                access_mock,
+            ),
         ):
-            response = self.client.get(f"{self.main_url}/tag-groups/orphaned", params={"name": "res"})
+            response = self.client.get(
+                f"{self.main_url}/tag-groups/orphaned", params={"name": "res"}
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["items"], [{"id": 5, "name": "Resolution"}])
@@ -909,8 +1211,14 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(len(session.scalar_statements), 1)
         self.assertEqual(len(session.execute_statements), 1)
         access_mock.assert_awaited_once()
-        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
-        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        count_sql = str(
+            session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        list_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
         self.assertIn("tag_groups", count_sql)
         self.assertIn("tags", count_sql)
         self.assertTrue("not (exists" in count_sql or "not exists" in count_sql)
@@ -927,7 +1235,9 @@ class ModListSizeFilterTests(unittest.TestCase):
             scalar_values=[1],
         )
 
-        with patch.object(self.api_tag_group.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_tag_group.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/tag-groups/5/tags",
                 params={"game_id": 7},
@@ -944,7 +1254,9 @@ class ModListSizeFilterTests(unittest.TestCase):
                 }
             ],
         )
-        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        count_sql = str(
+            session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})
+        ).lower()
         self.assertIn("unity_allowed_mods_tags", count_sql)
         self.assertIn("game_id = 7", count_sql)
 
@@ -955,10 +1267,15 @@ class ModListSizeFilterTests(unittest.TestCase):
             scalar_values=[123],
         )
 
-        with patch.object(self.api_tag_group.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_tag_group.tools,
-            "access_admin",
-            AsyncMock(return_value=True),
+        with (
+            patch.object(
+                self.api_tag_group.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_tag_group.tools,
+                "access_admin",
+                AsyncMock(return_value=True),
+            ),
         ):
             response = self.client.delete(f"{self.main_url}/tag-groups/5")
 
@@ -973,12 +1290,18 @@ class ModListSizeFilterTests(unittest.TestCase):
                 [_modpack(modpack_id=17, game=2)],
                 [(17, 21, True)],
                 [(17, 3, "Adventure", None, None), (17, 5, "QoL", None, None)],
-                [_resource(owner_type="modpacks", owner_id=17, type_="banner", sort_order=0)],
+                [
+                    _resource(
+                        owner_type="modpacks", owner_id=17, type_="banner", sort_order=0
+                    )
+                ],
                 [_game(game_id=2)],
             ],
         )
 
-        with patch.object(self.api_modpack.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_modpack.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/modpacks",
                 params={
@@ -990,7 +1313,15 @@ class ModListSizeFilterTests(unittest.TestCase):
                     "game_id": 2,
                     "sources": ["steam"],
                     "source_ids": ["pack-11"],
-                    "include": ["short_description", "description", "dates", "game", "tags", "authors", "resources"],
+                    "include": [
+                        "short_description",
+                        "description",
+                        "dates",
+                        "game",
+                        "tags",
+                        "authors",
+                        "resources",
+                    ],
                 },
             )
 
@@ -1003,16 +1334,25 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("created_at", body["items"][0])
         self.assertIn("updated_at", body["items"][0])
         self.assertEqual(body["items"][0]["game"]["id"], 2)
-        self.assertEqual(body["items"][0]["tags"], [
-            {"id": 3, "name": "Adventure"},
-            {"id": 5, "name": "QoL"},
-        ])
+        self.assertEqual(
+            body["items"][0]["tags"],
+            [
+                {"id": 3, "name": "Adventure"},
+                {"id": 5, "name": "QoL"},
+            ],
+        )
         self.assertEqual(body["items"][0]["authors"], {"21": {"owner": True}})
         self.assertEqual(body["items"][0]["resources"][0]["owner_type"], "modpacks")
         self.assertEqual(len(session.scalar_statements), 1)
         self.assertEqual(len(session.execute_statements), 5)
-        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
-        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        count_sql = str(
+            session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        list_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
         self.assertIn("modpacks", count_sql)
         self.assertIn("modpacks", list_sql)
         self.assertIn("modpacks_tags", count_sql)
@@ -1030,7 +1370,9 @@ class ModListSizeFilterTests(unittest.TestCase):
             execute_results=[[_modpack(modpack_id=18)]],
         )
 
-        with patch.object(self.api_modpack.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_modpack.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/modpacks",
                 params={
@@ -1051,7 +1393,11 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertNotIn("resources", body["items"][0])
         self.assertEqual(len(session.scalar_statements), 1)
         self.assertEqual(len(session.execute_statements), 1)
-        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        list_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
         self.assertIn("steam", list_sql)
 
     def test_mod_info_includes_dependency_collection(self) -> None:
@@ -1060,7 +1406,9 @@ class ModListSizeFilterTests(unittest.TestCase):
             get_value=_mod(git_url="https://github.com/Open-Workshop/example-mod"),
         )
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/mods/7",
                 params={"include": ["dependencies"]},
@@ -1070,7 +1418,9 @@ class ModListSizeFilterTests(unittest.TestCase):
         body = response.json()
         self.assertIn("adult", body)
         self.assertFalse(body["adult"])
-        self.assertEqual(body["git_url"], "https://github.com/Open-Workshop/example-mod")
+        self.assertEqual(
+            body["git_url"], "https://github.com/Open-Workshop/example-mod"
+        )
         self.assertEqual(
             body["dependencies"],
             {
@@ -1088,7 +1438,9 @@ class ModListSizeFilterTests(unittest.TestCase):
     def test_mod_info_includes_conflicts_scope(self) -> None:
         session = _RecordingSession(rows=[1, 5], get_value=_mod())
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/mods/7",
                 params={"include": ["conflicts"], "scope": "incoming"},
@@ -1097,7 +1449,15 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["conflicts"], {"count": 2, "items": [1, 5]})
-        sql = " ".join(str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower().split())
+        sql = " ".join(
+            str(
+                session.execute_statements[0].compile(
+                    compile_kwargs={"literal_binds": True}
+                )
+            )
+            .lower()
+            .split()
+        )
         self.assertIn("unity_mods_conflicts.mod_id as mod_id", sql)
         self.assertIn("unity_mods_conflicts.conflict = 7", sql)
 
@@ -1105,10 +1465,15 @@ class ModListSizeFilterTests(unittest.TestCase):
         session = _RecordingSession(rows=[1, 2, 3], get_value=_mod())
         access_mods = AsyncMock(return_value=True)
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_mod.tools,
-            "access_mods",
-            access_mods,
+        with (
+            patch.object(
+                self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_mod.tools,
+                "access_mods",
+                access_mods,
+            ),
         ):
             response = self.client.get(f"{self.main_url}/mods/7/dependencies")
 
@@ -1137,10 +1502,15 @@ class ModListSizeFilterTests(unittest.TestCase):
         )
         access_mods = AsyncMock(return_value=True)
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_mod.tools,
-            "access_mods",
-            access_mods,
+        with (
+            patch.object(
+                self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_mod.tools,
+                "access_mods",
+                access_mods,
+            ),
         ):
             response = self.client.get(f"{self.main_url}/mods/7/dependencies")
 
@@ -1161,17 +1531,28 @@ class ModListSizeFilterTests(unittest.TestCase):
         session = _RecordingSession(get_value=_mod(), allow_writes=True)
         access_mods = AsyncMock(return_value=True)
 
-        with patch.object(self.api_association.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_association.tools,
-            "access_mods",
-            access_mods,
+        with (
+            patch.object(
+                self.api_association.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_association.tools,
+                "access_mods",
+                access_mods,
+            ),
         ):
             response = self.client.delete(f"{self.main_url}/mods/7/dependencies/13")
 
         self.assertEqual(response.status_code, 204)
-        self.assertEqual(sum(isinstance(stmt, Delete) for stmt in session.execute_statements), 1)
-        delete_stmt = next(stmt for stmt in session.execute_statements if isinstance(stmt, Delete))
-        delete_sql = str(delete_stmt.compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertEqual(
+            sum(isinstance(stmt, Delete) for stmt in session.execute_statements), 1
+        )
+        delete_stmt = next(
+            stmt for stmt in session.execute_statements if isinstance(stmt, Delete)
+        )
+        delete_sql = str(
+            delete_stmt.compile(compile_kwargs={"literal_binds": True})
+        ).lower()
         self.assertIn("unity_mods_dependencies", delete_sql)
         self.assertIn("mod_id", delete_sql)
         self.assertIn("dependence", delete_sql)
@@ -1181,10 +1562,15 @@ class ModListSizeFilterTests(unittest.TestCase):
         session = _RecordingSession(rows=[1, 5], get_value=_mod())
         access_mods = AsyncMock(return_value=True)
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_mod.tools,
-            "access_mods",
-            access_mods,
+        with (
+            patch.object(
+                self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_mod.tools,
+                "access_mods",
+                access_mods,
+            ),
         ):
             response = self.client.get(f"{self.main_url}/mods/7/conflicts")
 
@@ -1195,9 +1581,18 @@ class ModListSizeFilterTests(unittest.TestCase):
 
     def test_mod_conflicts_endpoint_scope_controls_direction(self) -> None:
         cases = {
-            "outgoing": ("unity_mods_conflicts.conflict as mod_id", "unity_mods_conflicts.mod_id = 7"),
-            "incoming": ("unity_mods_conflicts.mod_id as mod_id", "unity_mods_conflicts.conflict = 7"),
-            "all": ("select distinct case when", "unity_mods_conflicts.mod_id = 7 or unity_mods_conflicts.conflict = 7"),
+            "outgoing": (
+                "unity_mods_conflicts.conflict as mod_id",
+                "unity_mods_conflicts.mod_id = 7",
+            ),
+            "incoming": (
+                "unity_mods_conflicts.mod_id as mod_id",
+                "unity_mods_conflicts.conflict = 7",
+            ),
+            "all": (
+                "select distinct case when",
+                "unity_mods_conflicts.mod_id = 7 or unity_mods_conflicts.conflict = 7",
+            ),
         }
 
         for scope, expected_snippets in cases.items():
@@ -1205,10 +1600,15 @@ class ModListSizeFilterTests(unittest.TestCase):
                 session = _RecordingSession(rows=[1, 5], get_value=_mod())
                 access_mods = AsyncMock(return_value=True)
 
-                with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-                    self.api_mod.tools,
-                    "access_mods",
-                    access_mods,
+                with (
+                    patch.object(
+                        self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+                    ),
+                    patch.object(
+                        self.api_mod.tools,
+                        "access_mods",
+                        access_mods,
+                    ),
                 ):
                     response = self.client.get(
                         f"{self.main_url}/mods/7/conflicts",
@@ -1219,7 +1619,13 @@ class ModListSizeFilterTests(unittest.TestCase):
                 self.assertEqual(response.json(), {"count": 2, "items": [1, 5]})
                 access_mods.assert_awaited_once()
                 sql = " ".join(
-                    str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower().split()
+                    str(
+                        session.execute_statements[0].compile(
+                            compile_kwargs={"literal_binds": True}
+                        )
+                    )
+                    .lower()
+                    .split()
                 )
                 for expected_snippet in expected_snippets:
                     self.assertIn(expected_snippet, sql)
@@ -1242,10 +1648,15 @@ class ModListSizeFilterTests(unittest.TestCase):
         )
         access_mods = AsyncMock(return_value=True)
 
-        with patch.object(self.api_mod_build.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_mod_build.tools,
-            "access_mods",
-            access_mods,
+        with (
+            patch.object(
+                self.api_mod_build.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_mod_build.tools,
+                "access_mods",
+                access_mods,
+            ),
         ):
             response = self.client.get(
                 "/mods/build/conflicts",
@@ -1288,7 +1699,9 @@ class ModListSizeFilterTests(unittest.TestCase):
         access_mods.assert_awaited_once()
         self.assertEqual(len(session.execute_statements), 3)
 
-    def test_mod_build_missing_dependencies_endpoint_traverses_required_chain(self) -> None:
+    def test_mod_build_missing_dependencies_endpoint_traverses_required_chain(
+        self,
+    ) -> None:
         session = _RecordingSession(
             execute_results=[
                 [1],
@@ -1305,10 +1718,15 @@ class ModListSizeFilterTests(unittest.TestCase):
         )
         access_mods = AsyncMock(return_value=True)
 
-        with patch.object(self.api_mod_build.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_mod_build.tools,
-            "access_mods",
-            access_mods,
+        with (
+            patch.object(
+                self.api_mod_build.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_mod_build.tools,
+                "access_mods",
+                access_mods,
+            ),
         ):
             response = self.client.get(
                 "/mods/build/dependencies/missing",
@@ -1355,17 +1773,28 @@ class ModListSizeFilterTests(unittest.TestCase):
         session = _RecordingSession(get_value=_mod(), allow_writes=True)
         access_mods = AsyncMock(return_value=True)
 
-        with patch.object(self.api_association.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_association.tools,
-            "access_mods",
-            access_mods,
+        with (
+            patch.object(
+                self.api_association.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_association.tools,
+                "access_mods",
+                access_mods,
+            ),
         ):
             response = self.client.post(f"{self.main_url}/mods/7/dependencies/13")
 
         self.assertEqual(response.status_code, 204)
-        self.assertEqual(sum(isinstance(stmt, Insert) for stmt in session.execute_statements), 1)
-        insert_stmt = next(stmt for stmt in session.execute_statements if isinstance(stmt, Insert))
-        insert_sql = str(insert_stmt.compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertEqual(
+            sum(isinstance(stmt, Insert) for stmt in session.execute_statements), 1
+        )
+        insert_stmt = next(
+            stmt for stmt in session.execute_statements if isinstance(stmt, Insert)
+        )
+        insert_sql = str(
+            insert_stmt.compile(compile_kwargs={"literal_binds": True})
+        ).lower()
         self.assertIn("unity_mods_dependencies", insert_sql)
         self.assertIn("optional", insert_sql)
         self.assertIn("false", insert_sql)
@@ -1378,10 +1807,15 @@ class ModListSizeFilterTests(unittest.TestCase):
         )
         access_mods = AsyncMock(return_value=True)
 
-        with patch.object(self.api_association.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_association.tools,
-            "access_mods",
-            access_mods,
+        with (
+            patch.object(
+                self.api_association.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_association.tools,
+                "access_mods",
+                access_mods,
+            ),
         ):
             response = self.client.put(
                 f"{self.main_url}/mods/7/dependencies/13",
@@ -1389,9 +1823,15 @@ class ModListSizeFilterTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 204)
-        self.assertEqual(sum(isinstance(stmt, Update) for stmt in session.execute_statements), 1)
-        update_stmt = next(stmt for stmt in session.execute_statements if isinstance(stmt, Update))
-        update_sql = str(update_stmt.compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertEqual(
+            sum(isinstance(stmt, Update) for stmt in session.execute_statements), 1
+        )
+        update_stmt = next(
+            stmt for stmt in session.execute_statements if isinstance(stmt, Update)
+        )
+        update_sql = str(
+            update_stmt.compile(compile_kwargs={"literal_binds": True})
+        ).lower()
         self.assertIn("unity_mods_dependencies", update_sql)
         self.assertIn("optional", update_sql)
         self.assertIn("true", update_sql)
@@ -1400,17 +1840,28 @@ class ModListSizeFilterTests(unittest.TestCase):
         session = _RecordingSession(get_value=_mod(), allow_writes=True)
         access_mods = AsyncMock(return_value=True)
 
-        with patch.object(self.api_association.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_association.tools,
-            "access_mods",
-            access_mods,
+        with (
+            patch.object(
+                self.api_association.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_association.tools,
+                "access_mods",
+                access_mods,
+            ),
         ):
             response = self.client.post(f"{self.main_url}/mods/7/conflicts/13")
 
         self.assertEqual(response.status_code, 204)
-        self.assertEqual(sum(isinstance(stmt, Insert) for stmt in session.execute_statements), 1)
-        insert_stmt = next(stmt for stmt in session.execute_statements if isinstance(stmt, Insert))
-        insert_sql = str(insert_stmt.compile(compile_kwargs={"literal_binds": True})).lower()
+        self.assertEqual(
+            sum(isinstance(stmt, Insert) for stmt in session.execute_statements), 1
+        )
+        insert_stmt = next(
+            stmt for stmt in session.execute_statements if isinstance(stmt, Insert)
+        )
+        insert_sql = str(
+            insert_stmt.compile(compile_kwargs={"literal_binds": True})
+        ).lower()
         self.assertIn("unity_mods_conflicts", insert_sql)
 
     def test_mod_authors_put_adds_author(self) -> None:
@@ -1422,11 +1873,19 @@ class ModListSizeFilterTests(unittest.TestCase):
         )
         access_mods = AsyncMock(return_value=True)
 
-        with patch.object(self.api_association.catalog, "AsyncSessionLocal", return_value=catalog_session), patch.object(
-            self.api_association.account,
-            "AsyncSessionLocal",
-            return_value=account_session,
-        ), patch.object(self.api_association.tools, "access_mods", access_mods):
+        with (
+            patch.object(
+                self.api_association.catalog,
+                "AsyncSessionLocal",
+                return_value=catalog_session,
+            ),
+            patch.object(
+                self.api_association.account,
+                "AsyncSessionLocal",
+                return_value=account_session,
+            ),
+            patch.object(self.api_association.tools, "access_mods", access_mods),
+        ):
             response = self.client.put(
                 f"{self.main_url}/mods/7/authors/123",
                 json={"owner": False},
@@ -1437,8 +1896,12 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(catalog_session.commit_count, 0)
         self.assertEqual(account_session.commit_count, 1)
         self.assertEqual(len(account_session.execute_statements), 2)
-        self.assertTrue(any(isinstance(stmt, Insert) for stmt in account_session.execute_statements))
-        self.assertTrue(any(isinstance(stmt, Update) for stmt in account_session.execute_statements))
+        self.assertTrue(
+            any(isinstance(stmt, Insert) for stmt in account_session.execute_statements)
+        )
+        self.assertTrue(
+            any(isinstance(stmt, Update) for stmt in account_session.execute_statements)
+        )
 
     def test_mod_authors_put_sets_owner(self) -> None:
         catalog_session = _RecordingSession(get_value=_mod())
@@ -1449,11 +1912,19 @@ class ModListSizeFilterTests(unittest.TestCase):
         )
         access_mods = AsyncMock(return_value=True)
 
-        with patch.object(self.api_association.catalog, "AsyncSessionLocal", return_value=catalog_session), patch.object(
-            self.api_association.account,
-            "AsyncSessionLocal",
-            return_value=account_session,
-        ), patch.object(self.api_association.tools, "access_mods", access_mods):
+        with (
+            patch.object(
+                self.api_association.catalog,
+                "AsyncSessionLocal",
+                return_value=catalog_session,
+            ),
+            patch.object(
+                self.api_association.account,
+                "AsyncSessionLocal",
+                return_value=account_session,
+            ),
+            patch.object(self.api_association.tools, "access_mods", access_mods),
+        ):
             response = self.client.put(
                 f"{self.main_url}/mods/7/authors/123",
                 json={"owner": True},
@@ -1463,8 +1934,18 @@ class ModListSizeFilterTests(unittest.TestCase):
         access_mods.assert_awaited_once()
         self.assertEqual(account_session.commit_count, 1)
         self.assertEqual(len(account_session.execute_statements), 3)
-        self.assertEqual(sum(isinstance(stmt, Insert) for stmt in account_session.execute_statements), 1)
-        self.assertEqual(sum(isinstance(stmt, Update) for stmt in account_session.execute_statements), 2)
+        self.assertEqual(
+            sum(
+                isinstance(stmt, Insert) for stmt in account_session.execute_statements
+            ),
+            1,
+        )
+        self.assertEqual(
+            sum(
+                isinstance(stmt, Update) for stmt in account_session.execute_statements
+            ),
+            2,
+        )
 
     def test_mod_authors_delete_removes_author(self) -> None:
         catalog_session = _RecordingSession(get_value=_mod())
@@ -1475,30 +1956,50 @@ class ModListSizeFilterTests(unittest.TestCase):
         )
         access_mods = AsyncMock(return_value=True)
 
-        with patch.object(self.api_association.catalog, "AsyncSessionLocal", return_value=catalog_session), patch.object(
-            self.api_association.account,
-            "AsyncSessionLocal",
-            return_value=account_session,
-        ), patch.object(self.api_association.tools, "access_mods", access_mods):
+        with (
+            patch.object(
+                self.api_association.catalog,
+                "AsyncSessionLocal",
+                return_value=catalog_session,
+            ),
+            patch.object(
+                self.api_association.account,
+                "AsyncSessionLocal",
+                return_value=account_session,
+            ),
+            patch.object(self.api_association.tools, "access_mods", access_mods),
+        ):
             response = self.client.delete(f"{self.main_url}/mods/7/authors/123")
 
         self.assertEqual(response.status_code, 204)
         access_mods.assert_awaited_once()
         self.assertEqual(account_session.commit_count, 1)
         self.assertEqual(len(account_session.execute_statements), 2)
-        self.assertTrue(any(isinstance(stmt, Delete) for stmt in account_session.execute_statements))
-        self.assertTrue(any(isinstance(stmt, Update) for stmt in account_session.execute_statements))
+        self.assertTrue(
+            any(isinstance(stmt, Delete) for stmt in account_session.execute_statements)
+        )
+        self.assertTrue(
+            any(isinstance(stmt, Update) for stmt in account_session.execute_statements)
+        )
 
     def test_mod_download_url_registers_download_and_returns_storage_url(self) -> None:
-        session = _RecordingSession(get_value=_mod(name="Downloadable Mod"), allow_writes=True)
+        session = _RecordingSession(
+            get_value=_mod(name="Downloadable Mod"), allow_writes=True
+        )
         access_mods = AsyncMock(return_value=True)
         publish_event = AsyncMock(return_value=None)
 
-        with patch.object(self.api_mod.catalog, "AsyncSessionLocal", return_value=session), patch.object(
-            self.api_mod.tools,
-            "access_mods",
-            access_mods,
-        ), patch.object(self.api_mod.mod_events, "publish_mod_event", publish_event):
+        with (
+            patch.object(
+                self.api_mod.catalog, "AsyncSessionLocal", return_value=session
+            ),
+            patch.object(
+                self.api_mod.tools,
+                "access_mods",
+                access_mods,
+            ),
+            patch.object(self.api_mod.mod_events, "publish_mod_event", publish_event),
+        ):
             response = self.client.post(f"{self.main_url}/mods/7/download-url")
 
         self.assertEqual(response.status_code, 201)
@@ -1511,14 +2012,18 @@ class ModListSizeFilterTests(unittest.TestCase):
             f"{self.storage_url}/download/archive/mods/7/main.zip?filename=Downloadable_Mod",
         )
         self.assertEqual(session.commit_count, 1)
-        self.assertTrue(any(isinstance(stmt, Update) for stmt in session.execute_statements))
+        self.assertTrue(
+            any(isinstance(stmt, Update) for stmt in session.execute_statements)
+        )
         access_mods.assert_awaited_once()
         publish_event.assert_awaited_once()
 
     def test_games_list_returns_items_and_pagination(self) -> None:
         session = _RecordingSession(rows=[_game()], scalar_values=[1])
 
-        with patch.object(self.api_game.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_game.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/games",
                 params={
@@ -1544,7 +2049,9 @@ class ModListSizeFilterTests(unittest.TestCase):
     def test_games_list_omits_short_description_by_default(self) -> None:
         session = _RecordingSession(rows=[_game()], scalar_values=[1])
 
-        with patch.object(self.api_game.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_game.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/games",
                 params={
@@ -1566,7 +2073,9 @@ class ModListSizeFilterTests(unittest.TestCase):
     def test_game_info_returns_description_on_demand(self) -> None:
         session = _RecordingSession(get_value=_game())
 
-        with patch.object(self.api_game.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_game.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/games/1",
                 params={"include": ["short_description", "description"]},
@@ -1582,7 +2091,9 @@ class ModListSizeFilterTests(unittest.TestCase):
     def test_game_info_omits_optional_fields_by_default(self) -> None:
         session = _RecordingSession(get_value=_game())
 
-        with patch.object(self.api_game.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_game.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(f"{self.main_url}/games/1")
 
         self.assertEqual(response.status_code, 200)
@@ -1595,10 +2106,17 @@ class ModListSizeFilterTests(unittest.TestCase):
 
     def test_game_info_includes_grouped_tags(self) -> None:
         group = types.SimpleNamespace(id=5, name="Resolution")
-        session = _RecordingSession(get_value=_game(), execute_results=[[_tag(), _tag(tag_id=11, name="1920x1080", group=group)]])
+        session = _RecordingSession(
+            get_value=_game(),
+            execute_results=[[_tag(), _tag(tag_id=11, name="1920x1080", group=group)]],
+        )
 
-        with patch.object(self.api_game.catalog, "AsyncSessionLocal", return_value=session):
-            response = self.client.get(f"{self.main_url}/games/1", params={"include": ["tags"]})
+        with patch.object(
+            self.api_game.catalog, "AsyncSessionLocal", return_value=session
+        ):
+            response = self.client.get(
+                f"{self.main_url}/games/1", params={"include": ["tags"]}
+            )
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -1606,7 +2124,11 @@ class ModListSizeFilterTests(unittest.TestCase):
             body["tags"],
             [
                 {"id": 10, "name": "Gameplay"},
-                {"id": 11, "name": "1920x1080", "group": {"id": 5, "name": "Resolution"}},
+                {
+                    "id": 11,
+                    "name": "1920x1080",
+                    "group": {"id": 5, "name": "Resolution"},
+                },
             ],
         )
         self.assertEqual(len(session.scalar_statements), 0)
@@ -1623,8 +2145,12 @@ class ModListSizeFilterTests(unittest.TestCase):
             scalar_values=[1],
         )
 
-        with patch.object(self.api_game.catalog, "AsyncSessionLocal", return_value=session):
-            response = self.client.get(f"{self.main_url}/games", params={"include": ["tags"]})
+        with patch.object(
+            self.api_game.catalog, "AsyncSessionLocal", return_value=session
+        ):
+            response = self.client.get(
+                f"{self.main_url}/games", params={"include": ["tags"]}
+            )
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -1632,7 +2158,11 @@ class ModListSizeFilterTests(unittest.TestCase):
             body["items"][0]["tags"],
             [
                 {"id": 10, "name": "Gameplay"},
-                {"id": 11, "name": "1920x1080", "group": {"id": 5, "name": "Resolution"}},
+                {
+                    "id": 11,
+                    "name": "1920x1080",
+                    "group": {"id": 5, "name": "Resolution"},
+                },
             ],
         )
         self.assertEqual(len(session.scalar_statements), 1)
@@ -1646,7 +2176,11 @@ class ModListSizeFilterTests(unittest.TestCase):
             scalar_values=[2],
         )
 
-        with patch.object(self.api_association_getter.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_association_getter.catalog,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
             response = self.client.get(
                 f"{self.main_url}/games/1/tags",
                 params={"page": 0, "page_size": 20},
@@ -1658,7 +2192,11 @@ class ModListSizeFilterTests(unittest.TestCase):
             body["items"],
             [
                 {"id": 10, "name": "Gameplay"},
-                {"id": 11, "name": "1920x1080", "group": {"id": 5, "name": "Resolution"}},
+                {
+                    "id": 11,
+                    "name": "1920x1080",
+                    "group": {"id": 5, "name": "Resolution"},
+                },
             ],
         )
         self.assertEqual(
@@ -1683,7 +2221,11 @@ class ModListSizeFilterTests(unittest.TestCase):
             scalar_values=[1],
         )
 
-        with patch.object(self.api_association_getter.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_association_getter.catalog,
+            "AsyncSessionLocal",
+            return_value=session,
+        ):
             response = self.client.get(
                 f"{self.main_url}/games/1/tags",
                 params={"page": 0, "page_size": 20, "name": "1920", "ids": [11, 12]},
@@ -1693,13 +2235,23 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(
             response.json()["items"],
             [
-                {"id": 11, "name": "1920x1080", "group": {"id": 5, "name": "Resolution"}},
+                {
+                    "id": 11,
+                    "name": "1920x1080",
+                    "group": {"id": 5, "name": "Resolution"},
+                },
             ],
         )
         self.assertEqual(len(session.scalar_statements), 1)
         self.assertEqual(len(session.execute_statements), 1)
-        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
-        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        count_sql = str(
+            session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        list_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
         self.assertIn("lower(tags.name) like lower('%1920%')", count_sql)
         self.assertIn("1920", count_sql)
         self.assertIn("in (11, 12)", count_sql)
@@ -1710,7 +2262,9 @@ class ModListSizeFilterTests(unittest.TestCase):
     def test_resources_list_is_get_safe(self) -> None:
         session = _RecordingSession(rows=[_resource(sort_order=5)], scalar_values=[1])
 
-        with patch.object(self.api_resource.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_resource.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/resources",
                 params={
@@ -1729,7 +2283,11 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(body["items"][0]["sort_order"], 5)
         self.assertEqual(len(session.scalar_statements), 1)
         self.assertEqual(len(session.execute_statements), 1)
-        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        list_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        )
         self.assertIn("ORDER BY resources.sort_order", list_sql)
         self.assertEqual(session.commit_count, 0)
         self.assertEqual(session.flush_count, 0)
@@ -1740,7 +2298,9 @@ class ModListSizeFilterTests(unittest.TestCase):
             scalar_values=[2],
         )
 
-        with patch.object(self.api_resource.catalog, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_resource.catalog, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/resources",
                 params={
@@ -1755,7 +2315,11 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual([item["sort_order"] for item in body["items"]], [9, 3])
-        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        list_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        )
         self.assertIn("ORDER BY resources.sort_order DESC", list_sql)
 
     def test_resources_list_supports_modpack_owner_type(self) -> None:
@@ -1766,7 +2330,9 @@ class ModListSizeFilterTests(unittest.TestCase):
         access_modpacks = AsyncMock(return_value=[17])
 
         with (
-            patch.object(self.api_resource.catalog, "AsyncSessionLocal", return_value=session),
+            patch.object(
+                self.api_resource.catalog, "AsyncSessionLocal", return_value=session
+            ),
             patch.object(self.api_resource.tools, "access_modpacks", access_modpacks),
         ):
             response = self.client.get(
@@ -1790,18 +2356,26 @@ class ModListSizeFilterTests(unittest.TestCase):
     def test_profile_avatar_get_is_get_safe(self) -> None:
         session = _RecordingSession(scalar_values=["local/avatar.webp"])
 
-        with patch.object(self.api_profile.account, "AsyncSessionLocal", return_value=session):
-            response = self.client.get(f"{self.main_url}/profiles/123/avatar", follow_redirects=False)
+        with patch.object(
+            self.api_profile.account, "AsyncSessionLocal", return_value=session
+        ):
+            response = self.client.get(
+                f"{self.main_url}/profiles/123/avatar", follow_redirects=False
+            )
 
         self.assertEqual(response.status_code, 307)
-        self.assertIn(f"{self.storage_url}/download/avatar/123.webp", response.headers["location"])
+        self.assertIn(
+            f"{self.storage_url}/download/avatar/123.webp", response.headers["location"]
+        )
         self.assertEqual(session.commit_count, 0)
         self.assertEqual(session.flush_count, 0)
 
     def test_profile_list_searches_by_username(self) -> None:
         session = _RecordingSession(rows=[_profile()], scalar_values=[1])
 
-        with patch.object(self.api_profile.account, "AsyncSessionLocal", return_value=session):
+        with patch.object(
+            self.api_profile.account, "AsyncSessionLocal", return_value=session
+        ):
             response = self.client.get(
                 f"{self.main_url}/profiles",
                 params={"page": 0, "page_size": 10, "username": "Auth"},
@@ -1809,21 +2383,30 @@ class ModListSizeFilterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(body["pagination"], {
-            "page": 0,
-            "page_size": 10,
-            "offset": 0,
-            "total": 1,
-            "has_next": False,
-            "has_previous": False,
-        })
+        self.assertEqual(
+            body["pagination"],
+            {
+                "page": 0,
+                "page_size": 10,
+                "offset": 0,
+                "total": 1,
+                "has_next": False,
+                "has_previous": False,
+            },
+        )
         self.assertEqual(body["items"][0]["id"], 123)
         self.assertEqual(body["items"][0]["username"], "Author")
         self.assertEqual(body["items"][0]["grade"], "VIP")
         self.assertEqual(len(session.scalar_statements), 1)
         self.assertEqual(len(session.execute_statements), 1)
-        count_sql = str(session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True}))
-        list_sql = str(session.execute_statements[0].compile(compile_kwargs={"literal_binds": True}))
+        count_sql = str(
+            session.scalar_statements[0].compile(compile_kwargs={"literal_binds": True})
+        )
+        list_sql = str(
+            session.execute_statements[0].compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        )
         self.assertIn("accounts", count_sql)
         self.assertIn("accounts.username", count_sql.lower())
         self.assertIn("%auth%", count_sql.lower())
@@ -1838,7 +2421,16 @@ class ModListSizeFilterTests(unittest.TestCase):
         missing: list[str] = []
         for path, path_item in schema.get("paths", {}).items():
             for method, operation in path_item.items():
-                if method not in {"get", "post", "put", "patch", "delete", "options", "head", "trace"}:
+                if method not in {
+                    "get",
+                    "post",
+                    "put",
+                    "patch",
+                    "delete",
+                    "options",
+                    "head",
+                    "trace",
+                }:
                     continue
                 if not operation.get("summary") or not operation.get("description"):
                     missing.append(f"{method.upper()} {path}")
@@ -1852,39 +2444,95 @@ class ModListSizeFilterTests(unittest.TestCase):
             self.fail(f"include parameter missing for {method.upper()} {path}")
 
         def parameter_names(path: str, method: str) -> set[str]:
-            return {parameter["name"] for parameter in schema["paths"][path][method]["parameters"]}
+            return {
+                parameter["name"]
+                for parameter in schema["paths"][path][method]["parameters"]
+            }
 
         self.assertEqual(
             include_enum("/games", "get"),
-            {"short_description", "description", "dates", "statistics", "genres", "tags", "resources"},
+            {
+                "short_description",
+                "description",
+                "dates",
+                "statistics",
+                "genres",
+                "tags",
+                "resources",
+            },
         )
         self.assertEqual(
             include_enum("/games/{game_id}", "get"),
-            {"short_description", "description", "dates", "statistics", "genres", "tags", "resources"},
+            {
+                "short_description",
+                "description",
+                "dates",
+                "statistics",
+                "genres",
+                "tags",
+                "resources",
+            },
         )
         self.assertEqual(
             include_enum("/mods", "get"),
-            {"short_description", "description", "dates", "game", "tags", "dependencies", "conflicts", "authors", "resources"},
+            {
+                "short_description",
+                "description",
+                "dates",
+                "game",
+                "tags",
+                "dependencies",
+                "conflicts",
+                "authors",
+                "resources",
+            },
         )
         self.assertEqual(
             include_enum("/mods/{mod_id}", "get"),
-            {"short_description", "description", "dates", "game", "tags", "dependencies", "conflicts", "authors", "resources"},
+            {
+                "short_description",
+                "description",
+                "dates",
+                "game",
+                "tags",
+                "dependencies",
+                "conflicts",
+                "authors",
+                "resources",
+            },
         )
         self.assertEqual(
             include_enum("/modpacks", "get"),
-            {"short_description", "description", "dates", "game", "tags", "authors", "resources"},
+            {
+                "short_description",
+                "description",
+                "dates",
+                "game",
+                "tags",
+                "authors",
+                "resources",
+            },
         )
         self.assertEqual(include_enum("/tags", "get"), {"orphaned", "group", "games"})
-        self.assertEqual(include_enum("/tags/orphaned", "get"), {"orphaned", "group", "games"})
-        self.assertEqual(include_enum("/tags/{tag_id}", "get"), {"orphaned", "group", "games"})
+        self.assertEqual(
+            include_enum("/tags/orphaned", "get"), {"orphaned", "group", "games"}
+        )
+        self.assertEqual(
+            include_enum("/tags/{tag_id}", "get"), {"orphaned", "group", "games"}
+        )
         scope_enum = lambda path, method: next(
             parameter
             for parameter in schema["paths"][path][method]["parameters"]
             if parameter["name"] == "scope"
         )["schema"]["enum"]
         self.assertEqual(scope_enum("/mods", "get"), ["outgoing", "incoming", "all"])
-        self.assertEqual(scope_enum("/mods/{mod_id}", "get"), ["outgoing", "incoming", "all"])
-        self.assertEqual(scope_enum("/mods/{mod_id}/conflicts", "get"), ["outgoing", "incoming", "all"])
+        self.assertEqual(
+            scope_enum("/mods/{mod_id}", "get"), ["outgoing", "incoming", "all"]
+        )
+        self.assertEqual(
+            scope_enum("/mods/{mod_id}/conflicts", "get"),
+            ["outgoing", "incoming", "all"],
+        )
         self.assertIn("adult", parameter_names("/mods", "get"))
         self.assertIn("show_not_public", parameter_names("/mods", "get"))
         self.assertIn("scope", parameter_names("/mods", "get"))
@@ -1929,7 +2577,10 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(modpack_adult["schema"]["minimum"], -1)
         self.assertEqual(modpack_adult["schema"]["maximum"], 1)
         self.assertEqual(modpack_adult["schema"]["default"], -1)
-        self.assertEqual(modpack_adult["description"], "Adult content filter: -1 any, 0 false, 1 true.")
+        self.assertEqual(
+            modpack_adult["description"],
+            "Adult content filter: -1 any, 0 false, 1 true.",
+        )
         mod_read = schema["components"]["schemas"]["ModRead"]
         self.assertIn("adult", mod_read["properties"])
         self.assertIn("adult", mod_read["required"])
@@ -1976,6 +2627,7 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("/mods/build/dependencies/missing", schema["paths"])
         self.assertIn("/tags", schema["paths"])
         self.assertIn("/tags/orphaned", schema["paths"])
+        self.assertIn("/tags/merge", schema["paths"])
         self.assertIn("/tags/{tag_id}", schema["paths"])
         self.assertIn("/tag-groups", schema["paths"])
         self.assertIn("/tag-groups/orphaned", schema["paths"])
@@ -2008,7 +2660,9 @@ class ModListSizeFilterTests(unittest.TestCase):
         if "items" in games_schema:
             self.assertEqual(games_schema["items"]["type"], "integer")
         else:
-            array_schema = next(item for item in games_schema["anyOf"] if item.get("type") == "array")
+            array_schema = next(
+                item for item in games_schema["anyOf"] if item.get("type") == "array"
+            )
             self.assertEqual(array_schema["items"]["type"], "integer")
         mod_rating_read = schema["components"]["schemas"]["ModRatingRead"]
         self.assertIn("rating", mod_rating_read["properties"])
@@ -2027,8 +2681,12 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("votes_count", profile_general_read["properties"])
         self.assertIn("rating", profile_general_read["required"])
         self.assertIn("votes_count", profile_general_read["required"])
-        self.assertEqual(profile_general_read["properties"]["rating"]["type"], "integer")
-        self.assertEqual(profile_general_read["properties"]["votes_count"]["type"], "integer")
+        self.assertEqual(
+            profile_general_read["properties"]["rating"]["type"], "integer"
+        )
+        self.assertEqual(
+            profile_general_read["properties"]["votes_count"]["type"], "integer"
+        )
         self.assertNotIn("reputation", profile_general_read["properties"])
         resource_read = schema["components"]["schemas"]["ResourceRead"]
         self.assertIn("sort_order", resource_read["properties"])
@@ -2039,6 +2697,8 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertIn("group", tag_read["properties"])
         tag_create = schema["components"]["schemas"]["TagCreate"]
         self.assertIn("group_id", tag_create["properties"])
+        tag_merge = schema["components"]["schemas"]["TagMerge"]
+        self.assertEqual(set(tag_merge["properties"]), {"tags", "group_id", "title"})
         tag_patch = schema["components"]["schemas"]["TagPatch"]
         self.assertIn("group_id", tag_patch["properties"])
         self.assertIn("TagGroupRead", schema["components"]["schemas"])
@@ -2055,13 +2715,17 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(dependencies_param["schema"]["items"]["type"], "string")
         build_conflicts_param = next(
             parameter
-            for parameter in schema["paths"]["/mods/build/conflicts"]["get"]["parameters"]
+            for parameter in schema["paths"]["/mods/build/conflicts"]["get"][
+                "parameters"
+            ]
             if parameter["name"] == "mods_ids"
         )
         self.assertEqual(build_conflicts_param["schema"]["items"]["type"], "integer")
         build_missing_param = next(
             parameter
-            for parameter in schema["paths"]["/mods/build/dependencies/missing"]["get"]["parameters"]
+            for parameter in schema["paths"]["/mods/build/dependencies/missing"]["get"][
+                "parameters"
+            ]
             if parameter["name"] == "mods_ids"
         )
         self.assertEqual(build_missing_param["schema"]["items"]["type"], "integer")
@@ -2070,8 +2734,12 @@ class ModListSizeFilterTests(unittest.TestCase):
             for parameter in schema["paths"]["/mods"]["get"]["parameters"]
             if parameter["name"] == "excluded_dependencies"
         )
-        self.assertEqual(excluded_dependencies_param["schema"]["items"]["type"], "string")
-        build_conflict_graph_read = schema["components"]["schemas"]["ModBuildConflictGraphRead"]
+        self.assertEqual(
+            excluded_dependencies_param["schema"]["items"]["type"], "string"
+        )
+        build_conflict_graph_read = schema["components"]["schemas"][
+            "ModBuildConflictGraphRead"
+        ]
         self.assertEqual(
             build_conflict_graph_read["properties"]["nodes"]["items"]["$ref"],
             "#/components/schemas/ModBuildNodeRead",
@@ -2080,7 +2748,9 @@ class ModListSizeFilterTests(unittest.TestCase):
             build_conflict_graph_read["properties"]["edges"]["items"]["$ref"],
             "#/components/schemas/ModBuildEdgeRead",
         )
-        build_dependency_graph_read = schema["components"]["schemas"]["ModBuildDependencyGraphRead"]
+        build_dependency_graph_read = schema["components"]["schemas"][
+            "ModBuildDependencyGraphRead"
+        ]
         self.assertEqual(
             build_dependency_graph_read["properties"]["nodes"]["items"]["$ref"],
             "#/components/schemas/ModBuildNodeRead",

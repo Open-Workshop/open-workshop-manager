@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -223,6 +222,41 @@ class AccessServicePassThroughTests(unittest.TestCase):
         self.assertTrue(result.add.value)
         self.assertFalse(result.anonymous_add.value)
 
+    def test_resolve_tags_uses_access_patch_endpoint(self) -> None:
+        access_payload = {
+            "authenticated": True,
+            "owner_id": 42,
+            "add": {
+                "value": True,
+                "reason": "ok",
+                "reason_code": "allowed",
+            },
+            "edit": {
+                "value": False,
+                "reason": "no edit",
+                "reason_code": "forbidden",
+            },
+            "delete": {
+                "value": True,
+                "reason": "ok",
+                "reason_code": "allowed",
+            },
+        }
+
+        request_json = AsyncMock(return_value=access_payload)
+        with patch.object(access_client, "_request_json", request_json):
+            result = asyncio.run(access_client.resolve_tags())
+
+        request_json.assert_awaited_once_with(
+            "PATCH",
+            "/tags",
+            None,
+            cookies={},
+        )
+        self.assertTrue(result.add.value)
+        self.assertFalse(result.edit.value)
+        self.assertTrue(result.delete.value)
+
     def test_access_mods_uses_catalog_right_for_catalog_mode(self) -> None:
         request = types.SimpleNamespace(cookies={})
         access_result = {
@@ -230,12 +264,16 @@ class AccessServicePassThroughTests(unittest.TestCase):
             12: _mod_response(catalog=True, download=False),
         }
 
-        with patch.object(access_client, "resolve_mods", AsyncMock(return_value=access_result)):
+        with patch.object(
+            access_client, "resolve_mods", AsyncMock(return_value=access_result)
+        ):
             public_ids = asyncio.run(
                 tools.access_mods(request, mods_ids=[11, 12], check_mode=True)
             )
             catalog_ids = asyncio.run(
-                tools.access_mods(request, mods_ids=[11, 12], check_mode=True, catalog=True)
+                tools.access_mods(
+                    request, mods_ids=[11, 12], check_mode=True, catalog=True
+                )
             )
 
         self.assertEqual(public_ids, [11])
@@ -273,12 +311,15 @@ class AccessServicePassThroughTests(unittest.TestCase):
     def test_successful_bcrypt_token_check_is_cached(self) -> None:
         tools._TOKEN_CHECK_CACHE.clear()
 
-        with patch.object(
-            tools.config,
-            "ACCESS_CALLBACK_TOKEN",
-            "$2b$cached-token-hash",
-            create=True,
-        ), patch.object(tools.bcrypt, "checkpw", return_value=True) as checkpw:
+        with (
+            patch.object(
+                tools.config,
+                "ACCESS_CALLBACK_TOKEN",
+                "$2b$cached-token-hash",
+                create=True,
+            ),
+            patch.object(tools.bcrypt, "checkpw", return_value=True) as checkpw,
+        ):
             self.assertTrue(
                 asyncio.run(tools.check_token("ACCESS_CALLBACK_TOKEN", "secret"))
             )
@@ -323,7 +364,9 @@ class AccessServicePassThroughTests(unittest.TestCase):
             "Access service rejected request with status 403",
             status_code=403,
             problem=problem,
-            response_text=json.dumps(problem.model_dump(mode="json", exclude_none=True)),
+            response_text=json.dumps(
+                problem.model_dump(mode="json", exclude_none=True)
+            ),
         )
 
         with self.assertRaises(HTTPException) as raised:
@@ -362,17 +405,22 @@ class AccessServicePassThroughTests(unittest.TestCase):
 
     def test_storage_file_delete_timeout_returns_false(self) -> None:
         _DeleteTimeoutSession.last_kwargs = None
-        with patch.object(
-            tools.config,
-            "STORAGE_DELETE_TIMEOUT_SECONDS",
-            1,
-            create=True,
-        ), patch.object(
-            tools.aiohttp,
-            "ClientSession",
-            _DeleteTimeoutSession,
+        with (
+            patch.object(
+                tools.config,
+                "STORAGE_DELETE_TIMEOUT_SECONDS",
+                1,
+                create=True,
+            ),
+            patch.object(
+                tools.aiohttp,
+                "ClientSession",
+                _DeleteTimeoutSession,
+            ),
         ):
-            self.assertFalse(asyncio.run(tools.storage_file_delete("resource", "mods/1/file.webp")))
+            self.assertFalse(
+                asyncio.run(tools.storage_file_delete("resource", "mods/1/file.webp"))
+            )
 
         self.assertIsNotNone(_DeleteTimeoutSession.last_kwargs)
         assert _DeleteTimeoutSession.last_kwargs is not None
@@ -388,14 +436,17 @@ class AccessServicePassThroughTests(unittest.TestCase):
         session = _DeleteResourcesSession(rows)
         storage_delete = AsyncMock(side_effect=[True, False])
 
-        with patch.object(
-            tools.catalog,
-            "AsyncSessionLocal",
-            return_value=session,
-        ), patch.object(
-            tools,
-            "storage_file_delete",
-            storage_delete,
+        with (
+            patch.object(
+                tools.catalog,
+                "AsyncSessionLocal",
+                return_value=session,
+            ),
+            patch.object(
+                tools,
+                "storage_file_delete",
+                storage_delete,
+            ),
         ):
             result = asyncio.run(tools.delete_resources(owner_type="mods", owner_id=1))
 

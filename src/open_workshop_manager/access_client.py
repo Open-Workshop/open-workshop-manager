@@ -310,7 +310,9 @@ async def _request_json(
                 try:
                     return await response.json()
                 except (aiohttp.ContentTypeError, ValueError) as exc:
-                    raise AccessServiceError("Access service returned invalid JSON") from exc
+                    raise AccessServiceError(
+                        "Access service returned invalid JSON"
+                    ) from exc
     except asyncio.TimeoutError as exc:
         raise AccessServiceError(
             f"Access service timed out: {method} {url}",
@@ -342,6 +344,19 @@ async def resolve_modpack_add(
         ModpackAddResponse,
         cookies=_session_cookies(request),
     )
+
+
+async def resolve_tags(
+    *,
+    request: Request | None = None,
+) -> SimpleCrudResponse:
+    data = await _request_json(
+        "PATCH",
+        "/tags",
+        None,
+        cookies=_session_cookies(request),
+    )
+    return SimpleCrudResponse.model_validate(data)
 
 
 async def resolve_mod(
