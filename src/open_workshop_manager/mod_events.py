@@ -6,6 +6,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit
 
 from open_workshop_manager import settings as config
 
@@ -211,12 +212,28 @@ async def publish_mod_event(
     stream_name = str(getattr(config, "NATS_MOD_EVENTS_STREAM", "MOD_EVENTS"))
 
     try:
-        ack = await _jetstream.publish(
-            subject,
-            encoded_payload,
-            timeout=float(getattr(config, "NATS_PUBLISH_TIMEOUT_SECONDS", 2)),
-            stream=stream_name,
-        )
+        from opentelemetry import trace
+
+        # Record the broker operation without logging the event body.
+        tracer = trace.get_tracer(__name__)
+        server = urlsplit(_nats_servers()[0]) if _nats_servers() else None
+        with tracer.start_as_current_span(
+            "NATS publish",
+            kind=trace.SpanKind.PRODUCER,
+            attributes={
+                "messaging.system": "nats",
+                "messaging.operation.name": "publish",
+                "messaging.destination.name": subject,
+                "server.address": (server.hostname if server else None) or "nats",
+                "server.port": (server.port if server else None) or 4222,
+            },
+        ):
+            ack = await _jetstream.publish(
+                subject,
+                encoded_payload,
+                timeout=float(getattr(config, "NATS_PUBLISH_TIMEOUT_SECONDS", 2)),
+                stream=stream_name,
+            )
         logger.debug(
             "NATS mod event published event=%s mod_id=%s stream=%s seq=%s",
             event_type,
