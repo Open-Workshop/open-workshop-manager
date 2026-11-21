@@ -180,6 +180,7 @@ def setup_uptrace_telemetry(app: FastAPI) -> bool:
             AioHttpClientInstrumentor,
         )
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
@@ -221,6 +222,16 @@ def setup_uptrace_telemetry(app: FastAPI) -> bool:
         )
         provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)
+
+        # The async engines already exist at this point; instrument their sync
+        # adapters so database calls appear as spans in request traces.
+        from open_workshop_manager.sql_logic import sql_account, sql_catalog, sql_statistics
+
+        SQLAlchemyInstrumentor().instrument(engines=[
+            sql_account.async_engine.sync_engine,
+            sql_catalog.async_engine.sync_engine,
+            sql_statistics.async_engine.sync_engine,
+        ])
 
         fastapi_instrumentor = FastAPIInstrumentor()
         try:
