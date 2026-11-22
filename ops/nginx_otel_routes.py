@@ -108,7 +108,12 @@ def routes_for(role: str) -> dict[str, list[str]]:
                 "miskler.ru": personal, "www.miskler.ru": personal}
     distributor = openapi_routes("http://127.0.0.1:8000/openapi.json")
     loader = openapi_routes("http://127.0.0.1:8001/openapi.json")
-    routes = distributor + loader + ["/distributor/", "/loader/", "/", "/openapi.json"]
+    routes = distributor + loader + [
+        "/distributor/", "/loader/", "/", "/openapi.json",
+        "/distributor/openapi.json", "/loader/openapi.json",
+        "/distributor/redoc", "/distributor/redoc/", "/loader/redoc", "/loader/redoc/",
+        "/distributor/swagger-ui/openapi.json", "/loader/swagger-ui/openapi.json",
+    ]
     routes += ["/distributor" + p for p in distributor] + ["/loader" + p for p in loader]
     return {"storage.openworkshop.miskler.ru": routes}
 

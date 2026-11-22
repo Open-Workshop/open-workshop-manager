@@ -160,6 +160,9 @@ def setup_uptrace_telemetry(app: FastAPI) -> bool:
         _LOG.info("UPTRACE_DSN is not configured, telemetry is disabled.")
         return False
 
+    from open_workshop_manager.trace_logging import install_trace_log_context
+    install_trace_log_context()
+
     service_name = _read_setting("OTEL_SERVICE_NAME", "open-workshop-manager") or "open-workshop-manager"
     service_version = _read_setting("OTEL_SERVICE_VERSION", "dev") or "dev"
     service_environment = _read_setting("OTEL_DEPLOYMENT_ENVIRONMENT", "production") or "production"
