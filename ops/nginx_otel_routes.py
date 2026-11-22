@@ -104,6 +104,18 @@ def build_map(routes_by_host: dict[str, list[str]]) -> str:
         r'    "~^(?:www\.)?miskler\.ru:" "personal-site";',
         r'    "~^storage\.openworkshop\.miskler\.ru:/(?:distributor(?:/|$)|download/|blurhashes$)" "open-workshop-storage-distributor";',
         r'    "~^storage\.openworkshop\.miskler\.ru:/(?:loader(?:/|$)|upload$|delete$|transfer/)" "open-workshop-storage-loader";',
+        r'    "~^storage\.openworkshop\.miskler\.ru:" "storage";',
+        r'    "~^elastic\.miskler\.ru:" "elastic";',
+        r'    "~^analytics\.miskler\.ru:" "rybbit";',
+        r'    "~^metabase\.miskler\.ru:" "metabase";',
+        r'    "~^status\.miskler\.ru:" "uptime-kuma";',
+        r'    "~^admin\.link\.miskler\.ru:" "shlink-admin";',
+        r'    "~^link\.miskler\.ru:" "shlink";',
+        r'    "~^mail\.miskler\.ru:" "webmail";',
+        r'    "~^settings\.mail\.miskler\.ru:" "mail-settings";',
+        r'    "~^cockpit\.miskler\.ru:" "cockpit-base";',
+        r'    "~^cockpit\.storage\.openworkshop\.miskler\.ru:" "cockpit-storage";',
+        r'    "~^platform\.miskler\.ru:" "platform";',
         "}", "",
         'map $otel_target_service $otel_target_display {',
         '    default "NGINX";',
@@ -114,14 +126,38 @@ def build_map(routes_by_host: dict[str, list[str]]) -> str:
         '    "open-workshop-storage-distributor" "STORAGE DISTRIBUTOR";',
         '    "open-workshop-storage-loader" "STORAGE LOADER";',
         "}", "",
+        '# Applications have route templates; other services use one name per host.',
+        'map $otel_target_service $otel_transaction_name {',
+        '    default "NGINX $host";',
+        '    "open-workshop-website" "$otel_target_display $request_method $otel_normalized_route";',
+        '    "open-workshop-manager" "$otel_target_display $request_method $otel_normalized_route";',
+        '    "open-workshop-access" "$otel_target_display $request_method $otel_normalized_route";',
+        '    "personal-site" "$otel_target_display $request_method $otel_normalized_route";',
+        '    "open-workshop-storage-distributor" "$otel_target_display $request_method $otel_normalized_route";',
+        '    "open-workshop-storage-loader" "$otel_target_display $request_method $otel_normalized_route";',
+        '    "storage" "STORAGE";',
+        '    "elastic" "ELASTIC";',
+        '    "rybbit" "RYBBIT";',
+        '    "metabase" "METABASE";',
+        '    "uptime-kuma" "UPTIME KUMA";',
+        '    "shlink" "SHLINK";',
+        '    "shlink-admin" "SHLINK ADMIN";',
+        '    "webmail" "WEBMAIL";',
+        '    "mail-settings" "MAIL SETTINGS";',
+        '    "cockpit-base" "COCKPIT BASE";',
+        '    "cockpit-storage" "COCKPIT STORAGE";',
+        '    "platform" "PLATFORM";',
+        "}", "",
     ])
     return "\n".join(lines)
 
 
 def routes_for(role: str) -> dict[str, list[str]]:
     if role == "base":
-        manager = openapi_routes("http://127.0.0.1:7776/openapi.json")
-        access = openapi_routes("http://127.0.0.1:7778/openapi.json")
+        # Framework and health endpoints are intentionally absent from OpenAPI.
+        infrastructure = ["/healthz", "/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"]
+        manager = openapi_routes("http://127.0.0.1:7776/openapi.json") + infrastructure
+        access = openapi_routes("http://127.0.0.1:7778/openapi.json") + infrastructure
         website = flask_config_routes(Path("/var/www/open-workshop-website/app_config.py"))
         website += flask_decorated_routes(Path("/var/www/open-workshop-website/main.py"))
         personal = flask_decorated_routes(Path("/var/www/website/main.py"))

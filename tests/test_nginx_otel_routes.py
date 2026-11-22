@@ -34,6 +34,15 @@ class NginxOtelRouteTests(unittest.TestCase):
         self.assertIn('"open-workshop-website" "WEBSITE";', text)
         self.assertIn('"open-workshop-storage-loader" "STORAGE LOADER";', text)
 
+    def test_other_services_have_one_name_and_ow_keeps_method_and_route(self):
+        text = routes.build_map({"api.openworkshop.miskler.ru": ["/healthz"]})
+        self.assertIn('"~^elastic\\.miskler\\.ru:" "elastic";', text)
+        self.assertIn('"~^analytics\\.miskler\\.ru:" "rybbit";', text)
+        self.assertIn('"elastic" "ELASTIC";', text)
+        self.assertIn('"rybbit" "RYBBIT";', text)
+        self.assertIn('"open-workshop-manager" "$otel_target_display $request_method $otel_normalized_route";', text)
+        self.assertIn('"~^api\\.openworkshop\\.miskler\\.ru:/healthz$" "/healthz";', text)
+
 
 if __name__ == "__main__":
     unittest.main()

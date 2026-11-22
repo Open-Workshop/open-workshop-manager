@@ -6,12 +6,14 @@ from datetime import datetime
 
 from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy import delete, func, select
+from sqlalchemy.orm import load_only
 
 from open_workshop_manager import standarts, tools
 from open_workshop_manager.api_helpers import (
     ensure_fields_not_none,
     ensure_non_empty_patch,
     make_list_response,
+    unique_ints,
 )
 from open_workshop_manager.api_models import ResourceCreate, ResourceListResponse, ResourcePatch, ResourceRead
 from open_workshop_manager.limits import LIMITS
@@ -169,10 +171,14 @@ async def list_resources(
 
         total = int((await session.scalar(count_stmt)) or 0)
         offset = page * page_size
+        if only_urls:
+            list_stmt = list_stmt.options(load_only(
+                catalog.Resource.id, catalog.Resource.owner_id, catalog.Resource.url, raiseload=True
+            ))
         rows = (await session.execute(list_stmt.offset(offset).limit(page_size))).scalars().all()
 
     if owner_type in {"mods", "modpacks"} and owner_ids and rows:
-        owner_ids_to_check = [int(row.owner_id) for row in rows]
+        owner_ids_to_check = unique_ints([int(row.owner_id) for row in rows])
         if owner_type == "mods":
             allowed_ids = await tools.access_mods(
                 request=request,
@@ -194,11 +200,10 @@ async def list_resources(
 
     items: list[dict[str, object] | str] = []
     for row in rows:
-        serialized = _serialize_resource(row)
         if only_urls:
-            items.append(serialized.url)
+            items.append(row.real_url)
         else:
-            items.append(serialized.model_dump(mode="json", exclude_none=True))
+            items.append(_serialize_resource(row).model_dump(mode="json", exclude_none=True))
 
     return make_list_response(items, page=page, page_size=page_size, total=total)
 

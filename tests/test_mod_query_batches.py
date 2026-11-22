@@ -189,6 +189,48 @@ class ModBatchQueryTests(unittest.TestCase):
             return await reputation.load_profile_content_summary(self.adapter, profile_id=42)
         self.assertEqual(asyncio.run(check()), reputation.VoteSummary(rating=67, votes_count=3))
 
+    def test_mod_list_loads_long_text_only_when_requested(self):
+        catalog.Mod.__table__.create(self.engine)
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("INSERT INTO mods (id,name,short_description,description,size,rating,`condition`,public,source,downloads,adult) VALUES (1,'one','short','long text',1,0,0,0,'local',1,0)")
+        statements = []
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT MODS.ID,"):
+                statements.append(statement.lower())
+        event.listen(self.engine, "before_cursor_execute", capture)
+        try:
+            with patch.object(catalog, "AsyncSessionLocal", return_value=self.adapter), patch.object(api_mod, "_load_mod_vote_counts", AsyncMock(return_value={})):
+                client = TestClient(app_main.app)
+                response = client.get("/mods", params={"page_size": 2})
+                self.assertEqual(response.status_code, 200)
+                self.assertNotIn("description", response.json()["items"][0])
+                self.assertNotIn("mods.description", statements[-1])
+                self.session.expire_all()
+                response = client.get("/mods", params={"page_size": 2, "include": "description"})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["items"][0]["description"], "long text")
+                self.assertIn("mods.description", statements[-1])
+        finally:
+            event.remove(self.engine, "before_cursor_execute", capture)
+
+    def test_resources_only_urls_loads_no_unneeded_resource_columns(self):
+        with self.engine.begin() as connection:
+            connection.execute(insert(catalog.Resource), [dict(id=3, type="image", sort_order=0, url="https://example.org/game", owner_type="games", owner_id=1)])
+        statements = []
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT RESOURCES.ID,"):
+                statements.append(statement.lower())
+        event.listen(self.engine, "before_cursor_execute", capture)
+        try:
+            with patch.object(catalog, "AsyncSessionLocal", return_value=self.adapter):
+                response = TestClient(app_main.app).get("/resources", params={"owner_type": "games", "owner_id": 1, "only_urls": "true"})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["items"], ["https://example.org/game"])
+            self.assertNotIn("resources.size", statements[-1])
+            self.assertNotIn("resources.type", statements[-1])
+        finally:
+            event.remove(self.engine, "before_cursor_execute", capture)
+
     def test_feed_aggregate_matches_individual_queries_and_empty_results(self):
         catalog.Mod.__table__.create(self.engine)
         with self.engine.begin() as connection:

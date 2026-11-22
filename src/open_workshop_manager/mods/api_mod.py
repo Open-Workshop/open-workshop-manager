@@ -9,7 +9,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy import and_, case, delete, func, or_, select, update
-from sqlalchemy.orm import aliased, joinedload
+from sqlalchemy.orm import aliased, joinedload, load_only
 
 from open_workshop_manager import mod_events, reputation, standarts, tools
 from open_workshop_manager.api_helpers import (
@@ -426,13 +426,11 @@ async def _load_mod_feed_tag_groups(session, game: int) -> list[dict[str, object
     return [serialize_tag_group(group).model_dump(mode="json", exclude_none=True) for group in groups]
 
 
-def _serialize_mod_base(row: catalog.Mod) -> dict[str, object]:
+def _serialize_mod_base(row: catalog.Mod, include: set[str] | None = None) -> dict[str, object]:
     game_id = getattr(row, "game", None)
-    return {
+    payload = {
         "id": int(row.id),
         "name": str(getattr(row, "name", "")),
-        "short_description": getattr(row, "short_description", None),
-        "description": getattr(row, "description", None),
         "source": str(getattr(row, "source", "local")),
         "source_id": stringify_source_id(getattr(row, "source_id", None)),
         "git_url": getattr(row, "git_url", None),
@@ -449,11 +447,17 @@ def _serialize_mod_base(row: catalog.Mod) -> dict[str, object]:
             if getattr(row, "size_unpacked", None) is not None
             else None
         ),
-        "created_at": getattr(row, "date_creation", None),
-        "file_updated_at": getattr(row, "date_update_file", None),
-        "updated_at": getattr(row, "date_edit", None),
         "file": None,
     }
+    if include is None or "short_description" in include:
+        payload["short_description"] = getattr(row, "short_description", None)
+    if include is None or "description" in include:
+        payload["description"] = getattr(row, "description", None)
+    if include is None or "dates" in include:
+        payload["created_at"] = getattr(row, "date_creation", None)
+        payload["file_updated_at"] = getattr(row, "date_update_file", None)
+        payload["updated_at"] = getattr(row, "date_edit", None)
+    return payload
 
 
 def _serialize_dependency_row(row: object) -> dict[str, object]:
@@ -597,7 +601,7 @@ async def _serialize_mod_with_includes(
     votes_count: int = 0,
     preloaded: dict[str, object] | None = None,
 ) -> ModRead:
-    payload = _serialize_mod_base(row)
+    payload = _serialize_mod_base(row, include)
     if current_vote is not None:
         payload["current_vote"] = current_vote
     payload["votes_count"] = int(votes_count)
@@ -984,7 +988,22 @@ async def list_mods(
         # A stable tie-breaker prevents duplicates or omissions between pages when
         # many imported mods share the same timestamp or download count.
         id_order = catalog.Mod.id.desc() if sort.strip().startswith("-") else catalog.Mod.id.asc()
-        rows = (await session.execute(stmt.order_by(sort_clause, id_order).offset(offset).limit(page_size))).scalars().all()
+        columns = [
+            catalog.Mod.id, catalog.Mod.name, catalog.Mod.source, catalog.Mod.source_id,
+            catalog.Mod.git_url, catalog.Mod.game, catalog.Mod.public, catalog.Mod.adult,
+            catalog.Mod.condition, catalog.Mod.downloads, catalog.Mod.rating,
+            catalog.Mod.size, catalog.Mod.size_unpacked,
+        ]
+        if "short_description" in include_set:
+            columns.append(catalog.Mod.short_description)
+        if "description" in include_set:
+            columns.append(catalog.Mod.description)
+        if "dates" in include_set:
+            columns.extend([catalog.Mod.date_creation, catalog.Mod.date_update_file, catalog.Mod.date_edit])
+        rows = (await session.execute(
+            stmt.options(load_only(*columns, raiseload=True))
+            .order_by(sort_clause, id_order).offset(offset).limit(page_size)
+        )).scalars().all()
         mod_ids = [int(row.id) for row in rows]
         vote_counts = await _load_mod_vote_counts(mod_ids)
         preloaded = await _load_mod_includes_batch(session, rows, include_set, conflicts_scope) if include_set else {}
@@ -1007,7 +1026,7 @@ async def list_mods(
                     ).model_dump(mode="json", exclude_none=True)
                 )
             else:
-                payload = _serialize_mod_base(row)
+                payload = _serialize_mod_base(row, include_set)
                 payload["votes_count"] = row_vote_count
                 payload.pop("short_description", None)
                 payload.pop("description", None)
