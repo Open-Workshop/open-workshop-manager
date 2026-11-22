@@ -7,6 +7,8 @@ from typing import cast
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from sqlalchemy import delete, select
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -145,16 +147,26 @@ async def _cleanup_expired_upload_jobs_once() -> None:
     logger.info("Cleanup expired upload jobs deleted count=%s", len(stale_ids))
 
 
-async def _cleanup_stale_mods_loop() -> None:
-    while True:
+async def _run_cleanup_cycle() -> None:
+    tracer = trace.get_tracer(__name__)
+    with tracer.start_as_current_span("maintenance.cleanup") as span:
         try:
             await _cleanup_stale_mods_once()
-        except Exception:
+        except Exception as exc:
+            span.record_exception(exc)
+            span.set_status(Status(StatusCode.ERROR))
             logger.exception("Cleanup stale mods failed")
         try:
             await _cleanup_expired_upload_jobs_once()
-        except Exception:
+        except Exception as exc:
+            span.record_exception(exc)
+            span.set_status(Status(StatusCode.ERROR))
             logger.exception("Cleanup expired upload jobs failed")
+
+
+async def _cleanup_stale_mods_loop() -> None:
+    while True:
+        await _run_cleanup_cycle()
         await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
 
 
