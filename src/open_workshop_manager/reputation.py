@@ -4,7 +4,7 @@ import datetime
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from sqlalchemy import and_, case, func, literal, select, union
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from open_workshop_manager.sql_logic import sql_account as account
@@ -204,16 +204,16 @@ async def load_profile_content_summary(
     profile_id: int,
 ) -> VoteSummary:
     profile_id = int(profile_id)
-    targets = union(
-        select(
-            literal("mod").label("target_type"),
-            account.mod_and_author.c.mod_id.label("target_id"),
-        ).where(account.mod_and_author.c.user_id == profile_id),
-        select(
-            literal("modpack").label("target_type"),
-            account.modpack_and_author.c.modpack_id.label("target_id"),
-        ).where(account.modpack_and_author.c.user_id == profile_id),
-    ).subquery()
+    # Probe the small vote set against author indexes instead of materializing
+    # every authored mod and modpack for profiles with large imported catalogs.
+    authored_mod = select(1).where(
+        account.mod_and_author.c.user_id == profile_id,
+        account.mod_and_author.c.mod_id == account.ReputationVote.target_id,
+    ).exists()
+    authored_modpack = select(1).where(
+        account.modpack_and_author.c.user_id == profile_id,
+        account.modpack_and_author.c.modpack_id == account.ReputationVote.target_id,
+    ).exists()
 
     result = await session.execute(
         select(
@@ -224,12 +224,11 @@ async def load_profile_content_summary(
             ).label("positive_votes"),
         )
         .select_from(account.ReputationVote)
-        .join(
-            targets,
-            and_(
-                account.ReputationVote.target_type == targets.c.target_type,
-                account.ReputationVote.target_id == targets.c.target_id,
-            ),
+        .where(
+            or_(
+                and_(account.ReputationVote.target_type == "mod", authored_mod),
+                and_(account.ReputationVote.target_type == "modpack", authored_modpack),
+            )
         )
     )
     row = result.first()

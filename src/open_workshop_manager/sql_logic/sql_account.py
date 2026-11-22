@@ -232,6 +232,14 @@ Index(
 )
 
 
+Index(
+    "ix_reputation_votes_target_value",
+    ReputationVote.target_type,
+    ReputationVote.target_id,
+    ReputationVote.value,
+)
+
+
 class ReputationVoteHistory(Base):
     __tablename__ = "reputation_vote_history"
 

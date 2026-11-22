@@ -13,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 
 # Install the same optional-driver stubs as the route tests before importing the API.
 from tests.test_mod_list_size_filter import _mod
+from open_workshop_manager import reputation
 from open_workshop_manager import main as app_main
 from open_workshop_manager.app import api_catalog_statistics
 from open_workshop_manager.mods import api_mod
@@ -176,6 +177,17 @@ class ModBatchQueryTests(unittest.TestCase):
             response = client.get("/games/genres", params={"game_ids": 1, "only_ids": "true"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"items_by_game_id": {"1": [1]}})
+
+    def test_profile_content_votes_handle_duplicate_authorship_and_both_content_types(self):
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("CREATE TABLE modpacks_and_authors (modpack_id INTEGER, user_id INTEGER, owner BOOLEAN)")
+            connection.exec_driver_sql("CREATE TABLE reputation_votes (id INTEGER PRIMARY KEY, voter_id INTEGER, target_type TEXT, target_id INTEGER, value INTEGER)")
+            connection.execute(insert(account.mod_and_author), [dict(mod_id=1, user_id=42, owner=False), dict(mod_id=1, user_id=42, owner=True)])
+            connection.execute(insert(account.modpack_and_author), [dict(modpack_id=7, user_id=42, owner=True)])
+            connection.exec_driver_sql("INSERT INTO reputation_votes VALUES (1, 2, 'mod', 1, 1), (2, 3, 'mod', 1, -1), (3, 2, 'modpack', 7, 1), (4, 3, 'modpack', 1, -1), (5, 3, 'profile', 42, -1)")
+        async def check():
+            return await reputation.load_profile_content_summary(self.adapter, profile_id=42)
+        self.assertEqual(asyncio.run(check()), reputation.VoteSummary(rating=67, votes_count=3))
 
     def test_feed_aggregate_matches_individual_queries_and_empty_results(self):
         catalog.Mod.__table__.create(self.engine)
