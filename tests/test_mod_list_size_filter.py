@@ -50,6 +50,11 @@ class _DummyResult:
     def all(self) -> list[object]:
         return self._rows
 
+    def one(self) -> object:
+        if len(self._rows) != 1:
+            raise AssertionError("Expected exactly one result row")
+        return self._rows[0]
+
     def first(self) -> object | None:
         return self._rows[0] if self._rows else None
 
@@ -814,8 +819,7 @@ class ModListSizeFilterTests(unittest.TestCase):
 
     def test_mod_feed_returns_range_bounds(self) -> None:
         session = _RecordingSession(
-            execute_results=[[types.SimpleNamespace(id=5, name="Resolution")]],
-            scalar_values=[17, 1024, 4096, 2048, 8192],
+            execute_results=[[types.SimpleNamespace(id=5, name="Resolution")], [(17, 1024, 4096, 2048, 8192)]],
         )
 
         with patch.object(
@@ -829,15 +833,14 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(body["size"], {"min": 1024, "max": 4096})
         self.assertEqual(body["size_unpacked"], {"min": 2048, "max": 8192})
         self.assertEqual(body["tag_groups"], [{"id": 5, "name": "Resolution"}])
-        self.assertEqual(len(session.execute_statements), 1)
-        self.assertEqual(len(session.scalar_statements), 5)
+        self.assertEqual(len(session.execute_statements), 2)
+        self.assertEqual(len(session.scalar_statements), 0)
         self.assertEqual(session.commit_count, 0)
         self.assertEqual(session.flush_count, 0)
 
     def test_mod_feed_can_include_non_public_author_mods(self) -> None:
         session = _RecordingSession(
-            execute_results=[[], [11, 12]],
-            scalar_values=[2, 100, 200, 300, 400],
+            execute_results=[[], [11, 12], [(2, 100, 200, 300, 400)]],
         )
         access_mock = AsyncMock(return_value=[11, 12])
 
@@ -862,8 +865,8 @@ class ModListSizeFilterTests(unittest.TestCase):
         self.assertEqual(body["size"], {"min": 100, "max": 200})
         self.assertEqual(body["size_unpacked"], {"min": 300, "max": 400})
         self.assertEqual(body["tag_groups"], [])
-        self.assertEqual(len(session.execute_statements), 2)
-        self.assertEqual(len(session.scalar_statements), 5)
+        self.assertEqual(len(session.execute_statements), 3)
+        self.assertEqual(len(session.scalar_statements), 0)
         access_mock.assert_awaited_once()
         access_call = access_mock.await_args.kwargs
         self.assertEqual(access_call["mods_ids"], [11, 12])
@@ -2141,7 +2144,7 @@ class ModListSizeFilterTests(unittest.TestCase):
         session = _RecordingSession(
             execute_results=[
                 [game],
-                [_tag(), _tag(tag_id=11, name="1920x1080", group=group)],
+                [(game.id, _tag()), (game.id, _tag(tag_id=11, name="1920x1080", group=group))],
             ],
             scalar_values=[1],
         )

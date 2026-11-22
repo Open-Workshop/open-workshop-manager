@@ -143,11 +143,54 @@ def _serialize_game_base(row: catalog.Game) -> dict[str, object]:
     }
 
 
+async def _load_game_includes_batch(session, rows, include: set[str]):
+    data = {int(row.id): {} for row in rows}
+    ids = list(data)
+    if not ids:
+        return data
+    if "genres" in include:
+        for game_id in ids:
+            data[game_id]["genres"] = []
+        results = (await session.execute(
+            select(catalog.game_genres.c.game_id, catalog.Genre)
+            .join(catalog.Genre, catalog.Genre.id == catalog.game_genres.c.genre_id)
+            .where(catalog.game_genres.c.game_id.in_(ids))
+            .order_by(catalog.Genre.name)
+        )).all()
+        for game_id, genre in results:
+            data[int(game_id)]["genres"].append(genre)
+    if "tags" in include:
+        for game_id in ids:
+            data[game_id]["tags"] = []
+        results = (await session.execute(
+            select(catalog.allowed_mods_tags.c.game_id, catalog.Tag)
+            .join(catalog.Tag, catalog.Tag.id == catalog.allowed_mods_tags.c.tag_id)
+            .where(catalog.allowed_mods_tags.c.game_id.in_(ids))
+            .options(joinedload(catalog.Tag.group))
+            .order_by(catalog.Tag.group_id, catalog.Tag.name, catalog.Tag.id)
+        )).all()
+        for game_id, tag in results:
+            data[int(game_id)]["tags"].append(tag)
+    if "resources" in include:
+        for game_id in ids:
+            data[game_id]["resources"] = []
+        resources = (await session.execute(
+            select(catalog.Resource)
+            .where(catalog.Resource.owner_type == "games", catalog.Resource.owner_id.in_(ids))
+            .order_by(catalog.Resource.sort_order, catalog.Resource.id)
+        )).scalars().all()
+        for resource in resources:
+            data[int(resource.owner_id)]["resources"].append(resource)
+    return data
+
+
 async def _serialize_game_with_includes(
     session,
     request: Request,
     row: catalog.Game,
     include: set[str],
+    *,
+    preloaded: dict[str, object] | None = None,
 ) -> GameRead:
     payload = _serialize_game_base(row)
 
@@ -162,7 +205,7 @@ async def _serialize_game_with_includes(
         payload.pop("created_at", None)
 
     if "genres" in include:
-        genres = (
+        genres = preloaded["genres"] if preloaded is not None else (
             await session.execute(
                 select(catalog.Genre)
                 .join(catalog.game_genres)
@@ -173,11 +216,11 @@ async def _serialize_game_with_includes(
         payload["genres"] = [GenreRead(id=int(item.id), name=item.name).model_dump(mode="json") for item in genres]
 
     if "tags" in include:
-        tags = await _load_game_tags(session, row.id)
+        tags = preloaded["tags"] if preloaded is not None else await _load_game_tags(session, row.id)
         payload["tags"] = [serialize_tag(item).model_dump(mode="json", exclude_none=True) for item in tags]
 
     if "resources" in include:
-        resources = (
+        resources = preloaded["resources"] if preloaded is not None else (
             await session.execute(
                 select(catalog.Resource)
                 .where(
@@ -290,6 +333,7 @@ async def list_games(
         total = int((await session.scalar(count_stmt)) or 0)
         offset = page * page_size
         rows = (await session.execute(list_stmt.offset(offset).limit(page_size))).scalars().all()
+        preloaded = await _load_game_includes_batch(session, rows, include_set) if include_set else {}
 
         items: list[dict[str, object]] = []
         for row in rows:
@@ -305,7 +349,9 @@ async def list_games(
                 payload.pop("created_at", None)
 
             if include_set:
-                serialized = await _serialize_game_with_includes(session, request, row, include_set)
+                serialized = await _serialize_game_with_includes(
+                    session, request, row, include_set, preloaded=preloaded[int(row.id)]
+                )
                 payload = serialized.model_dump(mode="json", exclude_none=True)
             items.append(payload)
 

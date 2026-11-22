@@ -501,6 +501,91 @@ def _build_conflict_ids_stmt(mod_id: int, scope: ConflictScope):
     )
 
 
+async def _load_mod_includes_batch(session, rows, include: set[str], conflicts_scope: ConflictScope):
+    """Load each requested relation once for the whole page of mods."""
+    data = {int(row.id): {} for row in rows}
+    ids = list(data)
+    if not ids:
+        return data
+
+    if "game" in include:
+        game_ids = {int(row.game) for row in rows if row.game is not None}
+        games = {}
+        if game_ids:
+            games = {int(game.id): game for game in (await session.execute(
+                select(catalog.Game).where(catalog.Game.id.in_(game_ids))
+            )).scalars().all()}
+        for row in rows:
+            data[int(row.id)]["game"] = games.get(int(row.game)) if row.game is not None else None
+
+    if "tags" in include:
+        for mod_id in ids:
+            data[mod_id]["tags"] = []
+        results = (await session.execute(
+            select(catalog.mods_tags.c.mod_id, catalog.Tag)
+            .join(catalog.Tag, catalog.Tag.id == catalog.mods_tags.c.tag_id)
+            .where(catalog.mods_tags.c.mod_id.in_(ids))
+            .options(joinedload(catalog.Tag.group))
+            .order_by(catalog.Tag.name)
+        )).all()
+        for mod_id, tag in results:
+            data[int(mod_id)]["tags"].append(tag)
+
+    if "dependencies" in include:
+        for mod_id in ids:
+            data[mod_id]["dependencies"] = []
+        results = (await session.execute(
+            select(catalog.mods_dependencies.c.mod_id, catalog.mods_dependencies.c.dependence,
+                   catalog.mods_dependencies.c.optional)
+            .where(catalog.mods_dependencies.c.mod_id.in_(ids))
+            .order_by(catalog.mods_dependencies.c.dependence)
+        )).all()
+        for result in results:
+            data[int(result.mod_id)]["dependencies"].append(result)
+
+    if "conflicts" in include:
+        for mod_id in ids:
+            data[mod_id]["conflicts"] = []
+        left, right = catalog.mods_conflicts.c.mod_id, catalog.mods_conflicts.c.conflict
+        conditions = []
+        if conflicts_scope in ("outgoing", "all"):
+            conditions.append(left.in_(ids))
+        if conflicts_scope in ("incoming", "all"):
+            conditions.append(right.in_(ids))
+        results = (await session.execute(select(left, right).where(or_(*conditions)))).all()
+        for source_id, target_id in results:
+            if conflicts_scope in ("outgoing", "all") and int(source_id) in data:
+                data[int(source_id)]["conflicts"].append(int(target_id))
+            if conflicts_scope in ("incoming", "all") and int(target_id) in data:
+                data[int(target_id)]["conflicts"].append(int(source_id))
+        for mod_id in ids:
+            values = data[mod_id]["conflicts"]
+            data[mod_id]["conflicts"] = sorted(set(values) if conflicts_scope == "all" else values)
+
+    if "authors" in include:
+        for mod_id in ids:
+            data[mod_id]["authors"] = []
+        results = (await session.execute(
+            select(account.mod_and_author.c.mod_id, account.mod_and_author.c.user_id,
+                   account.mod_and_author.c.owner)
+            .where(account.mod_and_author.c.mod_id.in_(ids))
+        )).all()
+        for mod_id, user_id, owner in results:
+            data[int(mod_id)]["authors"].append((user_id, owner))
+
+    if "resources" in include:
+        for mod_id in ids:
+            data[mod_id]["resources"] = []
+        resources = (await session.execute(
+            select(catalog.Resource)
+            .where(catalog.Resource.owner_type == "mods", catalog.Resource.owner_id.in_(ids))
+            .order_by(catalog.Resource.sort_order, catalog.Resource.id)
+        )).scalars().all()
+        for resource in resources:
+            data[int(resource.owner_id)]["resources"].append(resource)
+    return data
+
+
 async def _serialize_mod_with_includes(
     session,
     request: Request,
@@ -510,6 +595,7 @@ async def _serialize_mod_with_includes(
     *,
     current_vote: int | None = None,
     votes_count: int = 0,
+    preloaded: dict[str, object] | None = None,
 ) -> ModRead:
     payload = _serialize_mod_base(row)
     if current_vote is not None:
@@ -527,7 +613,7 @@ async def _serialize_mod_with_includes(
         payload.pop("updated_at", None)
 
     if "game" in include and game_id is not None:
-        game = await session.get(catalog.Game, game_id)
+        game = preloaded["game"] if preloaded is not None else await session.get(catalog.Game, game_id)
         if game is not None:
             payload["game"] = GameRead(
                 id=int(getattr(game, "id", game_id)),
@@ -549,7 +635,7 @@ async def _serialize_mod_with_includes(
             ).model_dump(mode="json", exclude_none=True)
 
     if "tags" in include:
-        tags = (
+        tags = preloaded["tags"] if preloaded is not None else (
             await session.execute(
                 select(catalog.Tag)
                 .join(catalog.mods_tags)
@@ -561,7 +647,7 @@ async def _serialize_mod_with_includes(
         payload["tags"] = [serialize_tag(tag).model_dump(mode="json", exclude_none=True) for tag in tags]
 
     if "dependencies" in include:
-        dependencies = (
+        dependencies = preloaded["dependencies"] if preloaded is not None else (
             await session.execute(
                 select(
                     catalog.mods_dependencies.c.dependence,
@@ -579,7 +665,7 @@ async def _serialize_mod_with_includes(
         }
 
     if "conflicts" in include:
-        conflicts = (
+        conflicts = preloaded["conflicts"] if preloaded is not None else (
             await session.execute(_build_conflict_ids_stmt(row.id, conflicts_scope))
         ).scalars().all()
         payload["conflicts"] = {
@@ -588,7 +674,7 @@ async def _serialize_mod_with_includes(
         }
 
     if "authors" in include:
-        row_results = (
+        row_results = preloaded["authors"] if preloaded is not None else (
             await session.execute(
                 select(account.mod_and_author.c.user_id, account.mod_and_author.c.owner).where(
                     account.mod_and_author.c.mod_id == row.id
@@ -601,7 +687,7 @@ async def _serialize_mod_with_includes(
         }
 
     if "resources" in include:
-        resources = (
+        resources = preloaded["resources"] if preloaded is not None else (
             await session.execute(
                 select(catalog.Resource)
                 .where(
@@ -898,6 +984,7 @@ async def list_mods(
         rows = (await session.execute(stmt.order_by(sort_clause).offset(offset).limit(page_size))).scalars().all()
         mod_ids = [int(row.id) for row in rows]
         vote_counts = await _load_mod_vote_counts(mod_ids)
+        preloaded = await _load_mod_includes_batch(session, rows, include_set, conflicts_scope) if include_set else {}
 
         items: list[dict[str, object]] = []
         for row in rows:
@@ -912,6 +999,7 @@ async def list_mods(
                             include_set,
                             conflicts_scope,
                             votes_count=row_vote_count,
+                            preloaded=preloaded[int(row.id)],
                         )
                     ).model_dump(mode="json", exclude_none=True)
                 )
@@ -1013,18 +1101,17 @@ async def get_mod_feed(
         else:
             stmt = stmt.where(catalog.Mod.public == 0)
 
-        filtered = stmt.order_by(None).subquery()
-        count_stmt = select(func.count()).select_from(filtered)
-        min_stmt = select(func.min(filtered.c.size))
-        max_stmt = select(func.max(filtered.c.size))
-        unpacked_min_stmt = select(func.min(filtered.c.size_unpacked))
-        unpacked_max_stmt = select(func.max(filtered.c.size_unpacked))
-
-        mods_count = int((await session.scalar(count_stmt)) or 0)
-        size_min = await session.scalar(min_stmt)
-        size_max = await session.scalar(max_stmt)
-        size_unpacked_min = await session.scalar(unpacked_min_stmt)
-        size_unpacked_max = await session.scalar(unpacked_max_stmt)
+        # Aggregate all bounds in one database scan, without selecting whole mod rows.
+        bounds_stmt = stmt.with_only_columns(
+            func.count(),
+            func.min(catalog.Mod.size),
+            func.max(catalog.Mod.size),
+            func.min(catalog.Mod.size_unpacked),
+            func.max(catalog.Mod.size_unpacked),
+        ).order_by(None)
+        mods_count, size_min, size_max, size_unpacked_min, size_unpacked_max = (
+            await session.execute(bounds_stmt)
+        ).one()
 
     return {
         "count": mods_count,
