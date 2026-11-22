@@ -36,6 +36,8 @@ class NginxOtelRouteTests(unittest.TestCase):
 
     def test_other_services_have_one_name_and_ow_keeps_method_and_route(self):
         text = routes.build_map({"api.openworkshop.miskler.ru": ["/healthz"]})
+        self.assertIn('map "$server_name:$uri" $otel_target_service', text)
+        self.assertIn('default "NGINX $server_name";', text)
         self.assertIn('"~^elastic\\.miskler\\.ru:" "elastic";', text)
         self.assertIn('"~^analytics\\.miskler\\.ru:" "rybbit";', text)
         self.assertIn('"elastic" "ELASTIC";', text)

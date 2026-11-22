@@ -87,7 +87,7 @@ def build_map(routes_by_host: dict[str, list[str]]) -> str:
             literal_len = len(_PARAMETER.sub("", route))
             rows.append((-literal_len, len(_PARAMETER.findall(route)), host, pattern, template))
     lines = ["# Generated from application routes; do not edit manually.",
-             'map "$host:$uri" $otel_normalized_route {', '    default "/unmatched";',
+             'map "$server_name:$uri" $otel_normalized_route {', '    default "/unmatched";',
              '    "~^[^:]+:/assets/.*$" "/assets/{path}";',
              '    "~^[^:]+:/static/.*$" "/static/{path}";']
     for _, _, host, pattern, template in sorted(rows):
@@ -95,7 +95,7 @@ def build_map(routes_by_host: dict[str, list[str]]) -> str:
     lines.extend([
         "}", "",
         '# Backend selected by nginx; internal endpoints served by nginx stay unlabeled.',
-        'map "$host:$uri" $otel_target_service {',
+        'map "$server_name:$uri" $otel_target_service {',
         '    default "";',
         r'    "~^(?:www\.)?(?:openworkshop\.miskler\.ru|miskler\.ru):/__rybbit_elastic_link$" "";',
         r'    "~^(?:www\.)?openworkshop\.miskler\.ru:" "open-workshop-website";',
@@ -128,7 +128,7 @@ def build_map(routes_by_host: dict[str, list[str]]) -> str:
         "}", "",
         '# Applications have route templates; other services use one name per host.',
         'map $otel_target_service $otel_transaction_name {',
-        '    default "NGINX $host";',
+        '    default "NGINX $server_name";',
         '    "open-workshop-website" "$otel_target_display $request_method $otel_normalized_route";',
         '    "open-workshop-manager" "$otel_target_display $request_method $otel_normalized_route";',
         '    "open-workshop-access" "$otel_target_display $request_method $otel_normalized_route";',
