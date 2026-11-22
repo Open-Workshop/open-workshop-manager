@@ -981,7 +981,10 @@ async def list_mods(
         count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
         total = int((await session.scalar(count_stmt)) or 0)
         offset = page * page_size
-        rows = (await session.execute(stmt.order_by(sort_clause).offset(offset).limit(page_size))).scalars().all()
+        # A stable tie-breaker prevents duplicates or omissions between pages when
+        # many imported mods share the same timestamp or download count.
+        id_order = catalog.Mod.id.desc() if sort.strip().startswith("-") else catalog.Mod.id.asc()
+        rows = (await session.execute(stmt.order_by(sort_clause, id_order).offset(offset).limit(page_size))).scalars().all()
         mod_ids = [int(row.id) for row in rows]
         vote_counts = await _load_mod_vote_counts(mod_ids)
         preloaded = await _load_mod_includes_batch(session, rows, include_set, conflicts_scope) if include_set else {}

@@ -185,18 +185,19 @@ async def get_mod_tags_map(
                     instance=str(request.url),
                 )
 
-        result: dict[str, list[object]] = {}
-        for mod_id in mod_ids:
-            query = select(catalog.Tag).join(catalog.mods_tags).where(
-                catalog.mods_tags.c.mod_id == mod_id
-            ).options(joinedload(catalog.Tag.group))
-            if tag_ids:
-                query = query.where(catalog.Tag.id.in_(tag_ids))
-            tags = (await session.execute(query)).scalars().all()
-            if only_ids:
-                result[str(mod_id)] = [int(tag.id) for tag in tags]
-            else:
-                result[str(mod_id)] = _serialize_tags(tags)
+        result: dict[str, list[object]] = {str(mod_id): [] for mod_id in mod_ids}
+        if only_ids:
+            query = select(catalog.mods_tags.c.mod_id, catalog.Tag.id)
+        else:
+            query = select(catalog.mods_tags.c.mod_id, catalog.Tag).options(joinedload(catalog.Tag.group))
+        query = query.join(catalog.Tag, catalog.Tag.id == catalog.mods_tags.c.tag_id).where(
+            catalog.mods_tags.c.mod_id.in_(mod_ids)
+        )
+        if tag_ids:
+            query = query.where(catalog.Tag.id.in_(tag_ids))
+        for mod_id, tag in (await session.execute(query)).all():
+            item = int(tag) if only_ids else serialize_tag(tag).model_dump(mode="json", exclude_none=True)
+            result[str(mod_id)].append(item)
 
     return {"items_by_mod_id": result}
 
@@ -228,17 +229,17 @@ async def get_game_genres_map(
         )
 
     async with catalog.AsyncSessionLocal() as session:
-        result: dict[str, list[object]] = {}
-        for game_id in game_ids:
-            query = select(catalog.Genre).join(catalog.game_genres).where(
-                catalog.game_genres.c.game_id == game_id
-            )
-            if genre_ids:
-                query = query.where(catalog.Genre.id.in_(genre_ids))
-            genres = (await session.execute(query)).scalars().all()
-            if only_ids:
-                result[str(game_id)] = [int(genre.id) for genre in genres]
-            else:
-                result[str(game_id)] = _serialize_genres(genres)
+        result: dict[str, list[object]] = {str(game_id): [] for game_id in game_ids}
+        query = select(
+            catalog.game_genres.c.game_id,
+            catalog.Genre.id if only_ids else catalog.Genre,
+        ).join(catalog.Genre, catalog.Genre.id == catalog.game_genres.c.genre_id).where(
+            catalog.game_genres.c.game_id.in_(game_ids)
+        )
+        if genre_ids:
+            query = query.where(catalog.Genre.id.in_(genre_ids))
+        for game_id, genre in (await session.execute(query)).all():
+            item = int(genre) if only_ids else GenreRead(id=int(genre.id), name=str(genre.name)).model_dump(mode="json", exclude_none=True)
+            result[str(game_id)].append(item)
 
     return {"items_by_game_id": result}

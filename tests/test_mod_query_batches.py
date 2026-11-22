@@ -1,17 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, insert, select, func
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 # Install the same optional-driver stubs as the route tests before importing the API.
 from tests.test_mod_list_size_filter import _mod
+from open_workshop_manager import main as app_main
+from open_workshop_manager.app import api_catalog_statistics
 from open_workshop_manager.mods import api_mod
 from open_workshop_manager.games import api_game
+from open_workshop_manager.association import api_association_getter
 from open_workshop_manager.sql_logic import sql_account as account, sql_catalog as catalog
 
 
@@ -19,16 +25,28 @@ class AsyncSessionAdapter:
     def __init__(self, session):
         self.session = session
 
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return False
+
     async def execute(self, statement):
         return self.session.execute(statement)
+
+    async def scalar(self, statement):
+        return self.session.scalar(statement)
 
     async def get(self, model, key):
         return self.session.get(model, key)
 
+    async def commit(self):
+        self.session.commit()
+
 
 class ModBatchQueryTests(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine("sqlite:///:memory:")
+        self.engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
         tables = [catalog.Game.__table__, catalog.TagGroup.__table__, catalog.Tag.__table__,
                   catalog.mods_tags, catalog.mods_dependencies, catalog.mods_conflicts,
                   catalog.Resource.__table__]
@@ -96,6 +114,68 @@ class ModBatchQueryTests(unittest.TestCase):
             self.assertEqual(actual, original)
             self.assertEqual(len(statements), 3)
         asyncio.run(check())
+
+    def test_association_maps_batch_filter_and_preserve_access_checks(self):
+        catalog.Mod.__table__.create(self.engine)
+        catalog.Genre.__table__.create(self.engine)
+        catalog.game_genres.create(self.engine)
+        with self.engine.begin() as connection:
+            for mod_id in (1, 2):
+                connection.exec_driver_sql("INSERT INTO mods (id, name, size, rating, `condition`, public, source, downloads, adult) VALUES (?, 'x', 0, 0, 0, 0, 'local', 0, 0)", (mod_id,))
+            connection.execute(insert(catalog.Genre), [dict(id=1, name="Action"), dict(id=2, name="Strategy")])
+            connection.execute(insert(catalog.game_genres), [dict(game_id=1, genre_id=1), dict(game_id=1, genre_id=2), dict(game_id=2, genre_id=2)])
+        async def check():
+            request = SimpleNamespace(url="http://test/")
+            with patch.object(catalog, "AsyncSessionLocal", return_value=self.adapter), patch.object(api_association_getter.tools, "access_mods", AsyncMock(return_value=[1, 2])) as access:
+                values = await api_association_getter.get_mod_tags_map(request, [1, 2], [1], True)
+                self.assertEqual(values, {"items_by_mod_id": {"1": [1], "2": [1]}})
+                access.assert_awaited_once()
+                tags = await api_association_getter.get_mod_tags_map(request, [1, 2], [2], False)
+                self.assertEqual(tags["items_by_mod_id"]["1"], [{"id": 2, "name": "Alpha"}])
+                self.assertEqual(tags["items_by_mod_id"]["2"], [])
+                values = await api_association_getter.get_game_genres_map(request, [1, 2, 3], [2], True)
+                self.assertEqual(values, {"items_by_game_id": {"1": [2], "2": [2], "3": []}})
+                genres = await api_association_getter.get_game_genres_map(request, [1, 2], [1], False)
+                self.assertEqual(genres, {"items_by_game_id": {"1": [{"id": 1, "name": "Action"}], "2": []}})
+        asyncio.run(check())
+
+    def test_cleanup_batches_only_expired_unfinished_empty_resources(self):
+        catalog.UploadJob.__table__.create(self.engine)
+        with self.engine.begin() as connection:
+            connection.execute(insert(catalog.Resource), [dict(id=4, type="image", sort_order=0, url="", owner_type="mods", owner_id=1), dict(id=5, type="image", sort_order=0, url="https://example.org/done", owner_type="mods", owner_id=1), dict(id=6, type="image", sort_order=0, url="", owner_type="mods", owner_id=1)])
+            common = dict(kind="resource_image", transfer_url="x", ws_url="x", expires_at=datetime.datetime(2020, 1, 1), mode="create")
+            connection.execute(insert(catalog.UploadJob), [dict(common, id="a", status="created", resource_id=4), dict(common, id="b", status="failed", resource_id=5), dict(common, id="c", status="completed", resource_id=6), dict(common, id="d", status="created", resource_id=4)])
+        async def check():
+            with patch.object(catalog, "AsyncSessionLocal", return_value=self.adapter):
+                await app_main._cleanup_expired_upload_jobs_once()
+        asyncio.run(check())
+        self.assertEqual(set(self.session.execute(select(catalog.Resource.id)).scalars()), {1, 2, 5, 6})
+        self.assertEqual(self.session.execute(select(catalog.UploadJob.id)).scalars().all(), [])
+
+    def test_catalog_statistics_aggregates_including_missing_unpacked_sizes(self):
+        catalog.Mod.__table__.create(self.engine)
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("CREATE TABLE accounts (id INTEGER PRIMARY KEY)")
+            connection.exec_driver_sql("INSERT INTO accounts (id) VALUES (1), (2)")
+            for mod_id, condition, size, unpacked in [(1, 0, 12, None), (2, 0, 30, 50), (3, 1, 100, 200)]:
+                connection.exec_driver_sql("INSERT INTO mods (id, name, size, size_unpacked, rating, `condition`, public, source, downloads, adult) VALUES (?, 'x', ?, ?, 0, ?, 0, 'local', 0, 0)", (mod_id, size, unpacked, condition))
+        async def check():
+            with patch.object(catalog, "AsyncSessionLocal", return_value=self.adapter), patch.object(account, "AsyncSessionLocal", return_value=self.adapter):
+                return await api_catalog_statistics.get_catalog_statistics()
+        actual = asyncio.run(check())
+        self.assertEqual(actual, {"mods_count": 2, "users_count": 2, "database_size_bytes": 42, "database_size_unpacked_bytes": 62, "resources_size_bytes": 0})
+
+    def test_static_association_routes_are_not_shadowed_by_id_routes(self):
+        catalog.Genre.__table__.create(self.engine)
+        catalog.game_genres.create(self.engine)
+        with self.engine.begin() as connection:
+            connection.execute(insert(catalog.Genre), [dict(id=1, name="Action")])
+            connection.execute(insert(catalog.game_genres), [dict(game_id=1, genre_id=1)])
+        with patch.object(catalog, "AsyncSessionLocal", return_value=self.adapter):
+            client = TestClient(app_main.app)
+            response = client.get("/games/genres", params={"game_ids": 1, "only_ids": "true"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"items_by_game_id": {"1": [1]}})
 
     def test_feed_aggregate_matches_individual_queries_and_empty_results(self):
         catalog.Mod.__table__.create(self.engine)

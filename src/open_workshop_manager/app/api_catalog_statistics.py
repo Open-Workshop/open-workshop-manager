@@ -16,35 +16,15 @@ router = APIRouter()
 )
 async def get_catalog_statistics():
     async with catalog.AsyncSessionLocal() as catalog_session:
-        mods_count = (
-            await catalog_session.scalar(
-                select(func.count(catalog.Mod.id)).where(catalog.Mod.condition == 0)
-            )
-            or 0
-        )
-
-        mods_size = (
-            await catalog_session.scalar(
-                select(func.coalesce(func.sum(catalog.Mod.size), 0)).where(
-                    catalog.Mod.condition == 0
-                )
-            )
-            or 0
-        )
-
-        mods_size_unpacked = (
-            await catalog_session.scalar(
+        mods_count, mods_size, mods_size_unpacked = (
+            await catalog_session.execute(
                 select(
-                    func.coalesce(
-                        func.sum(
-                            func.coalesce(catalog.Mod.size_unpacked, catalog.Mod.size, 0)
-                        ),
-                        0,
-                    )
+                    func.count(catalog.Mod.id),
+                    func.coalesce(func.sum(catalog.Mod.size), 0),
+                    func.coalesce(func.sum(func.coalesce(catalog.Mod.size_unpacked, catalog.Mod.size, 0)), 0),
                 ).where(catalog.Mod.condition == 0)
             )
-            or 0
-        )
+        ).one()
 
         resources_size = (
             await catalog_session.scalar(select(func.coalesce(func.sum(catalog.Resource.size), 0)))

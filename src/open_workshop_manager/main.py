@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from open_workshop_manager import mod_events
@@ -116,26 +116,23 @@ async def _cleanup_expired_upload_jobs_once() -> None:
     stale_ids = [str(job.id) for job in stale_jobs]
 
     async with catalog.AsyncSessionLocal() as session:
-        cleaned_resource_ids: set[int] = set()
-        for job in stale_jobs:
-            if (
-                str(getattr(job, "kind", "") or "") == "resource_image"
-                and str(getattr(job, "mode", "") or "") == "create"
-                and str(getattr(job, "status", "") or "") in {"created", "failed"}
-                and getattr(job, "resource_id", None) is not None
-            ):
-                resource_id = int(getattr(job, "resource_id"))
-                if resource_id in cleaned_resource_ids:
-                    continue
-                resource = await session.get(catalog.Resource, resource_id)
-                if resource is None:
-                    continue
-                if str(getattr(resource, "url", "") or "") != "":
-                    continue
-                await session.execute(
-                    delete(catalog.Resource).where(catalog.Resource.id == resource_id)
+        resource_ids = {
+            int(job.resource_id)
+            for job in stale_jobs
+            if str(getattr(job, "kind", "") or "") == "resource_image"
+            and str(getattr(job, "mode", "") or "") == "create"
+            and str(getattr(job, "status", "") or "") in {"created", "failed"}
+            and getattr(job, "resource_id", None) is not None
+        }
+        if resource_ids:
+            # Check the URL in the DELETE itself so a completed upload is never
+            # removed between a preliminary SELECT and the deletion.
+            await session.execute(
+                delete(catalog.Resource).where(
+                    catalog.Resource.id.in_(resource_ids),
+                    or_(catalog.Resource.url == "", catalog.Resource.url.is_(None)),
                 )
-                cleaned_resource_ids.add(resource_id)
+            )
         await session.execute(
             delete(catalog.UploadJob).where(catalog.UploadJob.id.in_(stale_ids))
         )
@@ -341,6 +338,8 @@ async def _stop_cleanup_task() -> None:
         _cleanup_task = None
     await mod_events.stop()
 
+# Static association paths such as /mods/tags must precede /mods/{mod_id}.
+app.include_router(association_getter_router)
 app.include_router(game_router)
 app.include_router(mod_build_router)
 app.include_router(mod_router)
@@ -351,7 +350,6 @@ app.include_router(tag_group_router)
 app.include_router(resource_router)
 app.include_router(upload_router)
 app.include_router(association_control_router)
-app.include_router(association_getter_router)
 app.include_router(catalog_statistics_router)
 app.include_router(access_callback_router)
 app.include_router(profile_router)
