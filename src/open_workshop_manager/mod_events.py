@@ -212,7 +212,7 @@ async def publish_mod_event(
     stream_name = str(getattr(config, "NATS_MOD_EVENTS_STREAM", "MOD_EVENTS"))
 
     try:
-        from opentelemetry import trace
+        from opentelemetry import propagate, trace
 
         # Record the broker operation without logging the event body.
         tracer = trace.get_tracer(__name__)
@@ -228,11 +228,14 @@ async def publish_mod_event(
                 "server.port": (server.port if server else None) or 4222,
             },
         ):
+            headers: dict[str, str] = {}
+            propagate.inject(headers)
             ack = await _jetstream.publish(
                 subject,
                 encoded_payload,
                 timeout=float(getattr(config, "NATS_PUBLISH_TIMEOUT_SECONDS", 2)),
                 stream=stream_name,
+                headers=headers or None,
             )
         logger.debug(
             "NATS mod event published event=%s mod_id=%s stream=%s seq=%s",

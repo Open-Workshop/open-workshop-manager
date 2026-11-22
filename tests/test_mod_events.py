@@ -8,6 +8,10 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -21,13 +25,14 @@ class _FakeJetStream:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
 
-    async def publish(self, subject, payload, timeout=None, stream=None):
+    async def publish(self, subject, payload, timeout=None, stream=None, headers=None):
         self.calls.append(
             {
                 "subject": subject,
                 "payload": payload,
                 "timeout": timeout,
                 "stream": stream,
+                "headers": headers,
             }
         )
         return SimpleNamespace(stream=stream, seq=42)
@@ -136,6 +141,27 @@ class ModEventsTests(unittest.TestCase):
         self.assertEqual(payload["vote_value"], -1)
         self.assertEqual(payload["rating"], 40)
         self.assertEqual(payload["votes_count"], 12)
+
+    def test_publish_propagates_the_producer_trace_in_nats_headers(self) -> None:
+        fake_jetstream = _FakeJetStream()
+        mod_events._jetstream = fake_jetstream
+        provider = TracerProvider()
+        tracer = provider.get_tracer(__name__)
+
+        with (
+            patch.object(mod_events.config, "NATS_MOD_EVENTS_ENABLED", True),
+            patch.object(mod_events.config, "NATS_MOD_EVENTS_REQUIRED", True),
+            patch.object(trace, "get_tracer", return_value=tracer),
+            tracer.start_as_current_span("request") as request_span,
+        ):
+            asyncio.run(mod_events.publish_mod_event(mod_events.MOD_EVENT_CHANGED, 17, "Demo", None, 0))
+
+        headers = fake_jetstream.calls[0]["headers"]
+        extracted = TraceContextTextMapPropagator().extract(headers)
+        context = trace.get_current_span(extracted).get_span_context()
+        self.assertEqual(context.trace_id, request_span.get_span_context().trace_id)
+        self.assertNotEqual(context.span_id, request_span.get_span_context().span_id)
+        provider.shutdown()
 
 
 if __name__ == "__main__":  # pragma: no cover
