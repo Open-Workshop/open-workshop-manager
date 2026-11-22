@@ -39,6 +39,7 @@ GOOGLE_OAUTH_STATE_COOKIE = "googleOAuthState"
 GOOGLE_OAUTH_CODE_VERIFIER_COOKIE = "googleOAuthCodeVerifier"
 GOOGLE_OAUTH_COOKIE_MAX_AGE = 600
 YANDEX_OAUTH_STATE_COOKIE = "yandexOAuthState"
+AUTH_ANALYTICS_COOKIE = "owAuthEvent"
 
 
 class _GoogleWebConfig(TypedDict):
@@ -142,6 +143,18 @@ def _set_session_cookies(response: Response, access_token: str, refresh_token: s
         secure=config.COOKIE_SECURE,
         samesite=config.COOKIE_SAMESITE,
         max_age=5184000,
+    )
+
+
+def _set_auth_analytics_cookie(response: Response, event: str, method: str, user_id: int) -> None:
+    # Only a non-sensitive outcome is shared with the website; tokens stay HTTP-only.
+    response.set_cookie(
+        key=AUTH_ANALYTICS_COOKIE,
+        value=f"{event}.{method}.{user_id}.{secrets.token_hex(8)}",
+        secure=config.COOKIE_SECURE,
+        samesite=config.COOKIE_SAMESITE,
+        max_age=300,
+        path="/",
     )
 
 
@@ -267,6 +280,7 @@ async def create_session(response: Response, request: Request, payload: SessionC
             )
 
             await session.commit()
+            _set_auth_analytics_cookie(response, "login", "password", int(user.id))
             return SessionRead(
                 user_id=int(user.id),
                 access_expires_at=sessions_data["access"]["end"],
@@ -531,6 +545,7 @@ async def _oauth_google_callback(
         )
 
     picture_url = str(user_data.get("picture") or "")
+    linked = False
     fallback_username = _random_username()
     async with account.AsyncSessionLocal() as session:
         existing_account_id = await session.scalar(
@@ -565,6 +580,7 @@ async def _oauth_google_callback(
                     )
 
                 row_connect_result.google_id = provider_id
+                linked = True
                 await session.commit()
                 user_id = int(row_connect_result.id)
             else:
@@ -627,6 +643,7 @@ async def _oauth_google_callback(
         refresh_end=sessions_data["refresh"]["end"],
         user_id=user_id,
     )
+    _set_auth_analytics_cookie(response, "linked" if linked else "login", "google", user_id)
     return "Если это окно не закрылось автоматически, можете закрыть его сами :)"
 
 
@@ -663,6 +680,7 @@ async def _oauth_yandex_callback(
     user_data = await AsyncYandexID(oauth_token=token.access_token).get_user_info_json()
     provider_id = int(user_data.id)
     login = _bounded_username(getattr(user_data, "login", None), _random_username())
+    linked = False
     is_avatar_empty = bool(getattr(user_data, "is_avatar_empty", True))
     default_avatar_id = getattr(user_data, "default_avatar_id", None)
 
@@ -699,6 +717,7 @@ async def _oauth_yandex_callback(
                     )
 
                 row_connect_result.yandex_id = provider_id
+                linked = True
                 await session.commit()
                 user_id = int(row_connect_result.id)
             else:
@@ -764,6 +783,7 @@ async def _oauth_yandex_callback(
         refresh_end=sessions_data["refresh"]["end"],
         user_id=user_id,
     )
+    _set_auth_analytics_cookie(response, "linked" if linked else "login", "yandex", user_id)
     return "Если это окно не закрылось автоматически, можете закрыть его сами :)"
 
 

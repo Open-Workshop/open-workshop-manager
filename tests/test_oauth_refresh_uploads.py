@@ -383,6 +383,7 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         self.assertEqual(session.added[0].avatar_url, "local.webp")
         self.assertEqual(response.cookies.get("accessToken"), "google-access-token")
         self.assertEqual(response.cookies.get("refreshToken"), "google-refresh-token")
+        self.assertRegex(response.cookies.get(api_session.AUTH_ANALYTICS_COOKIE, ""), r"^login\.google\.123\.[a-f0-9]{16}$")
         self.assertEqual(
             [call[0] for call in dummy_aiohttp.calls],
             ["POST", "GET", "GET"],
@@ -395,7 +396,7 @@ class OAuthRefreshUploadTests(unittest.TestCase):
             return_value="state-123",
         ), patch.object(
             api_session.yandex_oauth,
-            "jget_authorization_url",
+            "get_authorization_url",
             return_value="https://oauth.yandex.test/authorize?state=state-123",
         ) as auth_url_mock:
             response = self.client.get("/oauth/yandex/authorize", follow_redirects=False)
@@ -470,6 +471,7 @@ class OAuthRefreshUploadTests(unittest.TestCase):
         self.assertEqual(session.commit_count, 2)
         self.assertEqual(response.cookies.get("accessToken"), "yandex-access-token")
         self.assertEqual(response.cookies.get("refreshToken"), "yandex-refresh-token")
+        self.assertRegex(response.cookies.get(api_session.AUTH_ANALYTICS_COOKIE, ""), r"^linked\.yandex\.42\.[a-f0-9]{16}$")
 
     def test_yandex_oauth_callback_rejects_state_mismatch(self) -> None:
         token_mock = AsyncMock(side_effect=AssertionError("token exchange must not happen"))
@@ -485,6 +487,7 @@ class OAuthRefreshUploadTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 400)
+        self.assertNotIn(api_session.AUTH_ANALYTICS_COOKIE, response.cookies)
         self.assertIn("Yandex OAuth state mismatch", response.text)
         token_mock.assert_not_awaited()
 
@@ -1026,6 +1029,20 @@ class OAuthRefreshUploadTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 412)
         self.assertEqual(response.json()["code"], "PRECONDITION_FAILED")
+
+    def test_password_addition_is_reported_but_password_change_is_not(self) -> None:
+        for old_password, expect_event in [(None, True), ("existing-hash", False)]:
+            row = SimpleNamespace(id=7, password_hash=old_password, last_password_reset=None)
+            session = _MutableSession(get_map={sql_account.Account: row})
+            access = SimpleNamespace(authenticated=True, owner_id=7, edit=SimpleNamespace(password=SimpleNamespace(value=True)))
+            with self.subTest(old_password=old_password), patch.object(api_profile.tools, "access_profile", AsyncMock(return_value=access)), patch.object(api_profile.account, "AsyncSessionLocal", return_value=session):
+                response = self.client.patch("/profiles/7/password", json={"new_password": "new-password"})
+            self.assertEqual(response.status_code, 204)
+            marker = response.cookies.get(api_session.AUTH_ANALYTICS_COOKIE)
+            if expect_event:
+                self.assertRegex(marker or "", r"^linked\.password\.7\.[a-f0-9]{16}$")
+            else:
+                self.assertIsNone(marker)
 
     def test_archive_transfer_completion_updates_mod_and_game(self) -> None:
         mod = SimpleNamespace(

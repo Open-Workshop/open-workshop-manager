@@ -630,11 +630,16 @@ async def patch_profile_password(
         row = await session.get(account.Account, user_id)
         if row is None:
             _raise_profile_not_found(request)
+        added_password = not bool(row.password_hash)
         row.password_hash = bcrypt.hashpw(payload.new_password.encode("utf-8"), bcrypt.gensalt(9)).decode("utf-8")
         row.last_password_reset = datetime.datetime.now()
         await session.commit()
 
-    return Response(status_code=204)
+    response = Response(status_code=204)
+    if added_password and access_result.owner_id == user_id:
+        from open_workshop_manager.social.api_session import _set_auth_analytics_cookie
+        _set_auth_analytics_cookie(response, "linked", "password", user_id)
+    return response
 
 
 @router.delete(
