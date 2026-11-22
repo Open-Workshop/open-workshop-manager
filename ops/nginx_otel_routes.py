@@ -88,10 +88,10 @@ def build_map(routes_by_host: dict[str, list[str]]) -> str:
             rows.append((-literal_len, len(_PARAMETER.findall(route)), host, pattern, template))
     lines = ["# Generated from application routes; do not edit manually.",
              'map "$host:$uri" $otel_normalized_route {', '    default "/unmatched";',
-             '    ~"^[^:]+:/assets/.*$" "/assets/{path}";',
-             '    ~"^[^:]+:/static/.*$" "/static/{path}";']
+             '    "~^[^:]+:/assets/.*$" "/assets/{path}";',
+             '    "~^[^:]+:/static/.*$" "/static/{path}";']
     for _, _, host, pattern, template in sorted(rows):
-        lines.append(f'    ~"^{re.escape(host)}:{pattern}$" "{template}";')
+        lines.append(f'    "~^{re.escape(host)}:{pattern}$" "{template}";')
     lines.extend(["}", ""])
     return "\n".join(lines)
 
