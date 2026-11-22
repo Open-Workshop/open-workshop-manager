@@ -92,7 +92,29 @@ def build_map(routes_by_host: dict[str, list[str]]) -> str:
              '    "~^[^:]+:/static/.*$" "/static/{path}";']
     for _, _, host, pattern, template in sorted(rows):
         lines.append(f'    "~^{re.escape(host)}:{pattern}$" "{template}";')
-    lines.extend(["}", ""])
+    lines.extend([
+        "}", "",
+        '# Backend selected by nginx; internal endpoints served by nginx stay unlabeled.',
+        'map "$host:$uri" $otel_target_service {',
+        '    default "";',
+        r'    "~^(?:www\.)?(?:openworkshop\.miskler\.ru|miskler\.ru):/__rybbit_elastic_link$" "";',
+        r'    "~^(?:www\.)?openworkshop\.miskler\.ru:" "open-workshop-website";',
+        r'    "~^api\.openworkshop\.miskler\.ru:" "open-workshop-manager";',
+        r'    "~^access\.openworkshop\.miskler\.ru:" "open-workshop-access";',
+        r'    "~^(?:www\.)?miskler\.ru:" "personal-site";',
+        r'    "~^storage\.openworkshop\.miskler\.ru:/(?:distributor(?:/|$)|download/|blurhashes$)" "open-workshop-storage-distributor";',
+        r'    "~^storage\.openworkshop\.miskler\.ru:/(?:loader(?:/|$)|upload$|delete$|transfer/)" "open-workshop-storage-loader";',
+        "}", "",
+        'map $otel_target_service $otel_target_display {',
+        '    default "NGINX";',
+        '    "open-workshop-website" "WEBSITE";',
+        '    "open-workshop-manager" "MANAGER";',
+        '    "open-workshop-access" "ACCESS";',
+        '    "personal-site" "PERSONAL";',
+        '    "open-workshop-storage-distributor" "STORAGE DISTRIBUTOR";',
+        '    "open-workshop-storage-loader" "STORAGE LOADER";',
+        "}", "",
+    ])
     return "\n".join(lines)
 
 

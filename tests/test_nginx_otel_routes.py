@@ -31,6 +31,8 @@ class NginxOtelRouteTests(unittest.TestCase):
         self.assertIn('"/mods/{mod_id}/rating"', text)
         self.assertIn('"/mods/{mod_id}"', text)
         self.assertIn('default "/unmatched"', text)
+        self.assertIn('"open-workshop-website" "WEBSITE";', text)
+        self.assertIn('"open-workshop-storage-loader" "STORAGE LOADER";', text)
 
 
 if __name__ == "__main__":
