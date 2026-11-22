@@ -228,6 +228,8 @@ class Mod(Base):  # Таблица "моды"
 
 Index("ix_mods_source_id", Mod.source_id)
 Index("ix_mods_feed_bounds", Mod.condition, Mod.public, Mod.game, Mod.size, Mod.size_unpacked)
+Index("ix_mods_feed_downloads", Mod.condition, Mod.public, Mod.downloads)
+Index("ix_mods_game_downloads", Mod.condition, Mod.public, Mod.game, Mod.downloads)
 
 
 class Modpack(Base):  # Таблица "модпаки"
