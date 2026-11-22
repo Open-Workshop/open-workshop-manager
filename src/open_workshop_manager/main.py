@@ -318,12 +318,14 @@ app.add_middleware(CookieDefaultsMiddleware)
 async def _start_cleanup_task() -> None:
     global _cleanup_task
     if _cleanup_task is None:
-        await asyncio.gather(
-            account.init_models(),
-            catalog.init_models(),
-            statistics.init_models(),
-            mod_events.start(),
-        )
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span("startup.initialize"):
+            await asyncio.gather(
+                account.init_models(),
+                catalog.init_models(),
+                statistics.init_models(),
+                mod_events.start(),
+            )
         _cleanup_task = asyncio.create_task(_cleanup_stale_mods_loop())
 
 
