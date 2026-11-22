@@ -231,6 +231,19 @@ class ModBatchQueryTests(unittest.TestCase):
         finally:
             event.remove(self.engine, "before_cursor_execute", capture)
 
+    def test_resources_with_duplicate_owner_preserve_access_check(self):
+        client = TestClient(app_main.app)
+        params = {"owner_type": "mods", "owner_id": 1, "only_urls": "true"}
+        with patch.object(catalog, "AsyncSessionLocal", return_value=self.adapter):
+            with patch.object(api_mod.tools, "access_mods", AsyncMock(return_value=[])) as access:
+                response = client.get("/resources", params=params)
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(access.await_args.kwargs["mods_ids"], [1])
+            with patch.object(api_mod.tools, "access_mods", AsyncMock(return_value=[1])):
+                response = client.get("/resources", params=params)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["items"], ["https://example.org/2", "https://example.org/1"])
+
     def test_feed_aggregate_matches_individual_queries_and_empty_results(self):
         catalog.Mod.__table__.create(self.engine)
         with self.engine.begin() as connection:
