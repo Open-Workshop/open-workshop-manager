@@ -1,0 +1,7 @@
+# Storage NGINX tracing extension
+
+The patch applies to nginx/nginx-otel v0.1.2 (commit `72d8eed53af4c2cd6f3e30a2efe0e38d66f5e176`). It adds an actual client span for proxied Storage requests and a downstream file-transmission span. Only the `storage.openworkshop.miskler.ru` virtual host and known Storage paths are affected, and only when nginx is started with `env OW_NGINX_OTEL_UPSTREAM=1;` in the main nginx configuration. The module passes the client span's trace context to the real upstream; it does not invent service-map edges.
+
+Build the module against the exact installed NGINX version and ABI on a compatible system. Configure nginx with `--with-compat` and configure the module with `-DNGX_OTEL_NGINX_BUILD_DIR=/path/to/nginx/objs`, then run `cmake --build build`. `test_upstream.py` runs isolated end-to-end checks; adjust its local paths and install `grpcio` and `opentelemetry-proto` into a Python environment. It checks normal and interrupted transfers, propagation, metadata, bytes and percentages.
+
+NGINX package upgrades replace the modified module with the official version; the `env` directive is accepted by stock nginx, so the server remains startable but these extra spans disappear. Rebuild and test this patch against the new package version before restoring the modified module. Keep a copy of the distribution-provided module for immediate rollback. The downstream byte count comes from nginx's socket writes; OS/network buffering means it cannot prove how many bytes the remote application actually consumed.
