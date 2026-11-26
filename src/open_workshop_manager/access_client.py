@@ -10,6 +10,7 @@ from fastapi import Request
 from pydantic import BaseModel, ConfigDict
 
 from open_workshop_manager import settings as config
+from open_workshop_manager import outbound_http
 from open_workshop_manager.standarts.schemas import ProblemDetails
 
 T = TypeVar("T", bound=BaseModel)
@@ -291,9 +292,10 @@ async def _request_json(
     timeout = aiohttp.ClientTimeout(total=float(config.ACCESS_TIMEOUT_SECONDS))
 
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with outbound_http.session_scope(timeout=timeout) as session:
             request_kwargs: dict[str, Any] = {
                 "cookies": cookies or None,
+                "timeout": timeout,
             }
             if payload is not None:
                 request_kwargs["json"] = payload

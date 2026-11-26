@@ -8,6 +8,7 @@ from io import BytesIO
 from typing import Literal, Sequence, overload
 
 import aiohttp
+from open_workshop_manager import outbound_http
 import bcrypt
 import jwt
 from fastapi import HTTPException, Request
@@ -688,7 +689,7 @@ async def storage_file_upload(
 
     real_url = f"{config.STORAGE_URL}/upload"
 
-    async with aiohttp.ClientSession() as session:
+    async with outbound_http.session_scope(name="storage") as session:
         async with session.post(
             real_url,
             data={
@@ -723,9 +724,10 @@ async def storage_file_delete(type: str, path: str) -> bool:
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
 
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with outbound_http.session_scope(name="storage", timeout=timeout) as session:
             async with session.delete(
                 real_url,
+                timeout=timeout,
                 data={
                     "type": type,
                     "path": path,
@@ -780,9 +782,10 @@ async def storage_job_repack(
         timeout_seconds = 1800
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
 
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    async with outbound_http.session_scope(name="storage", timeout=timeout) as session:
         async with session.post(
             real_url,
+            timeout=timeout,
             data={
                 "job_id": job_id,
                 "format": pack_format,
@@ -809,9 +812,10 @@ async def storage_job_move(
         timeout_seconds = 1800
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
 
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    async with outbound_http.session_scope(name="storage", timeout=timeout) as session:
         async with session.post(
             real_url,
+            timeout=timeout,
             data={
                 "job_id": job_id,
                 "type": type,

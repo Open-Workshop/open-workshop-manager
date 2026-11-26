@@ -25,7 +25,7 @@ from sqlalchemy import select, update
 from yandexid import AsyncYandexID, AsyncYandexOAuth
 from yandexid.errors.yandexoauth import YandexOAuthError
 
-from open_workshop_manager import settings as config, standarts, tools
+from open_workshop_manager import outbound_http, settings as config, standarts, tools
 from open_workshop_manager.api_models import SessionCreate, SessionRead, SessionRefreshRead
 from open_workshop_manager.limits import LIMITS
 from open_workshop_manager.sql_logic import sql_account as account
@@ -483,7 +483,7 @@ async def _oauth_google_callback(
         )
 
     token_data: dict[str, object]
-    async with aiohttp.ClientSession() as net_session:
+    async with outbound_http.session_scope(name="external") as net_session:
         token_payload = data.copy()
         token_payload["code"] = unquote(code)
         token_payload["code_verifier"] = code_verifier
@@ -599,7 +599,7 @@ async def _oauth_google_callback(
 
                 if picture_url:
                     await session.commit()
-                    async with aiohttp.ClientSession() as net_session:
+                    async with outbound_http.session_scope(name="external") as net_session:
                         async with net_session.get(picture_url) as picture_response:
                             if picture_response.status == 200:
                                 _, _, upload_ok = await tools.storage_file_upload(
@@ -736,7 +736,7 @@ async def _oauth_yandex_callback(
 
                 if not is_avatar_empty and default_avatar_id:
                     await session.commit()
-                    async with aiohttp.ClientSession() as net_session:
+                    async with outbound_http.session_scope(name="external") as net_session:
                         async with net_session.get(
                             f"https://avatars.yandex.net/get-yapic/{default_avatar_id}/islands-200"
                         ) as avatar_response:

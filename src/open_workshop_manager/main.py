@@ -12,7 +12,7 @@ from opentelemetry.trace import Status, StatusCode
 from sqlalchemy import delete, or_, select
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from open_workshop_manager import mod_events
+from open_workshop_manager import mod_events, outbound_http
 from open_workshop_manager import settings as config
 from open_workshop_manager import standarts
 from open_workshop_manager.association.api_association_control import (
@@ -314,6 +314,7 @@ app.add_middleware(CookieDefaultsMiddleware)
 @app.on_event("startup")
 async def _start_cleanup_task() -> None:
     global _cleanup_task
+    await outbound_http.start()
     if _cleanup_task is None:
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span("startup.initialize"):
@@ -337,6 +338,7 @@ async def _stop_cleanup_task() -> None:
             pass
         _cleanup_task = None
     await mod_events.stop()
+    await outbound_http.stop()
 
 # Static association paths such as /mods/tags must precede /mods/{mod_id}.
 app.include_router(association_getter_router)
