@@ -30,7 +30,7 @@ index a2e65b1..54ebbe9 100644
          {
              span->mutable_status()->set_code(
 diff --git a/src/http_module.cpp b/src/http_module.cpp
-index 78a5e89..1bdc443 100644
+index 78a5e89..6fe5ebc 100644
 --- a/src/http_module.cpp
 +++ b/src/http_module.cpp
 @@ -7,6 +7,10 @@
@@ -73,7 +73,7 @@ index 78a5e89..1bdc443 100644
      }
  
      return rc == NGX_OK ? NGX_DECLINED : rc;
-@@ -502,6 +519,113 @@ void addCustomAttrs(BatchExporter::Span& span, ngx_http_request_t* r)
+@@ -502,6 +519,120 @@ void addCustomAttrs(BatchExporter::Span& span, ngx_http_request_t* r)
      }
  }
  
@@ -94,9 +94,16 @@ index 78a5e89..1bdc443 100644
 +    auto startNs = endNs > elapsedNs ? endNs - elapsedNs : requestStartNs;
 +    if (startNs < requestStartNs) startNs = requestStartNs;
 +    if (startNs > endNs) startNs = endNs;
++    // Upstream may have finished before a slow downstream client. Preserve
++    // its actual finish time rather than ending this span at request teardown.
++    auto proxyEndNs = endNs;
++    if (state->response_time != (ngx_msec_t)-1) {
++        auto responseNs = static_cast<uint64_t>(state->response_time) * 1000000;
++        if (responseNs < endNs - startNs) proxyEndNs = startNs + responseNs;
++    }
 +    auto name = std::string("PROXY ") + std::string(getSpanName(r));
 +    auto url = std::string(upstream->ssl ? "https://" : "http://") + std::string(peer) + std::string(toStrView(r->uri));
-+    BatchExporter::SpanInfo proxyInfo{name, ctx->upstream, ctx->current.spanId, startNs, endNs};
++    BatchExporter::SpanInfo proxyInfo{name, ctx->upstream, ctx->current.spanId, startNs, proxyEndNs};
 +    gExporter->add(proxyInfo, [r, state, peer, &url](BatchExporter::Span& span) {
 +        span.setClient();
 +        span.add("http.method", toStrView(r->method_name));
@@ -187,7 +194,7 @@ index 78a5e89..1bdc443 100644
  ngx_int_t onRequestEnd(ngx_http_request_t* r)
  {
      auto ctx = getOtelCtx(r);
-@@ -526,6 +650,10 @@ ngx_int_t onRequestEnd(ngx_http_request_t* r)
+@@ -526,6 +657,10 @@ ngx_int_t onRequestEnd(ngx_http_request_t* r)
              addCustomAttrs(span, r);
          });
  
