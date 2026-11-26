@@ -30,7 +30,7 @@ index a2e65b1..54ebbe9 100644
          {
              span->mutable_status()->set_code(
 diff --git a/src/http_module.cpp b/src/http_module.cpp
-index 78a5e89..4bbc993 100644
+index 78a5e89..1bdc443 100644
 --- a/src/http_module.cpp
 +++ b/src/http_module.cpp
 @@ -7,6 +7,10 @@
@@ -73,7 +73,7 @@ index 78a5e89..4bbc993 100644
      }
  
      return rc == NGX_OK ? NGX_DECLINED : rc;
-@@ -502,6 +519,109 @@ void addCustomAttrs(BatchExporter::Span& span, ngx_http_request_t* r)
+@@ -502,6 +519,113 @@ void addCustomAttrs(BatchExporter::Span& span, ngx_http_request_t* r)
      }
  }
  
@@ -123,6 +123,10 @@ index 78a5e89..4bbc993 100644
 +        ctx->current.spanId, deliveryStart, endNs};
 +    gExporter->add(deliveryInfo, [r, &path](BatchExporter::Span& span) {
 +        span.setInternal();
++        // Socket writes may still be buffered; they are not an application-level
++        // receipt from the remote client, especially after disconnects.
++        span.add("ow.transfer.scope", "nginx_to_client");
++        span.add("ow.transfer.measurement", "socket_bytes_written");
 +        auto sent = r->connection->sent - static_cast<off_t>(r->header_size);
 +        if (sent < 0) sent = 0;
 +        auto expected = r->headers_out.content_length_n;
@@ -183,7 +187,7 @@ index 78a5e89..4bbc993 100644
  ngx_int_t onRequestEnd(ngx_http_request_t* r)
  {
      auto ctx = getOtelCtx(r);
-@@ -526,6 +646,10 @@ ngx_int_t onRequestEnd(ngx_http_request_t* r)
+@@ -526,6 +650,10 @@ ngx_int_t onRequestEnd(ngx_http_request_t* r)
              addCustomAttrs(span, r);
          });
  

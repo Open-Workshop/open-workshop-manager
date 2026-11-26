@@ -55,7 +55,7 @@ try:
   return out
  pa=attrs(proxy);sa=attrs(send);print('proxy',pa,flush=True);print('delivery',sa,flush=True)
  assert pa['http.url']=='http://127.0.0.1:24183/download/archive/mods/7515/main.zip'
- for k,v in {'ow.owner.type':'mod','ow.owner.id':'7515','ow.resource.id':'main','file.extension':'zip','file.size':5,'ow.transfer.bytes_sent':5,'ow.transfer.percent_sent':100.0,'ow.transfer.result':'complete'}.items():assert sa.get(k)==v,(k,sa.get(k),v)
+ for k,v in {'ow.owner.type':'mod','ow.owner.id':'7515','ow.resource.id':'main','file.extension':'zip','file.size':5,'ow.transfer.bytes_sent':5,'ow.transfer.percent_sent':100.0,'ow.transfer.result':'complete','ow.transfer.scope':'nginx_to_client','ow.transfer.measurement':'socket_bytes_written'}.items():assert sa.get(k)==v,(k,sa.get(k),v)
  assert root.start_time_unix_nano<=proxy.start_time_unix_nano<=proxy.end_time_unix_nano<=root.end_time_unix_nano
  assert root.start_time_unix_nano<=send.start_time_unix_nano<=send.end_time_unix_nano<=root.end_time_unix_nano
  print('PASS proxy propagation, client transfer, size, percentage, object/resource identity and timing',flush=True)
