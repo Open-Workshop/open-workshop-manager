@@ -92,6 +92,9 @@ class _RecordingSession:
     async def __aexit__(self, exc_type, exc, tb) -> bool:
         return False
 
+    async def connection(self):
+        return self
+
     async def scalar(self, stmt) -> object:
         self.scalar_statements.append(stmt)
         if self.scalar_values:

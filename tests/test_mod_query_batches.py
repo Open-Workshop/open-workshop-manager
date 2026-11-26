@@ -38,6 +38,9 @@ class AsyncSessionAdapter:
     async def scalar(self, statement):
         return self.session.scalar(statement)
 
+    async def connection(self):
+        return self.session.connection()
+
     async def get(self, model, key):
         return self.session.get(model, key)
 

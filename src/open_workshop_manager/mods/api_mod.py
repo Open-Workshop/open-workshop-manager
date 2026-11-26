@@ -8,6 +8,7 @@ from urllib.parse import quote
 from typing import Literal
 
 from fastapi import APIRouter, Query, Request, Response
+from opentelemetry import trace
 from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.orm import aliased, joinedload, load_only
 
@@ -983,6 +984,10 @@ async def list_mods(
             stmt = stmt.where(catalog.Mod.public == 0)
 
         count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
+        # SQL spans begin only after pool checkout. Make that wait visible so a
+        # saturated pool or slow connection cannot masquerade as SQL latency.
+        with trace.get_tracer(__name__).start_as_current_span("db.connection.acquire catalog"):
+            await session.connection()
         total = int((await session.scalar(count_stmt)) or 0)
         offset = page * page_size
         # A stable tie-breaker prevents duplicates or omissions between pages when
