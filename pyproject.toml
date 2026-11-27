@@ -27,6 +27,7 @@ dependencies = [
     "opentelemetry-exporter-otlp-proto-grpc",
     "opentelemetry-instrumentation-fastapi",
     "opentelemetry-instrumentation-aiohttp-client",
+    "opentelemetry-instrumentation-sqlalchemy",
 ]
 
 [project.optional-dependencies]
