@@ -23,7 +23,7 @@ Backend сервиса OpenWorkshop.Manager.
 
 ## Требования
 
-- Python 3.10 или новее
+- Python 3.12 или новее
 - MySQL / MariaDB
 - Доступ к сервису хранения файлов
 - При необходимости:
@@ -37,12 +37,14 @@ Backend сервиса OpenWorkshop.Manager.
 ### Обычная установка
 
 ```bash
+python3.12 -m venv venv
+. venv/bin/activate
 python -m pip install -r requirements.lock
 python -m pip install --no-deps -e .
 ```
 
-Файл `requirements.lock` фиксирует проверенные зависимости для Python 3.10.
-Обновить его можно командой `uv pip compile requirements.txt --python-version 3.10 --output-file requirements.lock`, затем нужно запустить тесты.
+Файл `requirements.lock` фиксирует проверенные зависимости для Python 3.12.
+Обновить его можно командой `uv pip compile requirements.txt --python-version 3.12 --output-file requirements.lock`, затем нужно запустить тесты.
 
 ### Установка для разработки
 
